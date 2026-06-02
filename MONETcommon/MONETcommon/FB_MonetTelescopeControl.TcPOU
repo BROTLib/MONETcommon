@@ -135,11 +135,6 @@ fDerotatorVelocity := F_Derotatorvelocity(fElevationCalc, fAzimuthCalc, telescop
 fElevationVelocity := F_Elevationvelocity(fAzimuthCalc, telescopeConfig.latitude);
 fAzimuthVelocity := F_Azimuthvelocity(fElevationCalc, fAzimuthCalc, telescopeConfig.latitude);
 
-// calculate velocities
-fDerotatorVelocity := F_Derotatorvelocity(fElevationCalc, fAzimuthCalc, telescopeConfig.latitude);
-fElevationVelocity := F_Elevationvelocity(fAzimuthCalc, telescopeConfig.latitude);
-fAzimuthVelocity := F_Azimuthvelocity(fElevationCalc, fAzimuthCalc, telescopeConfig.latitude);
-
 IF (fAzimuthCalc > 270.0) THEN
 	fAzimuthCalc := fAzimuthCalc - 360.0;
 ELSIF (fAzimuthCalc < -274.0) THEN
@@ -670,8 +665,9 @@ CASE nStage OF
 			fbDerotator.Enable := FALSE;	
 			fbCovers.Close();	
 			nStage := 80;
+		ELSE
+			nStage := 10;
 		END_IF
-		nStage := 10;
 	10:
 		IF fbElevation.Tracking = TRUE OR fbAzimuth.Tracking = TRUE OR fbDerotator.Tracking = TRUE THEN
 			fbElevation.Tracking := FALSE;
@@ -1416,10 +1412,6 @@ THIS^.bGoto				:= TRUE;]]></ST>
       <LineId Id="1050" Count="3" />
       <LineId Id="1049" Count="0" />
       <LineId Id="1099" Count="0" />
-      <LineId Id="1102" Count="0" />
-      <LineId Id="1001" Count="0" />
-      <LineId Id="419" Count="1" />
-      <LineId Id="1000" Count="0" />
       <LineId Id="421" Count="3" />
       <LineId Id="1175" Count="0" />
       <LineId Id="425" Count="0" />
@@ -1497,7 +1489,9 @@ THIS^.bGoto				:= TRUE;]]></ST>
       <LineId Id="104" Count="2" />
       <LineId Id="103" Count="0" />
       <LineId Id="100" Count="0" />
-      <LineId Id="6" Count="19" />
+      <LineId Id="6" Count="17" />
+      <LineId Id="133" Count="1" />
+      <LineId Id="24" Count="0" />
       <LineId Id="117" Count="3" />
       <LineId Id="123" Count="0" />
       <LineId Id="121" Count="1" />
