@@ -1,0 +1,1647 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="FB_MonetTelescopeControl" Id="{392c90d3-a441-4c8d-a752-42b25b49f5cd}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK FB_MonetTelescopeControl EXTENDS FB_AltAzTelescopeControl IMPLEMENTS I_AltAzTelescope
+VAR_INPUT
+	fbFocus				: I_Focus;
+	fbCovers			: I_MirrorCovers;
+	fbBrake				: I_Brake;	
+	fbHydraulics   		: I_Hydraulics;
+	fbElevation			: REFERENCE TO FB_ElevationControl;
+	fbAzimuth			: REFERENCE TO FB_AzimuthControl;
+	fbDerotator			: REFERENCE TO FB_DerotatorControl;
+
+	bBrakeClearing		: BOOL	:= TRUE;
+END_VAR
+VAR_OUTPUT
+	fDerotatorSign		: LREAL := 1.0;	// derotator
+	
+	fElevationPointingOffset : LREAL;
+	fAzimuthPointingOffset : LREAL;
+	fElevationPointingOffset2 : LREAL;
+	fAzimuthPointingOffset2 : LREAL;
+	
+	fRightAscensionCurrentSky: LREAL;
+	fDeclinationCurrentSky: LREAL;
+
+	fDerotatorVelocity	: LREAL;	// rotational velocity of the derotator
+	fElevationVelocity	: LREAL;	// rotational velocity of the elevation
+	fAzimuthVelocity	: LREAL;	// rotational velocity of the elevation
+END_VAR
+VAR
+	fbPointing			: FB_PointingModelForward(AOFF := -0.006778523308102358, BNP := 0.030459575443670728, AN_A := -0.013961935190411667, AE_A := -0.01036163798027645, NPAE := 0.0017131069293910839, 
+                                                  EOFF := 0.04040337399598415, AN_E := -0.011190631316106092, AE_E := -0.009741636951375865, TF := 0.06450337748465318);
+	fbPointingInverse	: FB_PointingModelInversion(fbPointing := fbPointing);
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[// get the system time
+fbTime();
+fJd := DateTime2JD(fbTime.time_RTCEX2);
+fLst := CT2LST(telescopeConfig.longitude, fJd);
+
+// set reset state either by hardware (key pressed) or by software (set by e.g. tcs)
+rtrigReset(CLK := bReset);
+
+IF bReset THEN
+	bHorizonError := FALSE; // if reset, the bHorizonError can be switched off
+	
+	// reset the stages of all statemachine methods
+	bInterrupted := TRUE; 
+	_HomeTelescope();
+	_GotoTelescope();
+	_SlewTelescope();
+	_ParkTelescope();
+	bInterrupted := FALSE;
+END_IF
+
+// get error ID, reset if bReset command is set
+IF fbAzimuth.Error THEN
+	nErrorID := fbAzimuth.nErrorID;
+	IF bReset THEN
+		fbAzimuth.Reset();
+	END_IF
+ELSIF fbElevation.bError THEN
+	nErrorID := fbElevation.nErrorID;
+	IF bReset THEN
+		fbElevation.Reset();
+	END_IF
+ELSIF fbDerotator.bError THEN
+	nErrorID := fbDerotator.nErrorID;
+	IF bReset THEN
+		fbDerotator.Reset();
+	END_IF	
+ELSIF fbFocus <> 0 AND_THEN fbFocus.Error THEN
+	nErrorID := fbFocus.ErrorID;
+	IF bReset THEN
+		fbFocus.Reset();
+	END_IF
+END_IF
+
+// fSlewTime
+fSlewTime :=  MAX(MAX(fbElevation.fSlewTime, fbAzimuth.fSlewTime), fbDerotator.fSlewTime);
+
+bError := fbElevation.Error OR 
+		 fbAzimuth.bError OR
+		 (fbFocus <> 0 AND_THEN fbFocus.Error) OR
+		 fbDerotator.bError;
+			
+IF bError THEN
+	bTrack := 	FALSE;
+	bGoto := 	FALSE;
+	bSlew := 	FALSE;
+	fbElevation.Enable := FALSE;
+	fbAzimuth.Enable := FALSE;
+	fbDerotator.Enable := FALSE;
+ELSE
+	nErrorID := 0;
+END_IF
+
+IF fbElevation.bError THEN
+	fbElevation.Enable := FALSE;
+	fbAzimuth.Enable := FALSE;
+	fbDerotator.Enable := FALSE;
+	fbBrake.CloseBrake();
+END_IF
+
+eq2hor(
+	ra := fRightAscension,
+	dec := fDeclination,
+	lon := telescopeConfig.longitude,
+	lat := telescopeConfig.latitude,
+	altitude := telescopeConfig.altitude,
+	JD := fJd + fTimeOffset,
+	refract_to_observed := TRUE,
+	// refract := FALSE,
+	alt => fElevationCalc,
+	az => fAzimuthCalc,
+	ha => fHourAngleCalc);
+
+// apply pointing model
+fbPointing(
+	fAzimuth			:= fAzimuthCalc,
+	fElevation			:= fElevationCalc,
+	fAzimuthOffset		=> fAzimuthPointingOffset,
+	fElevationOffset	=> fElevationPointingOffset
+);
+fElevationCalc := fElevationCalc + fElevationPointingOffset + fElevationOffset;
+fAzimuthCalc := fAzimuthCalc + fAzimuthPointingOffset + fAzimuthOffset / COS(fElevationCalc * d2r);
+
+// calculate derotator position 
+fDerotatorCalc := F_DerotatorPosition2(fAzimuthCalc, fElevationCalc, fDeclination, telescopeConfig.latitude, fDerotatorSign)  + fDerotatorOffset;
+
+// calculate velocities
+fDerotatorVelocity := F_Derotatorvelocity(fElevationCalc, fAzimuthCalc, telescopeConfig.latitude);
+fElevationVelocity := F_Elevationvelocity(fAzimuthCalc, telescopeConfig.latitude);
+fAzimuthVelocity := F_Azimuthvelocity(fElevationCalc, fAzimuthCalc, telescopeConfig.latitude);
+
+// calculate velocities
+fDerotatorVelocity := F_Derotatorvelocity(fElevationCalc, fAzimuthCalc, telescopeConfig.latitude);
+fElevationVelocity := F_Elevationvelocity(fAzimuthCalc, telescopeConfig.latitude);
+fAzimuthVelocity := F_Azimuthvelocity(fElevationCalc, fAzimuthCalc, telescopeConfig.latitude);
+
+IF (fAzimuthCalc > 270.0) THEN
+	fAzimuthCalc := fAzimuthCalc - 360.0;
+ELSIF (fAzimuthCalc < -274.0) THEN
+	fAzimuthCalc := fAzimuthCalc + 360.0;
+END_IF
+IF (fDerotatorCalc > 360.0) THEN
+	fDerotatorCalc := fDerotatorCalc - 360.0;
+ELSIF (fDerotatorCalc < -90.0) THEN
+	fDerotatorCalc := fDerotatorCalc + 360.0;
+END_IF
+
+//IF (fAzimuthCalc > 310.0 AND fAzimuthVelocity > 0.0) OR (fAzimuthCalc > 440.0) THEN
+//	fAzimuthCalc := fAzimuthCalc - 360.0;
+//ELSIF (fAzimuthCalc < 80.0 AND fAzimuthVelocity < 0.0) OR (fAzimuthCalc < -50.0) THEN
+//	fAzimuthCalc := fAzimuthCalc + 360.0;
+//END_IF
+
+//IF (fDerotatorCalc > 290.0 AND fDerotatorVelocity > 0.0) OR (fDerotatorCalc > 380.0) THEN
+//	fDerotatorCalc := fDerotatorCalc - 360.0;
+//ELSIF (fDerotatorCalc < 20.0 AND fDerotatorVelocity < 0.0) OR (fDerotatorCalc < -70.0) THEN
+//	fDerotatorCalc := fDerotatorCalc + 360.0;
+//END_IF
+
+// get current coordinates	
+fAzimuthCurrent := fbAzimuth.fActualPosition;
+fElevationCurrent := fbElevation.fActualPosition;
+fDerotatorCurrent := fbDerotator.fActualPosition;
+
+// apply inverse pointing model
+fbPointingInverse(
+	fAzimuth			:= fAzimuthCurrent,
+	fElevation			:= fElevationCurrent,
+	fAzimuthOffset  	=> fAzimuthPointingOffset2,
+	fElevationOffset	=> fElevationPointingOffset2
+);
+fAzimuthCurrentSky := fAzimuthCurrent - fAzimuthPointingOffset2;
+fElevationCurrentSky := fElevationCurrent - fElevationPointingOffset2;
+
+// add offsets
+//fElevationCurrent := fElevationCurrentSky - fElevationOffset;
+//fAzimuthCurrent := fAzimuthCurrentSky - fAzimuthOffset / COS(fElevationCalc * d2r);
+
+// calculate equatorial coordinates
+hor2eq(alt := fElevationCurrentSky - fElevationOffset, 
+		az := fAzimuthCurrentSky - fAzimuthOffset / COS(fElevationCalc * d2r),
+		jd := fJd,
+		lat := telescopeConfig.latitude,
+		lon := telescopeConfig.longitude,
+		altitude := telescopeConfig.altitude,
+		refract_to_observed := FALSE,
+		// refract := FALSE,
+		ra => fRightAscensionCurrent,
+		dec => fDeclinationCurrent);		
+hor2eq(alt := fElevationCurrentSky, 
+		az := fAzimuthCurrentSky,
+		jd := fJd,
+		lat := telescopeConfig.latitude,
+		lon := telescopeConfig.longitude,
+		altitude := telescopeConfig.altitude,
+		refract_to_observed := FALSE,
+		ra => fRightAscensionCurrentSky,
+		dec => fDeclinationCurrentSky);
+	
+// If the Telescope dips under the fHorizon (e.g. while tracking, stop and gohome)
+IF fbElevation.Calibrated AND fElevationCurrent < (fHorizon+0.2) THEN
+	IF NOT bStopped AND NOT bGoHome THEN
+		bStop := TRUE;
+	ELSE
+		bGoHome := TRUE;
+	END_IF
+END_IF
+		
+tpPowerOnWarning(IN := bPower OR (NOT fbElevation.bEnable AND fbBrake.BrakeOpen), PT := T#250MS);
+
+tonPowerTimeout(IN := TCS_command = E_TCSCommand.no_command AND NOT bIsParked, PT := T#12H);
+tonCommandTimeout();
+IF tonPowerTimeout.Q AND NOT bIsParked THEN
+	bPark := TRUE;
+END_IF
+		
+// set TCS_command according to state variables ordered by precedence
+IF bPower THEN
+	TCS_command := E_TCSCommand.poweron;
+	
+ELSIF bStop THEN
+	bTrack := FALSE;
+	
+	// If the stop is during a movement, reset the stage of the movement first
+	IF bPark THEN
+		bPark := FALSE;
+		_ParkTelescope();
+	ELSIF bGoto THEN
+		bGoto := FALSE;
+		_GotoTelescope();
+	ELSIF bSlew THEN
+		bSlew := FALSE;
+		_SlewTelescope();
+	ELSIF bGoHome THEN
+		bGoHome := FALSE;
+		_HomeTelescope();
+	END_IF
+	TCS_command := E_TCSCommand.stop;
+	
+ELSIF bPark THEN
+	bTrack := FALSE;
+	// If lower presedence commands are ongoing, let them know they are interupted
+	IF bGoto OR bSlew OR bGoHome THEN
+		bGoHome := FALSE;
+		bGoto := FALSE;
+		bSlew := FALSE;
+		bInterrupted := TRUE;
+		_HomeTelescope();
+		_GotoTelescope();
+		_SlewTelescope();
+		
+	ELSE
+		IF bReady AND NOT bBusy THEN
+			bInterrupted := FALSE;
+			TCS_command := E_TCSCommand.park;
+		END_IF
+	END_IF
+	
+ELSIF bGoHome THEN
+	bTrack := FALSE;
+	// If lower presedence commands are ongoing, let them know they are interupted
+	IF bGoto OR bSlew THEN
+		bGoto := FALSE;
+		bSlew := FALSE;
+		bInterrupted := TRUE;
+		_GotoTelescope();
+		_SlewTelescope();
+		
+	ELSE
+		IF bReady AND NOT bBusy AND bStopped THEN
+			bInterrupted := FALSE;
+			TCS_command := E_TCSCommand.gohome;
+		END_IF
+	END_IF
+	
+	
+ELSIF bGoto THEN
+	bTrack := FALSE;
+	// If lower presedence commands are ongoing, let them know they are interupted
+	IF bSlew THEN
+		bSlew := FALSE;
+		bInterrupted := TRUE;
+		_SlewTelescope();
+	ELSE
+		IF bReady AND NOT bBusy THEN
+			bInterrupted := FALSE;
+			TCS_command := E_TCSCommand.goto;
+		END_IF
+	END_IF
+		
+ELSIF bSlew THEN
+	bTrack := FALSE;
+	IF bReady AND NOT bBusy THEN
+		TCS_command := E_TCSCommand.slew;
+	END_IF
+	
+ELSIF bTrack THEN
+	IF bReady AND NOT bBusy THEN
+		TCS_command := E_TCSCommand.track;
+	END_IF
+	
+ELSE
+	TCS_command := E_TCSCommand.no_command;
+	fbElevation.bMoveAxis := FALSE;
+	fbAzimuth.bMoveAxis := FALSE;
+	fbDerotator.bMoveAxis := FALSE;
+	fbElevation.bTracking := FALSE;
+	fbAzimuth.bTracking := FALSE;
+	fbDerotator.bTracking := FALSE;
+END_IF
+
+IF TCS_command = E_TCSCommand.poweron THEN
+	_PowerOn();
+	tonCommandTimeout(IN := TCS_command = E_TCSCommand.poweron, PT := T#12H);
+	TCSCTOEvent.OnMessage := 'POWER';
+ELSIF TCS_command = E_TCSCommand.stop THEN
+	_StopTelescope();
+	tonCommandTimeout(IN := TCS_command = E_TCSCommand.stop, PT := T#2S);
+	TCSCTOEvent.OnMessage := 'STOP';
+ELSIF TCS_command = E_TCSCommand.park THEN
+	_ParkTelescope();
+	tonCommandTimeout(IN := TCS_command = E_TCSCommand.park, PT := T#2M);
+	TCSCTOEvent.OnMessage := 'PARK';
+ELSIF TCS_command = E_TCSCommand.gohome THEN
+	_HomeTelescope();
+	tonCommandTimeout(IN := TCS_command = E_TCSCommand.gohome, PT := T#2M);
+	TCSCTOEvent.OnMessage := 'GOHOME';
+ELSIF TCS_command = E_TCSCommand.goto THEN
+	_GotoTelescope();
+	tonCommandTimeout(IN := TCS_command = E_TCSCommand.goto, PT := T#2M);
+	TCSCTOEvent.OnMessage := 'GOTO';
+ELSIF TCS_command = E_TCSCommand.slew THEN
+	_SlewTelescope();
+	tonCommandTimeout(IN := TCS_command = E_TCSCommand.slew, PT := T#2M);
+	TCSCTOEvent.OnMessage := 'SLEW';
+ELSIF TCS_command = E_TCSCommand.track THEN
+	_TrackTelescope();
+	tonCommandTimeout(IN := TCS_command = E_TCSCommand.track, PT := T#12H);
+	TCSCTOEvent.OnMessage := 'TRACK';
+ELSE
+	// disable command timeout
+	tonCommandTimeout(IN := FALSE);
+	TCSCTOEvent.OnMessage := 'NOCOMMAND';
+END_IF
+ 
+bSlewing := NOT bTracking AND (fbElevation.fbAxis.InMotion OR fbElevation.fbAxis.InRamp OR
+			fbAzimuth.fbAxis.InMotion OR fbAzimuth.fbAxis.InRamp OR
+			fbDerotator.fbAxis.InMotion OR fbDerotator.fbAxis.InRamp);
+
+// signal must be stable for 5500MS
+tonTrackingDelay(in := fbElevation.fbAxis.isTracking AND 
+			fbAzimuth.fbAxis.isTracking AND
+			fbDerotator.fbAxis.isTracking,PT :=T#5500MS, Q => bTracking);
+			
+bStopped :=  (NOT fbElevation.bEnable OR fbElevation.fbAxis.StandStill) AND 
+			(NOT fbAzimuth.bEnable OR fbAzimuth.fbAxis.StandStill) AND
+			(NOT fbDerotator.bEnable OR fbDerotator.fbAxis.StandStill);
+			
+bHomed := fbElevation.Calibrated AND
+			fbAzimuth.Calibrated AND
+			fbFocus.Calibrated AND
+			fbDerotator.Calibrated;
+			
+bReady := bHomed AND 
+	fbCovers.Opened AND 
+	fbElevation.bEnable AND
+	fbAzimuth.bEnable AND
+	fbDerotator.bEnable AND fbBrake.BrakeOpen AND 
+    NOT bError;
+
+bBusy := fbElevation.fbAxis.Busy OR
+		fbAzimuth.fbAxis.Busy OR
+		fbDerotator.fbAxis.Busy OR
+		fbFocus.Busy;
+
+(* STATUS STATES*)
+//fReadyState (see also _PowerOn and _ParkTelescope calls above)
+IF bError THEN
+	fReadyState := -1.0;
+ELSIF bPower THEN
+	fReadyState := 0.7;
+ELSIF bIsParked THEN
+	fReadyState := 0.0;
+ELSIF bPark THEN
+	fReadyState := 0.3;
+ELSIF bReady THEN
+	fReadyState := 1.0;	
+ELSE
+	fReadyState := -2.0;	
+END_IF
+
+//MotionState
+IF bStopped THEN
+	nMotionState := 0;
+ELSIF bSlewing OR bBusy THEN
+	nMotionState := 1;
+ELSIF bTracking THEN
+	nMotionState := 8;
+END_IF
+
+// unset the STOP command if telescope is already stopped
+IF bStopped THEN
+	bStop := FALSE;
+END_IF
+	
+IF NOT bError THEN
+	bReset := FALSE;
+END_IF
+
+IF bEstopTriggered THEN
+	fbElevation.Enable := FALSE;
+	fbAzimuth.Enable := FALSE;
+	fbDerotator.Enable := FALSE;
+END_IF
+
+// send telemetry
+IF bSlewing OR bTrack OR bTracking THEN
+	tonMQTTTimer.PT := T#500MS; // during movement every second
+ELSE
+	tonMQTTTimer.PT := T#1000MS; // otherwise every five seconds
+END_IF
+tonMQTTTimer(IN:=TRUE);
+IF tonMQTTTimer.Q THEN
+	tonMQTTTimer(IN:=FALSE);
+	_SendTelemetry();
+END_IF
+
+
+(* Event function blocks start here. *)
+TCSpowerEvent(	Trigger := bPowerFailure, 
+				Level := ADSLOG_MSGTYPE_ERROR,
+				FormatString := 'power %s',
+				//OnMessage := 'Failure',
+				OffMessage := 'OK', 
+				Comm := fbComm);
+
+TCSgohomeEvent(	Trigger := bGoHome, 
+				Level := ADSLOG_MSGTYPE_HINT,
+				FormatString := 'GOHOME %s',
+				OnMessage := 'commencing',
+				OffMEssage := 'completed', 
+				Comm := fbComm);
+TCSparkEvent(	Trigger := bPark, 
+				Level := ADSLOG_MSGTYPE_HINT,
+				FormatString := 'PARK %s',
+				OnMessage := 'commencing',
+				OffMEssage := 'completed', 
+				Comm := fbComm);
+TCSgotoEvent(	Trigger := bGoto, 
+				Level := ADSLOG_MSGTYPE_HINT,
+				FormatString := 'GOTO %s',
+				OnMessage := 'commencing',
+				OffMEssage := 'completed', 
+				Comm := fbComm);
+TCStrackEvent(	Trigger := bTrack, 
+				Level := ADSLOG_MSGTYPE_HINT,
+				FormatString := 'TRACK %s',
+				OnMessage := 'commencing',
+				OffMEssage := 'completed', 
+				Comm := fbComm);
+TCSstopEvent(	Trigger := bStop, 
+				Level := ADSLOG_MSGTYPE_WARN,
+				FormatString := 'STOP %s',
+				OnMessage := 'commencing',
+				OffMEssage := 'completed',
+				OffLevel := ADSLOG_MSGTYPE_HINT, 
+				Comm := fbComm);
+TCStargetHorizonEvent(	Trigger := bPower AND fElevationCalc<fHorizon, 
+				Level := ADSLOG_MSGTYPE_WARN,
+				FormatString := '%s',
+				OnMessage := 'Target below safe horizon',
+				OffMEssage := '', 
+				Comm := fbComm);
+TCSreadyEvent(	Trigger := bPower AND bReady, 
+				Level := ADSLOG_MSGTYPE_HINT,
+				FormatString := '%s',
+				OnMessage := 'STELLA1 startup finished', 
+				Comm := fbComm);
+TCSCTOEvent(	Trigger := tonCommandTimeout.Q,
+				Level := ADSLOG_MSGTYPE_WARN,
+				FormatString := 'A timeout occured during %s command!',
+				OnMessage := 'NOCOMMAND', 
+				Comm := fbComm);]]></ST>
+    </Implementation>
+    <Folder Name="internal methods" Id="{d1e7fbc6-9662-4c16-bf25-8044ef92da3b}" />
+    <Method Name="_GotoTelescope" Id="{8976ce61-8856-40e1-8cfb-7b9454a4edbf}" FolderPath="internal methods\">
+      <Declaration><![CDATA[METHOD PRIVATE _GotoTelescope : USINT
+VAR_INPUT
+END_VAR
+VAR
+	GoToEvent		: FB_Eventlog;
+	commandTimeout	: TON;
+END_VAR
+VAR_STAT
+	nStage			: USINT := 0;
+	nLastStage		: USINT := 101;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[_GotoTelescope := nStage;
+commandTimeout(IN := nStage < 100, PT := T#600S);
+IF commandTimeout.Q THEN
+	bError := TRUE;
+	nErrorID := 16#10;
+	bGoto := FALSE;
+	nStage := 0;
+	RETURN;
+END_IF
+
+IF fElevationCalc<2.0 THEN
+	bError := TRUE;
+	nErrorID := 16#15;
+	bGoto := FALSE;
+	nStage := 0;
+	RETURN;
+END_IF
+
+IF bReset OR bError OR bInterrupted THEN
+	nStage := 0;
+	RETURN;
+END_IF
+
+CASE nStage OF
+	0:	
+		IF bReady AND NOT bBusy THEN
+			nStage := 10;
+		END_IF
+	10:
+		IF fbElevation.Tracking = TRUE OR fbAzimuth.Tracking = TRUE OR fbDerotator.Tracking = TRUE THEN
+			fbElevation.Tracking := FALSE;
+			fbAzimuth.Tracking := FALSE;
+			fbDerotator.Tracking := FALSE;
+		ELSE
+			nStage := 25;
+		END_IF				
+	25:	
+		fbElevation.Position := fElevationCalc;
+		fbAzimuth.Position := fAzimuthCalc;
+		fbDerotator.Position := fDerotatorCalc;
+		fbDerotator.Velocity := 10.0;
+		fbElevation.Velocity := 10.0;
+		fbAzimuth.Velocity := 10.0;
+		
+		fbElevation.MoveAxis := TRUE;
+		fbAzimuth.MoveAxis := TRUE;
+		fbDerotator.MoveAxis := TRUE;
+		IF fbElevation.Busy AND
+			fbAzimuth.Busy AND
+			fbDerotator.Busy THEN
+				nStage := 50;
+		END_IF
+	50:
+		IF NOT fbElevation.Busy AND fbElevation.MoveDone THEN
+			fbElevation.MoveAxis := FALSE;
+		END_IF
+		IF NOT fbAzimuth.Busy AND fbAzimuth.MoveDone THEN
+			fbAzimuth.MoveAxis := FALSE;
+		END_IF
+		IF NOT fbDerotator.Busy AND fbDerotator.MoveDone THEN
+			fbDerotator.MoveAxis := FALSE;
+		END_IF
+		IF NOT fbElevation.MoveAxis AND 
+           NOT fbAzimuth.MoveAxis AND 
+		   NOT fbDerotator.MoveAxis THEN
+		   nStage := 75;
+		END_IF
+	75:
+		IF NOT bSlewing AND bStopped THEN // all axis standstill
+			nStage := 100;
+		END_IF
+	100:
+		fbElevation.MoveAxis := FALSE;
+		fbAzimuth.MoveAxis := FALSE;
+		fbDerotator.MoveAxis := FALSE;
+		fAzimuth := fAzimuthCalc;
+		fElevation := fElevationCalc;
+		bGoto := FALSE;
+		// enable automatic tracking
+		bTrack := bAutoTrack;
+		nStage := 0;
+END_CASE
+GoToEvent(Trigger := nStage > nLastStage, FormatString := 'GoTo progress: %s', OnMessage := USINT_TO_STRING(nStage), comm := fbComm);
+nLastStage := nStage;
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="_HomeTelescope" Id="{7bd4dae5-c49f-4cd9-a0c3-809697b8de19}" FolderPath="internal methods\">
+      <Declaration><![CDATA[METHOD PRIVATE _HomeTelescope : BOOL
+VAR_INPUT
+END_VAR
+VAR
+    HomeEvent        : FB_Eventlog;
+    commandTimeout    : TON;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[commandTimeout(IN := NOT _HomeTelescope, PT := T#600S);
+IF commandTimeout.Q THEN
+    bError := TRUE;
+    nErrorID := 16#30;
+    _HomeTelescope :=TRUE;
+END_IF
+
+IF bReady AND bStopped AND NOT bBusy AND NOT bTracking THEN
+    fbElevation.Velocity := 10.0;
+    fbElevation.Position := telescopeConfig.elevationHome;
+    fbElevation.MoveAxis := TRUE;
+    fbAzimuth.Velocity := 10.0;
+    fbAzimuth.Position := telescopeConfig.azimuthHome;
+    fbAzimuth.MoveAxis := TRUE;
+    fbDerotator.Velocity := 10.0;
+    fbDerotator.Position := telescopeConfig.derotatorHome;
+    fbDerotator.MoveAxis := TRUE;    
+END_IF
+
+IF fbElevation.MoveDone AND 
+    fbAzimuth.MoveDone AND 
+    fbDerotator.MoveDone THEN
+    bGoHome := FALSE;
+    fElevation := fElevationCurrent;
+    fAzimuth := fAzimuthCurrent;
+    _HomeTelescope := TRUE;
+ELSE
+    _HomeTelescope := FALSE;
+END_IF
+
+HomeEvent(Trigger := _HomeTelescope, 
+            Level := ADSLOG_MSGTYPE_HINT,
+            FormatString := '%s',
+            OnMessage := 'Telescope is homed.', comm := fbComm);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="_ParkTelescope" Id="{999576b1-8aca-41eb-91ab-673a6fc7f4ba}" FolderPath="internal methods\">
+      <Declaration><![CDATA[METHOD PRIVATE _ParkTelescope : USINT
+VAR_INPUT
+END_VAR
+VAR
+	ParkEvent	: FB_Eventlog;
+END_VAR
+VAR_STAT
+	nStage		: USINT := 0;
+	nLastStage	: USINT := 101;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[_ParkTelescope := nStage;
+IF bReset OR bError OR bStop OR bInterrupted THEN
+	nStage := 0;
+	RETURN;
+END_IF
+IF bIsParked THEN
+	nStage := 100;
+END_IF
+CASE nStage OF
+	0: 
+		bGoHome := 	FALSE;
+		bTrack := 	FALSE;
+		bGoto := 	FALSE;
+		bSlew := 	FALSE;
+		IF fbFocus <> 0 THEN
+			fbFocus.Position := telescopeConfig.focusPark;
+		END_IF
+		IF bError THEN // emergency park
+			fbBrake.CloseBrake();
+			fbElevation.Enable := FALSE;
+			fbAzimuth.Enable := FALSE;
+			fbDerotator.Enable := FALSE;	
+			fbCovers.Close();	
+			nStage := 80;
+		END_IF
+		nStage := 10;
+	10:
+		IF fbElevation.Tracking = TRUE OR fbAzimuth.Tracking = TRUE OR fbDerotator.Tracking = TRUE THEN
+			fbElevation.Tracking := FALSE;
+			fbAzimuth.Tracking := FALSE;
+			fbDerotator.Tracking := FALSE;
+		ELSE
+			nStage := 20;
+		END_IF		
+	20:
+		fbElevation.Position := telescopeConfig.elevationPark;
+		fbElevation.Velocity := 10.0;
+		fbElevation.MoveAxis := TRUE;
+		fbAzimuth.Position := telescopeConfig.azimuthPark;
+		fbAzimuth.Velocity := 10;
+		fbAzimuth.MoveAxis := TRUE;
+		fbDerotator.Position := telescopeConfig.derotatorPark;
+		fbDerotator.Velocity := 10.0;
+		fbDerotator.MoveAxis := TRUE;
+		IF fbElevation.Busy AND
+			fbAzimuth.Busy AND
+			fbDerotator.Busy THEN
+				nStage := 40;
+		END_IF
+	40:
+		IF fbElevation.MoveDone THEN
+			fbElevation.MoveAxis := FALSE;
+		END_IF
+		IF fbAzimuth.MoveDone THEN
+			fbAzimuth.MoveAxis := FALSE;
+		END_IF
+		IF fbDerotator.MoveDone THEN
+			fbDerotator.MoveAxis := FALSE;
+		END_IF
+		IF NOT bSlewing THEN // all axis standstill
+			nStage := 60;
+		END_IF
+	60:
+		IF NOT fbElevation.Enable AND NOT fbAzimuth.Enable AND NOT fbDerotator.Enable THEN
+			nStage := 80;
+		END_IF
+
+		IF bStopped THEN
+			fbElevation.Enable := FALSE;
+			fbAzimuth.Enable := FALSE;
+			fbDerotator.Enable := FALSE;
+		END_IF
+		
+		fbElevation.bMoveAxis := FALSE;
+		fbAzimuth.bMoveAxis := FALSE;
+		fbDerotator.bMoveAxis := FALSE;
+	80:
+		IF fbElevation.Enable OR fbAzimuth.Enable OR fbDerotator.Enable THEN
+			nStage := 60;
+		END_IF
+		IF NOT fbBrake.BrakeOpen THEN
+			fbCovers.Close();
+			fbHydraulics.Enable := FALSE;
+		END_IF
+		IF fbCovers.Closed THEN
+			nStage := 100;
+		END_IF
+	100:
+			bIsParked := TRUE;
+			bPark := FALSE;
+			_ParkTelescope := 100;
+			nStage := 0;	
+END_CASE
+ParkEvent(Trigger := nStage > nLastStage, FormatString := 'Parking progress: %s', OnMessage := USINT_TO_STRING(nStage), comm := fbComm);
+nLastStage := nStage;
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="_PowerOn" Id="{4c40649f-56d9-4130-9f80-925439540d98}" FolderPath="internal methods\">
+      <Declaration><![CDATA[METHOD PRIVATE _PowerOn : BOOL
+VAR_INPUT
+END_VAR
+VAR_STAT
+	nStage		: USINT := 0;
+	nLastStage	: USINT := 101;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT bBrakeClearing THEN
+	bPowerFailure := TRUE;
+	TCSpowerEvent.OnMessage := 'failure: brake clearing not set';
+	bPower := FALSE;
+ELSIF bError THEN
+	bPowerFailure := TRUE;
+	TCSpowerEvent.OnMessage := 'Generic error during power on occured.';
+	bPower := FALSE;
+ELSE
+	bPowerFailure := FALSE;		
+END_IF
+
+IF bReset OR bError OR bStop OR bInterrupted THEN
+	nStage := 0;
+	RETURN;
+END_IF
+
+CASE nStage OF
+	0:
+		_PowerOn := FALSE; 
+		// COVER MUST BE OPENED FOR A SUCCESSFUL WAKE & SHAKE COMMAND!
+		fbCovers.Open();
+		IF bMainReady AND fbCovers.Opened THEN
+			nStage := 10;
+		END_IF
+		
+	10:
+		fbElevation.Enable := TRUE;
+		fbAzimuth.Enable := TRUE;
+		fbDerotator.Enable := TRUE;
+		
+		IF fbElevation.Ready AND NOT fbElevation.Calibrated THEN
+			fbElevation.HomeAxis := TRUE;
+		END_IF
+		
+		IF fbAzimuth.Ready AND NOT fbAzimuth.Calibrated THEN
+			fbAzimuth.HomeAxis := TRUE;
+		END_IF
+		
+		// enable derotator
+		IF fbElevation.Ready THEN
+			fbDerotator.HomeAxis := fbDerotator.Ready AND NOT fbDerotator.Calibrated;
+		END_IF
+		
+		// start calibration of focus after elevation has been calibrated
+		// this avoids imbalance by the M2 mirror on the elvation during its calibration
+		IF fbElevation.Calibrated AND (fbFocus <> 0 AND_THEN NOT fbFocus.Calibrated) THEN
+			fbFocus.Enable := TRUE;
+			fbFocus.HomeAxis := TRUE;
+		END_IF
+	
+		IF fbCovers.Opened AND fbElevation.Calibrated AND fbAzimuth.Calibrated AND fbDerotator.Calibrated AND fbFocus.Calibrated AND
+			bReady AND bStopped AND NOT bBusy AND NOT bTracking THEN
+			nStage := 30;
+		END_IF
+		
+	30:
+		fbElevation.Velocity := 10.0;
+		fbElevation.Position := telescopeConfig.elevationHome;
+		fbElevation.MoveAxis := TRUE;
+		fbAzimuth.Velocity := 10.0;
+		fbAzimuth.Position := telescopeConfig.azimuthHome;
+		fbAzimuth.MoveAxis := TRUE;
+		fbDerotator.Velocity := 10.0;
+		fbDerotator.Position := telescopeConfig.derotatorHome;
+		fbDerotator.MoveAxis := TRUE;	
+		
+		IF fbElevation.MoveDone AND 
+			fbAzimuth.MoveDone AND 
+			fbDerotator.MoveDone THEN
+			nStage := 100;
+		END_IF
+			
+	100:
+		bPower := FALSE;
+		fElevation := fElevationCurrent;
+		fAzimuth := fAzimuthCurrent;
+		_PowerOn := TRUE;
+		bIsParked := FALSE;
+		nStage := 0;
+	
+END_CASE]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="_SendTelemetry" Id="{5e3ab35e-5dd6-4108-99df-8d99cebae004}" FolderPath="internal methods\">
+      <Declaration><![CDATA[METHOD _SendTelemetry : BOOL
+VAR_INPUT
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[SUPER^._PublishTelemetry();
+
+fbComm.Publish('telescope', 'dome', 'TELESCOPE.READY_STATE',	LREAL_TO_STRING(fReadyState));
+fbComm.Publish('telescope', 'dome', 'TELESCOPE.MOTION_STATE',	LREAL_TO_STRING(nMotionState));
+
+// INFO
+fbComm.Publish('telescope', 'dome', 'TELESCOPE.INFO.NAME',	telescopeConfig.name);
+fbComm.Publish('telescope', 'dome', 'TELESCOPE.INFO.DIAMETER',	LREAL_TO_STRING(telescopeConfig.diameter));
+fbComm.Publish('telescope', 'dome', 'TELESCOPE.INFO.CABINET',	telescopeConfig.cabinet);
+fbComm.Publish('telescope', 'dome', 'TELESCOPE.INFO.MANUFACTURER', telescopeConfig.manufacturer);
+
+// config
+fbComm.Publish('telescope', 'dome', 'TELESCOPE.CONFIG.MOUNTOPTIONS', telescopeConfig.mountOptions);
+fbComm.Publish('telescope', 'dome', 'TELESCOPE.CONFIG.MOUNT', telescopeConfig.mount);
+
+// STATUS
+IF bEstopTriggered THEN
+	fbComm.Publish('telescope', 'dome', 'TELESCOPE.STATUS.GLOBAL', '1');
+ELSIF bError THEN
+	fbComm.Publish('telescope', 'dome', 'TELESCOPE.STATUS.GLOBAL', '2');
+ELSE
+	fbComm.Publish('telescope', 'dome', 'TELESCOPE.STATUS.GLOBAL', '0');
+END_IF
+
+// INSTRUMENTAL
+fbComm.Publish('telescope', 'dome', 'OBJECT.INSTRUMENTAL.ALT', LREAL_TO_STRING(fElevation));
+fbComm.Publish('telescope', 'dome', 'OBJECT.INSTRUMENTAL.AZ', LREAL_TO_STRING(fAzimuth));
+
+// EQUATORIAL
+fbComm.Publish('telescope', 'dome', 'OBJECT.EQUATORIAL.EPOCH', 'J2000.0');
+fbComm.Publish('telescope', 'dome', 'OBJECT.EQUATORIAL.EQUINOX', 'J2000.0');
+fbComm.Publish('telescope', 'dome', 'OBJECT.EQUATORIAL.RA_PM', '0.0');
+fbComm.Publish('telescope', 'dome', 'OBJECT.EQUATORIAL.DEC_PM', '0.0');
+fbComm.Publish('telescope', 'dome', 'OBJECT.EQUATORIAL.RA_RATE', '0.0');
+fbComm.Publish('telescope', 'dome', 'OBJECT.EQUATORIAL.DEC_RATE', '0.0');
+fbComm.Publish('telescope', 'dome', 'OBJECT.EQUATORIAL.RA_ICRS', LREAL_TO_STRING(fRightAscension/15.0));
+fbComm.Publish('telescope', 'dome', 'OBJECT.EQUATORIAL.DEC_IRCS', LREAL_TO_STRING(fDeclination));	
+
+// HORIZONTAL
+fbComm.Publish('telescope', 'dome', 'OBJECT.HORIZONTAL.ALT', LREAL_TO_STRING(fElevationCalc));
+fbComm.Publish('telescope', 'dome', 'OBJECT.HORIZONTAL.AZ', LREAL_TO_STRING(fAzimuthCalc));
+
+(* POINTING *)
+fbComm.Publish('telescope', 'dome', 'POINTING.SLEWTIME', LREAL_TO_STRING(fSlewtime));
+fbComm.Publish('telescope', 'dome', 'POINTING.OFFSETS.ALT', LREAL_TO_STRING(fElevationPointingOffset));
+fbComm.Publish('telescope', 'dome', 'POINTING.OFFSETS.AZ', LREAL_TO_STRING(fAzimuthPointingOffset));
+
+(*POSITION*)
+//LOCAL
+fbComm.Publish('telescope', 'dome', 'POSITION.LOCAL.SIDEREAL_TIME', LREAL_TO_STRING(fLst));
+fbComm.Publish('telescope', 'dome', 'POSITION.LOCAL.JD', LREAL_TO_STRING(fJd));
+fbComm.Publish('telescope', 'dome', 'POSITION.LOCAL.LATITUDE', LREAL_TO_STRING(telescopeConfig.latitude));
+fbComm.Publish('telescope', 'dome', 'POSITION.LOCAL.LONGITUDE', LREAL_TO_STRING(telescopeConfig.longitude));
+fbComm.Publish('telescope', 'dome', 'POSITION.LOCAL.HEIGHT', LREAL_TO_STRING(telescopeConfig.altitude));
+
+// INSTRUMENTAL
+// > ALT
+// POWER_STATE
+IF fbElevation.Enable THEN
+	fbComm.Publish('telescope', 'dome', 'POSITION.INSTRUMENTAL.ALT.POWER_STATE', '1.0');
+ELSE
+	fbComm.Publish('telescope', 'dome', 'POSITION.INSTRUMENTAL.ALT.POWER_STATE', '0.0');
+END_IF
+//REFERENCED
+IF fbElevation.Calibrated THEN
+	fbComm.Publish('telescope', 'dome', 'POSITION.INSTRUMENTAL.ALT.REFERENCED', '1.0');
+ELSE
+	fbComm.Publish('telescope', 'dome', 'POSITION.INSTRUMENTAL.ALT.REFERENCED', '0.0');
+END_IF
+//ERROR_STATE
+IF fbElevation.Error THEN
+	fbComm.Publish('telescope', 'dome', 'POSITION.INSTRUMENTAL.ALT.ERROR_STATE', UDINT_TO_STRING(fbElevation.ErrorID));
+ELSE
+	fbComm.Publish('telescope', 'dome', 'POSITION.INSTRUMENTAL.ALT.ERROR_STATE', '0');
+END_IF
+//MOTION_STATE
+IF fbElevation.Busy THEN
+	IF fbElevation.isTracking THEN
+		fbComm.Publish('telescope', 'dome', 'POSITION.INSTRUMENTAL.ALT.MOTION_STATE', '8');
+	ELSE
+		fbComm.Publish('telescope', 'dome', 'POSITION.INSTRUMENTAL.ALT.MOTION_STATE', '1');
+	END_IF
+ELSE
+	fbComm.Publish('telescope', 'dome', 'POSITION.INSTRUMENTAL.ALT.MOTION_STATE', '0');
+END_IF
+fbComm.Publish('telescope', 'dome', 'POSITION.INSTRUMENTAL.ALT.REALPOS', LREAL_TO_STRING(fElevationCurrent-fElevationOffset));
+fbComm.Publish('telescope', 'dome', 'POSITION.INSTRUMENTAL.ALT.CURRPOS', LREAL_TO_STRING(fElevationCurrent));
+fbComm.Publish('telescope', 'dome', 'POSITION.INSTRUMENTAL.ALT.TARGETPOS', LREAL_TO_STRING(fbElevation.Position));
+fbComm.Publish('telescope', 'dome', 'POSITION.INSTRUMENTAL.ALT.CURRSPEED', LREAL_TO_STRING(fbElevation.Velocity));
+fbComm.Publish('telescope', 'dome', 'POSITION.INSTRUMENTAL.ALT.TARGETDISTANCE', LREAL_TO_STRING(ABS(fElevationCurrent-fbElevation.Position)));
+fbComm.Publish('telescope', 'dome', 'POSITION.INSTRUMENTAL.ALT.OFFSET', LREAL_TO_STRING(fElevationOffset));
+
+// > AZ
+// POWER_STATE
+IF fbAzimuth.Enable THEN
+	fbComm.Publish('telescope', 'dome', 'POSITION.INSTRUMENTAL.AZ.POWER_STATE', '1.0');
+ELSE
+	fbComm.Publish('telescope', 'dome', 'POSITION.INSTRUMENTAL.AZ.POWER_STATE', '0.0');
+END_IF
+//REFERENCED
+IF fbAzimuth.Calibrated THEN
+	fbComm.Publish('telescope', 'dome', 'POSITION.INSTRUMENTAL.AZ.REFERENCED', '1.0');
+ELSE
+	fbComm.Publish('telescope', 'dome', 'POSITION.INSTRUMENTAL.AZ.REFERENCED', '0.0');
+END_IF
+//ERROR_STATE
+IF fbAzimuth.Error THEN
+	fbComm.Publish('telescope', 'dome', 'POSITION.INSTRUMENTAL.AZ.ERROR_STATE', UDINT_TO_STRING(fbAzimuth.ErrorID));
+ELSE
+	fbComm.Publish('telescope', 'dome', 'POSITION.INSTRUMENTAL.AZ.ERROR_STATE', '0');
+END_IF
+//MOTION_STATE
+IF fbAzimuth.Busy THEN
+	IF fbAzimuth.isTracking THEN
+		fbComm.Publish('telescope', 'dome', 'POSITION.INSTRUMENTAL.AZ.MOTION_STATE', '8');
+	ELSE
+		fbComm.Publish('telescope', 'dome', 'POSITION.INSTRUMENTAL.AZ.MOTION_STATE', '1');
+	END_IF
+ELSE
+	fbComm.Publish('telescope', 'dome', 'POSITION.INSTRUMENTAL.AZ.MOTION_STATE', '0');
+END_IF
+
+fbComm.Publish('telescope', 'dome', 'POSITION.INSTRUMENTAL.AZ.CURRPOS', LREAL_TO_STRING(fAzimuthCurrent));
+fbComm.Publish('telescope', 'dome', 'POSITION.INSTRUMENTAL.AZ.REALPOS', LREAL_TO_STRING(fAzimuthCurrent-fAzimuthOffset/COS(fElevation*d2r)));
+fbComm.Publish('telescope', 'dome', 'POSITION.INSTRUMENTAL.AZ.TARGETPOS', LREAL_TO_STRING(fbAzimuth.Position));
+fbComm.Publish('telescope', 'dome', 'POSITION.INSTRUMENTAL.AZ.CURRSPEED', LREAL_TO_STRING(fbAzimuth.Velocity));
+fbComm.Publish('telescope', 'dome', 'POSITION.INSTRUMENTAL.AZ.TARGETDISTANCE', LREAL_TO_STRING(ABS(fAzimuthCurrent-fbAzimuth.Position)));
+fbComm.Publish('telescope', 'dome', 'POSITION.INSTRUMENTAL.AZ.OFFSET', LREAL_TO_STRING(fAzimuthOffset));
+
+
+(*HORIZONTAL*)
+fbComm.Publish('telescope', 'dome', 'POSITION.HORIZONTAL.ALT', LREAL_TO_STRING(fElevationCurrentSky));
+fbComm.Publish('telescope', 'dome', 'POSITION.HORIZONTAL.AZ', LREAL_TO_STRING(fAzimuthCurrentSky));
+//fbComm.Publish('telescope', 'dome', 'POSITION.HORIZONTAL.DOME', LREAL_TO_STRING(fbDome.Position));
+
+(*EQUITORIAL*)
+fbComm.Publish('telescope', 'dome', 'POSITION.EQUATORIAL.RA_ICRS', LREAL_TO_STRING(fRightAscensionCurrent/15.0));
+fbComm.Publish('telescope', 'dome', 'POSITION.EQUATORIAL.HA_ICRS', LREAL_TO_STRING(fHourAngleCurrent));
+fbComm.Publish('telescope', 'dome', 'POSITION.EQUATORIAL.DEC_ICRS', LREAL_TO_STRING(fDeclinationCurrent));
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="_SlewTelescope" Id="{d3e1cb80-5564-4d5b-b2d9-2c8dd1b9215a}" FolderPath="internal methods\">
+      <Declaration><![CDATA[METHOD PRIVATE _SlewTelescope : USINT
+VAR_INPUT
+END_VAR
+VAR
+	SlewEvent:	FB_Eventlog;
+	command_timeout: TON;
+END_VAR
+VAR_STAT
+	nStage:		USINT := 0;
+	nLastStage:	USINT := 101;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[_SlewTelescope := nStage;
+command_timeout(IN := nStage < 100, PT := T#600S);
+IF command_timeout.Q THEN
+	bError := TRUE;
+	nErrorID := 16#40;
+	bSlew := FALSE;
+	nStage := 0;
+END_IF
+IF bReset OR bError OR bInterrupted THEN
+	nStage := 0;
+END_IF
+CASE nStage OF
+	0:	
+		IF bReady AND bStopped AND NOT bBusy AND NOT bTracking THEN
+			nStage := 10;
+		END_IF
+	10:
+		IF fbElevation.Tracking = TRUE OR fbAzimuth.Tracking = TRUE OR fbDerotator.Tracking = TRUE THEN
+			fbElevation.Tracking := FALSE;
+			fbAzimuth.Tracking := FALSE;
+			fbDerotator.Tracking := FALSE;
+		ELSE
+			nStage := 25;
+		END_IF				
+	25:
+		fbPointing(
+			fAzimuth			:= fAzimuth,
+			fElevation			:= fElevation,
+			fAzimuthOffset		=> fAzimuthPointingOffset,
+			fElevationOffset	=> fElevationPointingOffset
+		);	
+		fbElevation.Position := fElevation + fElevationPointingOffset + fElevationOffset;
+		fbElevation.Velocity := 5.0;
+		fbElevation.MoveAxis := TRUE;
+		fbAzimuth.Position := fAzimuth + fAzimuthPointingOffset + fAzimuthOffset / COS(fElevationCalc * d2r);
+		fbAzimuth.Velocity := 10.0;
+		fbAzimuth.MoveAxis := TRUE;
+		fbDerotator.Position := fElevation + fDerotatorOffset;
+		fbDerotator.Velocity := 10.0;
+		fbDerotator.MoveAxis := TRUE;
+		IF fbElevation.Busy AND
+			fbAzimuth.Busy AND
+			fbDerotator.Busy THEN
+				nStage := 50;
+		END_IF
+	50:
+		IF fbElevation.MoveDone THEN
+			fbElevation.bMoveAxis := FALSE;
+		END_IF
+		
+		IF fbAzimuth.MoveDone THEN
+			fbAzimuth.MoveAxis := FALSE;
+		END_IF
+
+		IF fbDerotator.MoveDone THEN
+			fbDerotator.MoveAxis := FALSE;
+		END_IF
+		IF NOT bSlewing AND bStopped THEN // all axis standstill
+			nStage := 100;
+		END_IF
+	100:
+		fbElevation.MoveAxis := FALSE;
+		fbAzimuth.MoveAxis := FALSE;
+		fbDerotator.MoveAxis := FALSE;
+		fRightAscension := fRightAscensionCalc;
+		fDeclination := fDeclinationCalc;
+		bSlew := FALSE;
+		nStage := 0;
+END_CASE
+SlewEvent(Trigger := nStage > nLastStage, FormatString := 'Slew progress: %s', OnMessage := USINT_TO_STRING(nStage), Comm := fbComm);
+nLastStage := nStage;		
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="_StopTelescope" Id="{cb5cd062-03c6-4c9b-bbde-9c71b10960c3}" FolderPath="internal methods\">
+      <Declaration><![CDATA[METHOD PRIVATE _StopTelescope : BOOL
+VAR_INPUT
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF fbAzimuth.Tracking = TRUE OR fbElevation.Tracking = TRUE OR fbDerotator.Tracking = TRUE THEN
+	fbAzimuth.Tracking := FALSE;
+	fbElevation.Tracking := FALSE;
+	fbDerotator.Tracking := FALSE;
+ELSIF fbAzimuth.MoveAxis = TRUE OR  fbElevation.MoveAxis = TRUE OR fbDerotator.MoveAxis = TRUE THEN
+	fbAzimuth.MoveAxis := FALSE;
+	fbElevation.MoveAxis := FALSE;
+	fbDerotator.MoveAxis := FALSE;
+ELSE
+	// Only issue Axis stop commands if they are moving
+	IF NOT fbAzimuth.fbAxis.StandStill THEN
+		fbAzimuth.StopAxis := TRUE;
+	ELSE
+		fbAzimuth.StopAxis := FALSE;
+	END_IF
+	
+	IF NOT fbElevation.fbAxis.StandStill THEN
+		fbElevation.StopAxis := TRUE;
+	ELSE
+		fbElevation.StopAxis := FALSE;
+	END_IF	
+	
+	IF NOT fbDerotator.fbAxis.StandStill THEN
+		fbDerotator.StopAxis := TRUE;
+	ELSE
+		fbDerotator.StopAxis := FALSE;
+	END_IF	
+
+	IF bStopped THEN
+		fbAzimuth.StopAxis := FALSE;
+		fbElevation.StopAxis := FALSE;
+		fbDerotator.StopAxis := FALSE;
+		_StopTelescope := FALSE;
+	END_IF
+END_IF
+
+
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="_TrackTelescope" Id="{6e849cc7-222d-486c-8d3d-ea253bc6d574}" FolderPath="internal methods\">
+      <Declaration><![CDATA[METHOD PRIVATE _TrackTelescope : BOOL
+VAR_INPUT
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[// Elevation
+fDerotatorVelocity := F_Derotatorvelocity(fElevationCalc, fAzimuthCalc, telescopeConfig.latitude);
+fElevationVelocity := F_Elevationvelocity(fAzimuthCalc, telescopeConfig.latitude);
+fAzimuthVelocity := F_Azimuthvelocity(fElevationCalc, fAzimuthCalc, telescopeConfig.latitude);
+IF fElevationCurrent < 5.0 OR fElevationCurrent > 89.5 THEN 
+	bTrack := FALSE;
+END_IF
+IF fAzimuthCurrent > 440.0 THEN
+	bTrack := FALSE;
+END_IF
+IF (fDerotatorCurrent < -69.0 AND fDerotatorVelocity<0.0) OR (fDerotatorCurrent > 379.0 AND fDerotatorVelocity>0.0) THEN
+	bTrack := FALSE;
+END_IF
+
+fbElevation.Position := fElevationCalc;
+IF NOT fbElevation.Tracking THEN
+	fbElevation.Velocity := 10.0;
+	fbElevation.MoveAxis := TRUE;
+	IF NOT fbElevation.Busy AND fbElevation.MoveDone THEN
+		fbElevation.MoveAxis := FALSE;
+		IF fbElevation.isTracking THEN
+			fbElevation.Velocity := fElevationVelocity;
+		ELSE
+			fbElevation.Velocity := 3.0*fElevationVelocity;
+		END_IF
+		fbElevation.Velocity := fElevationVelocity;
+		fbElevation.Tracking := TRUE;
+	END_IF
+ELSE
+	fbElevation.Velocity := fElevationVelocity;
+END_IF
+
+// Azimuth
+fbAzimuth.Position := fAzimuthCalc;
+IF NOT fbAzimuth.Tracking THEN
+	fbAzimuth.Velocity := 10.0;
+	fbAzimuth.MoveAxis := TRUE;
+	IF NOT fbAzimuth.Busy AND fbAzimuth.MoveDone THEN
+		fbAzimuth.MoveAxis := FALSE;
+		IF fbAzimuth.isTracking THEN
+			fbAzimuth.Velocity := fAzimuthVelocity;
+		ELSE
+			fbAzimuth.Velocity := 3.0*fAzimuthVelocity;
+		END_IF
+		fbAzimuth.Velocity := fAzimuthVelocity;
+		fbAzimuth.Tracking := TRUE;
+	END_IF
+ELSE
+	fbAzimuth.Velocity := fAzimuthVelocity;
+END_IF
+
+// Derotator
+fbDerotator.Position := fDerotatorCalc;
+IF NOT fbDerotator.Tracking THEN
+	fbDerotator.Velocity := 10.0;
+	fbDerotator.MoveAxis := TRUE;
+	IF NOT fbDerotator.Busy AND fbDerotator.MoveDone THEN
+		fbDerotator.MoveAxis := FALSE;
+		IF fbDerotator.isTracking THEN
+			fbDerotator.Velocity := fDerotatorVelocity;
+		ELSE
+			fbDerotator.Velocity := 3.0*fDerotatorVelocity;
+		END_IF
+		fbDerotator.Velocity := fDerotatorVelocity;
+		fbDerotator.Tracking := TRUE;
+	END_IF
+ELSE
+	fbDerotator.Velocity := fDerotatorVelocity;
+END_IF
+]]></ST>
+      </Implementation>
+    </Method>
+    <Property Name="Altitude" Id="{51b1ff05-1140-4331-8485-239187f5f8b1}">
+      <Declaration><![CDATA[{warning 'add property implementation'}
+PROPERTY Altitude : LREAL
+]]></Declaration>
+      <Get Name="Get" Id="{05a6ac86-f3fe-4579-ad82-04708fa0864e}">
+        <Declaration><![CDATA[VAR
+END_VAR
+]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[Altitude := THIS^.fElevationCurrent;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Property Name="Azimuth" Id="{0dd05217-329b-419a-a3b6-a7f2c3a7b182}">
+      <Declaration><![CDATA[{warning 'add property implementation'}
+PROPERTY Azimuth : LREAL
+]]></Declaration>
+      <Get Name="Get" Id="{fd6f0d71-0c53-4de5-af62-a6f082f3b2fe}">
+        <Declaration><![CDATA[VAR
+END_VAR
+]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[Azimuth := THIS^.fAzimuthCurrent;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Property Name="Declination" Id="{b1285964-102f-45b7-af05-6785154ef40d}">
+      <Declaration><![CDATA[{warning 'add property implementation'}
+PROPERTY Declination : LREAL
+]]></Declaration>
+      <Get Name="Get" Id="{add754b0-d14d-4a0e-b482-234fdfd51176}">
+        <Declaration><![CDATA[VAR
+END_VAR
+]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[Declination := THIS^.fDeclination;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Method Name="Home" Id="{5b365a4e-cda4-42b8-9d62-ce493e72979f}">
+      <Declaration><![CDATA[METHOD Home : BOOL
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[bGoHome := TRUE;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Init" Id="{78ec73c4-02ac-4d83-aefd-694e0077d330}">
+      <Declaration><![CDATA[METHOD Init : BOOL
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[bPower := TRUE;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="MoveAltAz" Id="{94f5e9d8-f8f7-4c16-ac3f-2e854a5b373b}">
+      <Declaration><![CDATA[METHOD MoveAltAz : BOOL
+VAR_INPUT
+	AltAz	: BROTLib.ST_AltAzCoordinate;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[fElevation 	:= AltAz.Altitude;
+fAzimuth 	:= AltAz.Azimuth;
+bSlew		:= TRUE;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="MoveRaDec" Id="{86c89766-d350-4f6b-9fea-e302f9b4e7d4}">
+      <Declaration><![CDATA[METHOD MoveRaDec : BOOL
+VAR_INPUT
+	RaDec	: BROTLib.ST_RaDecCoordinate;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[fRightAscension	:= RaDec.RightAscension;
+fDeclination	:= RaDec.Declination;
+bGoto			:= TRUE;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Park" Id="{21fb237d-ad50-4f82-97cf-a56a9c25b954}">
+      <Declaration><![CDATA[METHOD Park : BOOL
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[bPark := TRUE;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Reset" Id="{efa0c84e-7359-43c3-a635-1faede103859}">
+      <Declaration><![CDATA[METHOD Reset : BOOL
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[bReset := TRUE;]]></ST>
+      </Implementation>
+    </Method>
+    <Property Name="RightAscension" Id="{11e4e9e9-9e18-4d9f-ab19-1c208929d2bc}">
+      <Declaration><![CDATA[{warning 'add property implementation'}
+PROPERTY RightAscension : LREAL
+]]></Declaration>
+      <Get Name="Get" Id="{b17aa26c-317b-4e3f-8426-b76a55e02df1}">
+        <Declaration><![CDATA[VAR
+END_VAR
+]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[RightAscension := THIS^.fRightAscension;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Method Name="SetAltitudeOffset" Id="{522d462f-4678-4f02-8df4-00f463761b00}">
+      <Declaration><![CDATA[METHOD SetAltitudeOffset : BOOL
+VAR_INPUT
+	Offset	: LREAL;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[fElevationOffset := Offset;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="SetAzimuthOffset" Id="{16e0d010-c333-4c19-862e-702e715c040b}">
+      <Declaration><![CDATA[METHOD SetAzimuthOffset : BOOL
+VAR_INPUT
+	Offset	: LREAL;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[fAzimuthOffset := Offset;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="SetDerotatorOffset" Id="{f59933b1-4aa9-4f18-88cf-26244adda0df}">
+      <Declaration><![CDATA[METHOD SetDerotatorOffset : BOOL
+VAR_INPUT
+	Offset	: LREAL;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[fDerotatorOffset := Offset;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Slew" Id="{ee4e9e45-2bba-488b-8094-f2bf4a28ec2b}">
+      <Declaration><![CDATA[{warning 'add method implementation '}
+METHOD Slew : BOOL
+VAR_INPUT
+	fAzimuth	: LREAL;
+	fAltitude	: LREAL;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[THIS^.fElevation 	:= fAltitude;
+THIS^.fAzimuth 	:= fAzimuth;
+THIS^.bSlew		:= TRUE;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Stop" Id="{d33b3161-dc8a-45e5-ae2f-544550162c16}">
+      <Declaration><![CDATA[METHOD Stop : BOOL
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[bStop := TRUE;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Track" Id="{36f6a798-1a7b-442f-88f7-fc8d7dfa3dc0}">
+      <Declaration><![CDATA[{warning 'add method implementation '}
+METHOD Track : BOOL
+VAR_INPUT
+	fRightAscension	: LREAL;
+	fDeclination	: LREAL;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[THIS^.fRightAscension	:= fRightAscension;
+THIS^.fDeclination		:= fDeclination;
+//THIS^.bTrack			:= TRUE;
+THIS^.bGoto				:= TRUE;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="TrackRaDec" Id="{f497d99f-36a3-42c8-ae9b-738903f3158c}">
+      <Declaration><![CDATA[METHOD TrackRaDec : BOOL
+VAR_INPUT
+	RaDec	: BROTLib.ST_RaDecCoordinate;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[fRightAscension	:= RaDec.RightAscension;
+fDeclination		:= RaDec.Declination;
+//bTrack			:= TRUE;
+THIS^.bGoto				:= TRUE;]]></ST>
+      </Implementation>
+    </Method>
+    <LineIds Name="FB_MonetTelescopeControl">
+      <LineId Id="863" Count="2" />
+      <LineId Id="364" Count="1" />
+      <LineId Id="866" Count="0" />
+      <LineId Id="367" Count="0" />
+      <LineId Id="1094" Count="0" />
+      <LineId Id="869" Count="0" />
+      <LineId Id="1096" Count="2" />
+      <LineId Id="1095" Count="0" />
+      <LineId Id="870" Count="9" />
+      <LineId Id="382" Count="0" />
+      <LineId Id="880" Count="0" />
+      <LineId Id="882" Count="10" />
+      <LineId Id="899" Count="3" />
+      <LineId Id="898" Count="0" />
+      <LineId Id="893" Count="4" />
+      <LineId Id="881" Count="0" />
+      <LineId Id="904" Count="1" />
+      <LineId Id="903" Count="0" />
+      <LineId Id="383" Count="1" />
+      <LineId Id="386" Count="1" />
+      <LineId Id="390" Count="0" />
+      <LineId Id="906" Count="6" />
+      <LineId Id="1008" Count="0" />
+      <LineId Id="913" Count="1" />
+      <LineId Id="398" Count="4" />
+      <LineId Id="1009" Count="0" />
+      <LineId Id="403" Count="7" />
+      <LineId Id="1042" Count="0" />
+      <LineId Id="411" Count="0" />
+      <LineId Id="1036" Count="0" />
+      <LineId Id="1043" Count="0" />
+      <LineId Id="412" Count="4" />
+      <LineId Id="1048" Count="0" />
+      <LineId Id="1050" Count="3" />
+      <LineId Id="1049" Count="0" />
+      <LineId Id="1099" Count="0" />
+      <LineId Id="1102" Count="0" />
+      <LineId Id="1001" Count="0" />
+      <LineId Id="419" Count="1" />
+      <LineId Id="1000" Count="0" />
+      <LineId Id="421" Count="3" />
+      <LineId Id="1175" Count="0" />
+      <LineId Id="425" Count="0" />
+      <LineId Id="1176" Count="0" />
+      <LineId Id="1179" Count="1" />
+      <LineId Id="1177" Count="0" />
+      <LineId Id="1182" Count="4" />
+      <LineId Id="1181" Count="0" />
+      <LineId Id="426" Count="22" />
+      <LineId Id="1054" Count="0" />
+      <LineId Id="1056" Count="2" />
+      <LineId Id="1061" Count="0" />
+      <LineId Id="1055" Count="0" />
+      <LineId Id="450" Count="0" />
+      <LineId Id="1100" Count="0" />
+      <LineId Id="451" Count="1" />
+      <LineId Id="1101" Count="0" />
+      <LineId Id="1103" Count="0" />
+      <LineId Id="455" Count="7" />
+      <LineId Id="1037" Count="0" />
+      <LineId Id="1044" Count="0" />
+      <LineId Id="463" Count="7" />
+      <LineId Id="1038" Count="0" />
+      <LineId Id="471" Count="2" />
+      <LineId Id="924" Count="6" />
+      <LineId Id="923" Count="0" />
+      <LineId Id="931" Count="0" />
+      <LineId Id="474" Count="1" />
+      <LineId Id="859" Count="3" />
+      <LineId Id="480" Count="1" />
+      <LineId Id="764" Count="41" />
+      <LineId Id="808" Count="31" />
+      <LineId Id="841" Count="4" />
+      <LineId Id="858" Count="0" />
+      <LineId Id="846" Count="3" />
+      <LineId Id="856" Count="0" />
+      <LineId Id="850" Count="3" />
+      <LineId Id="1010" Count="0" />
+      <LineId Id="854" Count="1" />
+      <LineId Id="1011" Count="0" />
+      <LineId Id="532" Count="50" />
+      <LineId Id="972" Count="0" />
+      <LineId Id="583" Count="0" />
+      <LineId Id="587" Count="9" />
+      <LineId Id="933" Count="1" />
+      <LineId Id="1141" Count="1" />
+      <LineId Id="935" Count="1" />
+      <LineId Id="1138" Count="1" />
+      <LineId Id="1222" Count="1" />
+      <LineId Id="1221" Count="0" />
+      <LineId Id="1224" Count="0" />
+      <LineId Id="937" Count="5" />
+      <LineId Id="950" Count="0" />
+      <LineId Id="943" Count="6" />
+      <LineId Id="932" Count="0" />
+      <LineId Id="601" Count="14" />
+      <LineId Id="753" Count="0" />
+      <LineId Id="752" Count="0" />
+      <LineId Id="754" Count="8" />
+      <LineId Id="662" Count="0" />
+      <LineId Id="696" Count="51" />
+    </LineIds>
+    <LineIds Name="FB_MonetTelescopeControl._GotoTelescope">
+      <LineId Id="1" Count="27" />
+      <LineId Id="90" Count="6" />
+      <LineId Id="89" Count="0" />
+      <LineId Id="29" Count="48" />
+    </LineIds>
+    <LineIds Name="FB_MonetTelescopeControl._HomeTelescope">
+      <LineId Id="10" Count="32" />
+      <LineId Id="5" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_MonetTelescopeControl._ParkTelescope">
+      <LineId Id="1" Count="0" />
+      <LineId Id="104" Count="2" />
+      <LineId Id="103" Count="0" />
+      <LineId Id="100" Count="0" />
+      <LineId Id="6" Count="19" />
+      <LineId Id="117" Count="3" />
+      <LineId Id="123" Count="0" />
+      <LineId Id="121" Count="1" />
+      <LineId Id="116" Count="0" />
+      <LineId Id="26" Count="61" />
+    </LineIds>
+    <LineIds Name="FB_MonetTelescopeControl._PowerOn">
+      <LineId Id="1" Count="10" />
+      <LineId Id="64" Count="4" />
+      <LineId Id="121" Count="0" />
+      <LineId Id="72" Count="0" />
+      <LineId Id="63" Count="0" />
+      <LineId Id="152" Count="0" />
+      <LineId Id="76" Count="4" />
+      <LineId Id="115" Count="0" />
+      <LineId Id="81" Count="0" />
+      <LineId Id="83" Count="1" />
+      <LineId Id="82" Count="0" />
+      <LineId Id="85" Count="0" />
+      <LineId Id="87" Count="10" />
+      <LineId Id="86" Count="0" />
+      <LineId Id="98" Count="0" />
+      <LineId Id="100" Count="4" />
+      <LineId Id="99" Count="0" />
+      <LineId Id="105" Count="0" />
+      <LineId Id="107" Count="0" />
+      <LineId Id="150" Count="0" />
+      <LineId Id="111" Count="3" />
+      <LineId Id="124" Count="8" />
+      <LineId Id="134" Count="3" />
+      <LineId Id="148" Count="1" />
+      <LineId Id="146" Count="1" />
+      <LineId Id="138" Count="3" />
+      <LineId Id="145" Count="0" />
+      <LineId Id="151" Count="0" />
+      <LineId Id="118" Count="0" />
+      <LineId Id="73" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_MonetTelescopeControl._SendTelemetry">
+      <LineId Id="197" Count="0" />
+      <LineId Id="201" Count="8" />
+      <LineId Id="214" Count="0" />
+      <LineId Id="211" Count="2" />
+      <LineId Id="215" Count="7" />
+      <LineId Id="81" Count="0" />
+      <LineId Id="223" Count="3" />
+      <LineId Id="233" Count="1" />
+      <LineId Id="244" Count="5" />
+      <LineId Id="251" Count="0" />
+      <LineId Id="250" Count="0" />
+      <LineId Id="252" Count="1" />
+      <LineId Id="258" Count="6" />
+      <LineId Id="242" Count="0" />
+      <LineId Id="265" Count="5" />
+      <LineId Id="82" Count="0" />
+      <LineId Id="272" Count="0" />
+      <LineId Id="271" Count="0" />
+      <LineId Id="83" Count="34" />
+      <LineId Id="273" Count="0" />
+      <LineId Id="119" Count="36" />
+      <LineId Id="186" Count="0" />
+      <LineId Id="188" Count="8" />
+      <LineId Id="5" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_MonetTelescopeControl._SlewTelescope">
+      <LineId Id="1" Count="15" />
+      <LineId Id="71" Count="6" />
+      <LineId Id="70" Count="0" />
+      <LineId Id="17" Count="0" />
+      <LineId Id="89" Count="4" />
+      <LineId Id="88" Count="0" />
+      <LineId Id="18" Count="40" />
+    </LineIds>
+    <LineIds Name="FB_MonetTelescopeControl._StopTelescope">
+      <LineId Id="16" Count="2" />
+      <LineId Id="44" Count="0" />
+      <LineId Id="19" Count="2" />
+      <LineId Id="45" Count="0" />
+      <LineId Id="22" Count="12" />
+      <LineId Id="46" Count="0" />
+      <LineId Id="48" Count="3" />
+      <LineId Id="47" Count="0" />
+      <LineId Id="35" Count="3" />
+      <LineId Id="52" Count="0" />
+      <LineId Id="39" Count="4" />
+      <LineId Id="10" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_MonetTelescopeControl._TrackTelescope">
+      <LineId Id="1" Count="69" />
+    </LineIds>
+    <LineIds Name="FB_MonetTelescopeControl.Altitude.Get">
+      <LineId Id="2" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_MonetTelescopeControl.Azimuth.Get">
+      <LineId Id="2" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_MonetTelescopeControl.Declination.Get">
+      <LineId Id="2" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_MonetTelescopeControl.Home">
+      <LineId Id="1" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_MonetTelescopeControl.Init">
+      <LineId Id="1" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_MonetTelescopeControl.MoveAltAz">
+      <LineId Id="1" Count="2" />
+    </LineIds>
+    <LineIds Name="FB_MonetTelescopeControl.MoveRaDec">
+      <LineId Id="1" Count="2" />
+    </LineIds>
+    <LineIds Name="FB_MonetTelescopeControl.Park">
+      <LineId Id="1" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_MonetTelescopeControl.Reset">
+      <LineId Id="1" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_MonetTelescopeControl.RightAscension.Get">
+      <LineId Id="2" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_MonetTelescopeControl.SetAltitudeOffset">
+      <LineId Id="1" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_MonetTelescopeControl.SetAzimuthOffset">
+      <LineId Id="1" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_MonetTelescopeControl.SetDerotatorOffset">
+      <LineId Id="1" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_MonetTelescopeControl.Slew">
+      <LineId Id="9" Count="1" />
+      <LineId Id="8" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_MonetTelescopeControl.Stop">
+      <LineId Id="1" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_MonetTelescopeControl.Track">
+      <LineId Id="9" Count="1" />
+      <LineId Id="8" Count="0" />
+      <LineId Id="17" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_MonetTelescopeControl.TrackRaDec">
+      <LineId Id="1" Count="2" />
+      <LineId Id="9" Count="0" />
+    </LineIds>
+  </POU>
+</TcPlcObject>

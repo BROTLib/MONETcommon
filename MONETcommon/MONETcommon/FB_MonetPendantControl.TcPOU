@@ -1,0 +1,183 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="FB_MonetPendantControl" Id="{e2b10f6c-d16d-4403-9ebe-8d8a369c8dbd}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK FB_MonetPendantControl
+VAR_INPUT
+	eTelescopeMode		: E_TelescopeMode;
+	fbCovers			: REFERENCE TO FB_MonetCoverControl;
+	fbBrake				: REFERENCE TO FB_HydraulicsControl;
+	fbHydraulics		: REFERENCE TO FB_HydraulicsControl;
+	fbFocus		 		: REFERENCE TO FB_FocusControl;
+	fbElevation			: REFERENCE TO FB_ElevationControl;
+	fbAzimuth	 		: REFERENCE TO FB_AzimuthControl;
+	fbDerotator			: REFERENCE TO FB_DerotatorControl;
+END_VAR
+VAR_OUTPUT
+	bEnable				: BOOL;
+END_VAR
+VAR
+	fbComm				: I_Comm;
+	nSelection			: UINT;		// program selection of the pendant control
+	bError				: BOOL;		// error on the pendant control
+	bHorn				: BOOL;
+	fbStartTrigger		: R_TRIG;
+	fbUpTrigger			: R_TRIG;
+	fbDownTrigger		: R_TRIG;	
+	fbResetTrigger		: R_TRIG;
+
+	//DIN17 2.0
+	IbBCD0				AT%I*: BOOL;
+	IbBCD2				AT%I*: BOOL;
+	IbBCD4				AT%I*: BOOL;
+	IbBCD8				AT%I*: BOOL;
+	IbResetButton		AT%I*: BOOL;
+	IbDirectionUp		AT%I*: BOOL;
+	IbDirectionDown		AT%I*: BOOL;
+	IbEnableKey			AT%I*: BOOL;
+	IbEnableButton		AT%I*: BOOL;
+	IbDirectionLeft		AT%I*: BOOL;
+	IbDirectionRight	AT%I*: BOOL;
+
+	ObLampUp			AT%Q*: BOOL;
+	ObLampDown			AT%Q*: BOOL;
+	ObLampRight			AT%Q*: BOOL;
+	ObLampLeft			AT%Q*: BOOL;
+	ObLampError			AT%Q*: BOOL;	
+END_VAR
+
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[(* 
+This program is responsible for the manual control of the telescope.
+all movable parts can be controlled from here. This is mainly for testing and
+maintenance.
+WARNING! Some of the safety routines are disabled, when operating the telescope manually.
+*)
+// calculate the value of the selector
+nSelection := 1*BOOL_TO_UINT(IbBCD0) + 
+			 2*BOOL_TO_UINT(IbBCD2) + 
+			 4*BOOL_TO_UINT(IbBCD4) +
+			 8*BOOL_TO_UINT(IbBCD8);
+
+// detect disconnection of the manual controls (should also trigger emergency stop).			 
+bError := (nSelection = 0);
+
+// disable all the lamps
+ObLampLeft := FALSE;
+ObLampRight := FALSE;
+ObLampUp := FALSE;
+ObLampDown := FALSE;
+bHorn := FALSE;
+
+fbUpTrigger(CLK := IbDirectionUp);
+fbDownTrigger(CLK := IbDirectionDown);
+//R_Enable(CLK := enable);
+// the error lamp is the same as the error lamp of the main panel
+ObLampError := ObLampError;
+
+// enabled?
+bEnable := IbEnableKey;
+IF NOT bEnable THEN
+	RETURN;
+END_IF
+
+// reset or start pushed?
+fbResetTrigger(CLK := IbResetButton);
+fbStartTrigger(CLK := IbEnableButton);
+
+// mode
+IF eTelescopeMode = E_TelescopeMode.automatic THEN
+	;
+END_IF
+
+// enable only the selected item and connect lamps and buttons accordingly
+CASE nSelection OF
+	1, 2, 3:	// reserved for Cover 1-3 control
+		ObLampUp := fbCovers.Opened;
+		ObLampDown := fbCovers.Closed;
+		IF IbEnableKey THEN
+			fbCovers.bOpen := IbDirectionUp AND fbCovers.Opened;
+			fbCovers.bClose := IbDirectionDown AND fbCovers.Closed;
+			ObLampError := fbCovers.bError;	
+		ELSE
+			IF IbDirectionDown THEN 
+				fbCovers.Close();
+			ELSIF IbDirectionUp THEN
+				fbCovers.Open();
+			END_IF		
+		END_IF
+		
+	4:	// Nasmyth / mirror M3 control
+		
+	5:	// Focus Control
+		IF __ISVALIDREF(fbFocus) THEN
+			fbFocus.Enable := IbEnableButton;			
+			ObLampUp := fbFocus.Enable AND fbFocus.Ready AND NOT fbFocus.InPosLimit;
+			ObLampDown := fbFocus.Enable AND fbFocus.Ready AND NOT fbFocus.InNegLimit;
+			fbFocus.MovePos := IbDirectionUp;
+			fbFocus.MoveNeg := IbDirectionDown;
+			IF fbResetTrigger.Q THEN
+				fbFocus.Reset();
+			END_IF
+			ObLampError := fbFocus.Error;
+		END_IF
+							
+	6:	// Derotator control
+		fbDerotator.Enable := IbEnableButton;
+		ObLampLeft  := fbDerotator.Ready AND NOT fbDerotator.InNegLimit;
+		ObLampRight := fbDerotator.Ready AND NOT fbDerotator.InPosLimit;
+		fbDerotator.MoveNeg := IbDirectionLeft AND NOT fbDerotator.inDigitalInputs.1;
+		fbDerotator.MovePos := IbDirectionRight AND NOT fbDerotator.inDigitalInputs.0;
+		ObLampError := fbDerotator.Error;
+		IF fbResetTrigger.Q THEN
+			fbDerotator.Reset();
+		END_IF
+		
+							
+	7:	// Elevation Control
+		fbElevation.Enable := IbEnableButton;		
+		fbElevation.MovePos := IbDirectionUp AND fbElevation.inDigitalInputs.0;
+		fbElevation.MoveNeg := IbDirectionDown AND fbElevation.inDigitalInputs.1;
+		ObLampUp := fbElevation.inDigitalInputs.0;
+		ObLampDown := fbElevation.inDigitalInputs.1;
+		ObLampError := fbElevation.bError;
+		IF fbResetTrigger.Q THEN
+			fbElevation.Reset();
+		END_IF
+		
+	8:	// Azimuth Control
+		fbAzimuth.Enable := IbEnableButton;
+		ObLampLeft := fbAzimuth.inDigitalInputs.0; // NOT GVL_Telescope.azimut_limit_switch;
+		ObLampRight := fbAzimuth.inDigitalInputs.1; // NOT GVL_Telescope.azimut_limit_switch;
+		fbAzimuth.MoveNeg := IbDirectionLeft AND fbAzimuth.inDigitalInputs.0;
+		fbAzimuth.MovePos := IbDirectionRight AND fbAzimuth.inDigitalInputs.1;
+		IF fbResetTrigger.Q THEN
+			fbAzimuth.Reset();
+		END_IF
+
+END_CASE
+]]></ST>
+    </Implementation>
+    <Method Name="FB_Init" Id="{377c4b19-44fb-4929-801b-86205f66218e}">
+      <Declaration><![CDATA[//FB_Init is always available implicitly and it is used primarily for initialization.
+//The return value is not evaluated. For a specific influence, you can also declare the
+//methods explicitly and provide additional code there with the standard initialization
+//code. You can evaluate the return value.
+METHOD FB_Init: BOOL
+VAR_INPUT
+    bInitRetains: BOOL; // TRUE: the retain variables are initialized (reset warm / reset cold)
+    bInCopyCode: BOOL;  // TRUE: the instance will be copied to the copy code afterward (online change)
+	comm			: I_Comm;   
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[THIS^.fbComm 	:= comm;]]></ST>
+      </Implementation>
+    </Method>
+    <LineIds Name="FB_MonetPendantControl">
+      <LineId Id="1" Count="109" />
+    </LineIds>
+    <LineIds Name="FB_MonetPendantControl.FB_Init">
+      <LineId Id="1" Count="0" />
+    </LineIds>
+  </POU>
+</TcPlcObject>

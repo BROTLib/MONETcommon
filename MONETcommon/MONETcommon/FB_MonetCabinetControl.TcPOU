@@ -1,0 +1,198 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="FB_MonetCabinetControl" Id="{82301626-c59a-4d6c-ac78-2e8e2d6a8e41}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK FB_MonetCabinetControl
+VAR_INPUT
+END_VAR
+VAR
+	inKeyLocal			AT%I*: BOOL;	//DIN3 0.2
+	inButtonStart		AT%I*: BOOL;	//DIN4 0.3
+	inButtonStop		AT%I*: BOOL;	//DIN5 0.4
+	inButtonReset		AT%I*: BOOL;	//DIN8 0.7
+	inCabinetTemp		AT%I*: INT;		//BT1	
+	inKeyClearBrakes	AT%I*: BOOL;	//DIN15 1.6
+	outLampPower		AT%Q*: BOOL;	//DOUT1 0.0
+	outLampManual		AT%Q*: BOOL;	//DOUT2 0.1
+	outLampError		AT%Q*: BOOL;	//DOUT3 0.2	
+	cabinetTemp				: REAL;
+	tempWarning				: SR;
+	tempCritical			: SR;
+	tempEvent				: FB_EventLog;
+	tempCriticalEvent		: FB_EventLog;
+	blinkErrorLamp			: FB_BLINK;
+	blinkPowerLamp			: FB_BLINK;
+	commTimer 				: TON := (PT:=T#5S);
+	fbComm					: I_Comm;
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[// check temperature
+cabinetTemp := INT_TO_REAL(inCabinetTemp) / 10.0;
+tempWarning(SET1 := cabinetTemp > 50.0, RESET := cabinetTemp < 40.0);
+tempCritical(SET1 := cabinetTemp > 60.0, RESET := cabinetTemp < 50.0);
+
+// blinking lights
+blinkErrorLamp(Q => outLampError);
+blinkPowerLamp(Q => outLampPower);
+
+// telemetry
+commTimer(IN:=TRUE);
+IF commTimer.Q THEN
+	commTimer(IN:=FALSE);
+	fbComm.Publish('electronics', 'base', 'MainCabinetTemperature', LREAL_TO_FMTSTR(cabinetTemp, 2, TRUE));
+END_IF
+
+// events
+tempEvent(	
+	Trigger 		:= tempWarning.Q1, 
+	Level 			:= ADSLOG_MSGTYPE_WARN,
+	FormatString 	:= 'Main cabinet temperature warning:	%s',
+	OnMessage 		:= LREAL_TO_FMTSTR(cabinetTemp, 1, TRUE),
+	comm			:= fbComm);
+tempCriticalEvent(	
+	Trigger 		:= tempCritical.Q1, 
+	Level 			:= ADSLOG_MSGTYPE_ERROR,
+	FormatString 	:= 'Main cabinet temperature is critical:	%s!',
+	OnMessage 		:= LREAL_TO_FMTSTR(cabinetTemp, 1, TRUE),
+	comm			:= fbComm);
+
+
+]]></ST>
+    </Implementation>
+    <Method Name="AreBreakesCleared" Id="{febea358-d684-4605-9606-4cfb2e03d90b}">
+      <Declaration><![CDATA[METHOD PUBLIC AreBreakesCleared : BOOL
+VAR_INPUT
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[AreBreakesCleared := inKeyClearBrakes;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="FB_Init" Id="{7d550def-2f64-47d1-ac2f-11dc091e5629}">
+      <Declaration><![CDATA[//FB_Init is always available implicitly and it is used primarily for initialization.
+//The return value is not evaluated. For a specific influence, you can also declare the
+//methods explicitly and provide additional code there with the standard initialization
+//code. You can evaluate the return value.
+METHOD FB_Init: BOOL
+VAR_INPUT
+    bInitRetains	: BOOL; // TRUE: the retain variables are initialized (reset warm / reset cold)
+    bInCopyCode		: BOOL;  // TRUE: the instance will be copied to the copy code afterward (online change)
+	comm			: I_Comm;	   
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[THIS^.fbComm := comm;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="IsKeyOnManual" Id="{c3808b8c-a852-4e65-ad30-2984c388ad32}">
+      <Declaration><![CDATA[METHOD PUBLIC IsKeyOnManual : BOOL
+VAR_INPUT
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IsKeyOnManual := inKeyLocal;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="IsResetPushed" Id="{c5f0543d-d2ee-4085-9cc6-f6a37ba59d95}">
+      <Declaration><![CDATA[METHOD PUBLIC IsResetPushed : BOOL
+VAR_INPUT
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IsResetPushed := inButtonReset;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="IsStartPushed" Id="{1ca9b4ce-3543-45dd-a0d5-ec2fcef43780}">
+      <Declaration><![CDATA[METHOD PUBLIC IsStartPushed : BOOL
+VAR_INPUT
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IsStartPushed := inButtonStart;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="IsStopPushed" Id="{2e5a1388-2bbb-4716-8012-08858212fbd5}">
+      <Declaration><![CDATA[METHOD PUBLIC IsStopPushed : BOOL
+VAR_INPUT
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IsStopPushed := NOT inButtonStop;]]></ST>
+      </Implementation>
+    </Method>
+    <Property Name="KeyLocal" Id="{ad8e8c92-5a56-4bc4-94dd-dcc3a456a9f1}">
+      <Declaration><![CDATA[PROPERTY KeyLocal : BOOL]]></Declaration>
+      <Get Name="Get" Id="{8be1cdac-bba1-4a4a-bac4-cea38f645137}">
+        <Declaration><![CDATA[VAR
+END_VAR
+]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[KeyLocal := inKeyLocal;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Method Name="SetBlinkError" Id="{f01ddc4d-dc53-44dc-b62c-672aa08804ee}">
+      <Declaration><![CDATA[METHOD PUBLIC SetBlinkError : BOOL
+VAR_INPUT
+	mode	: E_Blink;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[blinkErrorLamp.blink := mode;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="SetBlinkPower" Id="{0c127d75-c801-44ba-a87e-6f0d74dad2e5}">
+      <Declaration><![CDATA[METHOD PUBLIC SetBlinkPower : BOOL
+VAR_INPUT
+	mode	: E_Blink;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[blinkPowerLamp.blink := mode;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="SetManualLamp" Id="{bad59df7-0faf-454c-875d-08335ce28698}">
+      <Declaration><![CDATA[METHOD PUBLIC SetManualLamp : BOOL
+VAR_INPUT
+	enable	: BOOL;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[outLampManual := enable;]]></ST>
+      </Implementation>
+    </Method>
+    <LineIds Name="FB_MonetCabinetControl">
+      <LineId Id="74" Count="30" />
+      <LineId Id="32" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_MonetCabinetControl.AreBreakesCleared">
+      <LineId Id="1" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_MonetCabinetControl.FB_Init">
+      <LineId Id="1" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_MonetCabinetControl.IsKeyOnManual">
+      <LineId Id="1" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_MonetCabinetControl.IsResetPushed">
+      <LineId Id="1" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_MonetCabinetControl.IsStartPushed">
+      <LineId Id="1" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_MonetCabinetControl.IsStopPushed">
+      <LineId Id="1" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_MonetCabinetControl.KeyLocal.Get">
+      <LineId Id="1" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_MonetCabinetControl.SetBlinkError">
+      <LineId Id="1" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_MonetCabinetControl.SetBlinkPower">
+      <LineId Id="1" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_MonetCabinetControl.SetManualLamp">
+      <LineId Id="1" Count="0" />
+    </LineIds>
+  </POU>
+</TcPlcObject>

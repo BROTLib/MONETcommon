@@ -1,0 +1,120 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="FB_MonetPowerMonitoring" Id="{1c33c5f1-1a01-4451-9e8f-b85db9566c06}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK FB_MonetPowerMonitoring
+VAR_INPUT
+END_VAR
+VAR_OUTPUT
+	phaseOK:				BOOL;
+END_VAR
+VAR
+	fbComm					: I_Comm;	
+
+	FrequencyGuardWarning	AT%I*: BOOL;
+	FrequencyGuardError		AT%I*: BOOL;
+	QualityGuardWarning		AT%I*: BOOL;
+	QualityGuardError		AT%I*: BOOL;
+	UnbalanceGuardWarning	AT%I*: BOOL;
+	UnbalanceGuardError		AT%I*: BOOL;
+	PowerQuality			AT%I*: REAL;
+	L1OverVoltage			AT%I*: BOOL;
+	L1InaccVoltage			AT%I*: BOOL;
+	L1VoltageGuardWarning	AT%I*: BOOL;
+	L1VoltageGuardError		AT%I*: BOOL;
+	L2OverVoltage			AT%I*: BOOL;
+	L2InaccVoltage			AT%I*: BOOL;
+	L2VoltageGuardWarning	AT%I*: BOOL;
+	L2VoltageGuardError		AT%I*: BOOL;
+	L3OverVoltage			AT%I*: BOOL;
+	L3InaccVoltage			AT%I*: BOOL;
+	L3VoltageGuardWarning	AT%I*: BOOL;
+	L3VoltageGuardError		AT%I*: BOOL;
+	
+	mqttTimer: 				TON := (PT:=T#10S);
+	powerWarningDelay:		TON := (PT:=T#100MS);
+	powerWarningRetain:		TOF := (PT:=T#2000MS);
+	
+	powerError:				FB_EventLog;
+	powerWarning:			FB_EventLog;
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[phaseOK := NOT FrequencyGuardWarning AND NOT L1VoltageGuardWarning AND NOT L2VoltageGuardWarning AND NOT L3VoltageGuardWarning;
+
+powerWarningDelay(IN := NOT phaseOK);
+powerWarningRetain(IN := powerWarningDelay.Q);
+
+// MQTT Section
+mqttTimer(IN:=TRUE);
+IF mqttTimer.Q THEN
+	mqttTimer(IN:=FALSE);
+
+	fbComm.Publish('telescope', 'power', 'FrequencyGuardWarning',	BOOL_TO_STRING(FrequencyGuardWarning));
+	fbComm.Publish('telescope', 'power', 'FrequencyGuardError',	BOOL_TO_STRING(FrequencyGuardError));
+	fbComm.Publish('telescope', 'power', 'QualityGuardWarning',	BOOL_TO_STRING(QualityGuardWarning));
+	fbComm.Publish('telescope', 'power', 'QualityGuardError',		BOOL_TO_STRING(QualityGuardError));
+	fbComm.Publish('telescope', 'power', 'UnbalanceGuardWarning',	BOOL_TO_STRING(UnbalanceGuardWarning));
+	fbComm.Publish('telescope', 'power', 'UnbalanceGuardError',	BOOL_TO_STRING(UnbalanceGuardError));
+	fbComm.Publish('telescope', 'power', 'PowerQuality',			REAL_TO_STRING(PowerQuality));
+	fbComm.Publish('telescope', 'power', 'L1OverVoltage',			BOOL_TO_STRING(L1OverVoltage));
+	fbComm.Publish('telescope', 'power', 'L1InaccVoltage',		BOOL_TO_STRING(L1InaccVoltage));
+	fbComm.Publish('telescope', 'power', 'L1VoltageGuardWarning',	BOOL_TO_STRING(L1VoltageGuardWarning));
+	fbComm.Publish('telescope', 'power', 'L1VoltageGuardError',	BOOL_TO_STRING(L1VoltageGuardError));
+	fbComm.Publish('telescope', 'power', 'L2OverVoltage',			BOOL_TO_STRING(L2OverVoltage));
+	fbComm.Publish('telescope', 'power', 'L2InaccVoltage',		BOOL_TO_STRING(L2InaccVoltage));
+	fbComm.Publish('telescope', 'power', 'L2VoltageGuardWarning',	BOOL_TO_STRING(L2VoltageGuardWarning));
+	fbComm.Publish('telescope', 'power', 'L2VoltageGuardError',	BOOL_TO_STRING(L2VoltageGuardError));
+	fbComm.Publish('telescope', 'power', 'L3OverVoltage',			BOOL_TO_STRING(L3OverVoltage));
+	fbComm.Publish('telescope', 'power', 'L3InaccVoltage',		BOOL_TO_STRING(L3InaccVoltage));
+	fbComm.Publish('telescope', 'power', 'L3VoltageGuardWarning',	BOOL_TO_STRING(L3VoltageGuardWarning));
+	fbComm.Publish('telescope', 'power', 'L3VoltageGuardError',	BOOL_TO_STRING(L3VoltageGuardError));
+END_IF
+
+// EventLog section
+PowerError(	
+	Trigger 		:= FrequencyGuardError OR QualityGuardError OR UnbalanceGuardError OR L1VoltageGuardError OR L2VoltageGuardError OR L3VoltageGuardError, 
+	Level 			:= ADSLOG_MSGTYPE_ERROR,
+	FormatString 	:= '%s',
+	OnMessage 		:= 'electrical power:	ERROR!',
+	comm			:= fbComm);
+	
+PowerWarning(	
+	Trigger 		:= powerWarningRetain.Q, 
+	Level 			:= ADSLOG_MSGTYPE_WARN,
+	FormatString 	:= '%s',
+	OnMessage 		:= 'electrical power:	WARNING!',
+	comm			:= fbComm);
+]]></ST>
+    </Implementation>
+    <Method Name="FB_Init" Id="{61505fbc-9a86-4110-ab4f-f8109cae6021}">
+      <Declaration><![CDATA[//FB_Init is always available implicitly and it is used primarily for initialization.
+//The return value is not evaluated. For a specific influence, you can also declare the
+//methods explicitly and provide additional code there with the standard initialization
+//code. You can evaluate the return value.
+METHOD FB_Init: BOOL
+VAR_INPUT
+    bInitRetains	: BOOL; // TRUE: the retain variables are initialized (reset warm / reset cold)
+    bInCopyCode		: BOOL;  // TRUE: the instance will be copied to the copy code afterward (online change)
+	comm			: I_Comm;	   
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[THIS^.fbComm := comm;]]></ST>
+      </Implementation>
+    </Method>
+    <LineIds Name="FB_MonetPowerMonitoring">
+      <LineId Id="1" Count="1" />
+      <LineId Id="15" Count="9" />
+      <LineId Id="26" Count="3" />
+      <LineId Id="65" Count="4" />
+      <LineId Id="72" Count="7" />
+      <LineId Id="44" Count="7" />
+      <LineId Id="80" Count="0" />
+      <LineId Id="52" Count="5" />
+      <LineId Id="81" Count="0" />
+      <LineId Id="61" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_MonetPowerMonitoring.FB_Init">
+      <LineId Id="1" Count="0" />
+    </LineIds>
+  </POU>
+</TcPlcObject>

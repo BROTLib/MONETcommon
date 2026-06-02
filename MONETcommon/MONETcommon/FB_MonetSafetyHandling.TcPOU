@@ -1,0 +1,200 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="FB_MonetSafetyHandling" Id="{f40cbfea-880d-4f1c-9345-5f8b55063f2d}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK FB_MonetSafetyHandling
+VAR
+	// power on delay
+
+	inError					AT%I*:	BOOL;		// Safety Error Condition
+	outRun					AT%Q*:	BOOL;		// Run/Stop Safety
+	outRestart				AT%Q*:	BOOL;		// Restart Safety
+	outErrAck				AT%Q*:	BOOL;		// Error Acknowledgement 
+	
+	outResetAzimuthSTO		AT%Q*: BOOL;
+	outResetElevationSTO	AT%Q*: BOOL;
+	outResetDerotatorSTO	AT%Q*: BOOL;
+	
+	// Safety group
+	fbInfoGroup1			: FB_InfoGroup;
+	stInfoGroup1	AT%I*	: ST_InfoDataGroup;
+	sStateGroup1			: STRING;
+	
+	// Estop
+	fbInfoEStop1			:FB_InfoEStop;
+	stInfoEStop1 	AT%I*	:ST_InfoDataFB;
+	sStateEStop1			:STRING;
+	sDiagEStop1				:STRING;	
+	
+	// Info EL1904
+	fbInfoSafetyIn			: FB_InfoConnection;
+	stInfoSafetyIn 	AT%I*	: ST_InfoDataConnection;
+	sStateSafetyIn			: STRING;
+	sDiagSafetyIn			: STRING;
+	bSafetyInCh1			: BOOL;
+	bSafetyInCh2			: BOOL;
+	bSafetyInCh3			: BOOL;
+	bSafetyInCh4			: BOOL;
+	
+	// Info EL2904
+	fbInfoSafetyOut			: FB_InfoConnection;
+	stInfoSafetyOut AT%I*	: ST_InfoDataConnection;
+	sStateSafetyOut			: STRING;
+	sDiagSafetyOut			: STRING;
+	bSafetyOutCh1			: BOOL;
+	bSafetyOutCh2			: BOOL;
+	bSafetyOutCh3			: BOOL;
+	bSafetyOutCh4			: BOOL;
+	
+	initialStartUpStep		: INT := 0;
+	startDelay 				: TON := (PT := T#2S);
+	stateDelay 				: TON := (PT := T#1S);
+
+	
+	ErrAckLog				: FB_EventLog;		// Errack logging
+	RestartLog				: FB_EventLog;		// restart logging
+	SafetyLog				: FB_EventLog;		// safety logging
+	
+	fbComm					: I_Comm;
+END_VAR
+VAR_OUTPUT
+	error					: BOOL;		// error condition
+	state          			: BOOL;		// safety is okay
+	estop					: BOOL;		// Emergency_stop engaged
+END_VAR
+VAR_INPUT
+	// issue a remote restart
+	//remote_restart:		BOOL;
+	// issue a remute run/stop
+	remote_run		: BOOL := TRUE;
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[// Safety is running on start
+outRun := remote_run;
+
+// error?
+error := inError;
+
+// get safety status
+fbInfoGroup1(
+	stInfoData	:= stInfoGroup1,
+	sState		=> sStateGroup1);
+state := sStateGroup1 = 'RUN' OR initialStartUpStep <> 100;
+
+// estop triggered?
+fbInfoEStop1(
+	stInfoData	:= stInfoEStop1, 
+	sState		=> sStateEStop1, 
+	sDiag		=> sDiagEStop1);
+estop := sStateEStop1 <> 'RUN' AND initialStartUpStep = 100;
+
+//Info SafetyIn EL1904
+fbInfoSafetyIn(
+	stInfoData		:=stInfoSafetyIn, 
+	sState			=>sStateSafetyIn, 
+	sDiag			=>sDiagSafetyIn, 
+	bChannel1		=>bSafetyInCh1, 
+	bChannel2		=>bSafetyInCh2, 
+	bChannel3		=>bSafetyInCh3, 
+	bChannel4		=>bSafetyInCh4);	
+	
+//Info SafetyOut EL2904
+fbInfoSafetyOut(
+	stInfoData		:=stInfoSafetyOut, 
+	sState			=>sStateSafetyOut, 
+	sDiag			=>sDiagSafetyOut, 
+	bChannel1		=>bSafetyOutCh1, 
+	bChannel2		=>bSafetyOutCh2, 
+	bChannel3		=>bSafetyOutCh3, 
+	bChannel4		=>bSafetyOutCh4);
+	
+// initial startup	
+CASE initialStartUpStep OF
+	0:
+		// begin start up procedure, do ErrAck
+		startDelay(IN := TRUE);
+		IF startDelay.Q THEN
+			startDelay(IN := FALSE);
+			initialStartUpStep := 10;
+		END_IF		
+	10:
+		// do err ack 
+		outErrAck := TRUE;
+		stateDelay(IN := TRUE);
+		IF stateDelay.Q THEN
+			stateDelay(IN := FALSE);
+			outErrAck := FALSE;
+			initialStartUpStep := 20;
+		END_IF
+	20:
+		// do restart
+		outRestart := TRUE;
+		stateDelay(IN := TRUE);
+		IF stateDelay.Q THEN
+			stateDelay(IN := FALSE);
+			outRestart := FALSE;
+			initialStartUpStep := 30;
+		END_IF		
+	30:
+		// do STO restart
+		outResetAzimuthSTO := TRUE;
+		outResetElevationSTO := TRUE;
+		outResetDerotatorSTO := TRUE;
+		stateDelay(IN := TRUE);
+		IF stateDelay.Q THEN
+			stateDelay(IN := FALSE);
+			outResetAzimuthSTO := FALSE;
+			outResetElevationSTO := FALSE;
+			outResetDerotatorSTO := FALSE;
+			initialStartUpStep := 100;
+		END_IF			
+END_CASE
+	
+
+ErrAckLog(  
+	Trigger 	:= outErrAck,
+	OnMessage 	:= 'Safety error was acknowledged.',
+	Comm		:= fbComm
+);
+			
+RestartLog(	
+	Trigger 	:= outRestart,
+	Level 		:= ADSLOG_MSGTYPE_WARN,
+	OnMessage 	:= 'Safety was restarted.',
+	Comm		:= fbComm
+);
+
+SafetyLog(	
+	Trigger 	:= estop,
+	Level 		:= ADSLOG_MSGTYPE_ERROR,
+	OnMessage 	:= 'Safety Error! Emergency stop enganged!',
+	OffMessage 	:= 'Safety is OK.',
+	OffLevel 	:= ADSLOG_MSGTYPE_HINT,
+	Comm		:= fbComm);
+]]></ST>
+    </Implementation>
+    <Method Name="FB_Init" Id="{78880c56-5a68-4979-b4f3-852d102d76af}">
+      <Declaration><![CDATA[//FB_Init is always available implicitly and it is used primarily for initialization.
+//The return value is not evaluated. For a specific influence, you can also declare the
+//methods explicitly and provide additional code there with the standard initialization
+//code. You can evaluate the return value.
+METHOD FB_Init: BOOL
+VAR_INPUT
+    bInitRetains	: BOOL; // TRUE: the retain variables are initialized (reset warm / reset cold)
+    bInCopyCode		: BOOL;  // TRUE: the instance will be copied to the copy code afterward (online change)
+	comm			: I_Comm;	      
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[THIS^.fbComm := comm;]]></ST>
+      </Implementation>
+    </Method>
+    <LineIds Name="FB_MonetSafetyHandling">
+      <LineId Id="1" Count="79" />
+      <LineId Id="130" Count="21" />
+      <LineId Id="189" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_MonetSafetyHandling.FB_Init">
+      <LineId Id="1" Count="0" />
+    </LineIds>
+  </POU>
+</TcPlcObject>

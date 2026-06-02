@@ -1,0 +1,127 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="FB_MonetFocusControl" Id="{27922653-650e-4327-85ba-374d2f945b2c}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK FB_MonetFocusControl EXTENDS FB_FocusControl
+VAR_INPUT
+END_VAR
+VAR_OUTPUT
+END_VAR
+VAR
+END_VAR
+VAR PERSISTENT
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[(*
+Focus Control Unit
+spindle gear: 5mm
+brake: 86 61103H00 Var. 0005 Index C; 24VDC geglattet 0,25 A P1672/R7
+motor: Faulhaber ; Schönaich ; 3557K024CR; 454  431 ; Made in germany ==> 5300 rpm
+gear: Faulhaber ; MINIMOTOR SA ; swiss made ; 38/1S  43:1 ; 033896  503
+Focus is locked by default
+70,8W; 0,100A no load current; 2,0 Terminal resistance; 1,950A max Current 
+*)
+
+// limit to sane positions
+fPosition := LIMIT(fMinPosition, fPosition, fMaxPosition);
+
+// focus is unlocked if enabled and no eror
+ObFocusUnlock := bEnable AND NOT bError;
+bFocusUnlocked := ObFocusUnlock;
+
+// position focus
+IF fbAxis.calibrated THEN
+	IF ABS(fPosition - fActualPosition) > fTolerance THEN
+		IF fbAxis.Ready THEN
+			bMoveAxis := TRUE;
+		END_IF
+	END_IF
+	// store actual position, if we are calibrated and locked
+	IF NOT ObFocusUnlock THEN
+		fLastPposition := fActualPosition;
+	END_IF
+END_IF
+
+// if we are on automatic mode, calibrate if necessary
+IF eTelescopeMode = E_TelescopeMode.automatic AND NOT fbAxis.calibrated AND fbAxis.Ready THEN
+	bHomeAxis := TRUE;
+END_IF
+
+IF bHomeAxis THEN
+	IF fLastPposition > 0.0 THEN
+		eHomingMode := MC_ForceCalibration; // MC_Direct
+		fPosition := fLastPposition;
+		fbSetPosition.Execute := TRUE;
+	ELSE
+		eHomingMode := MC_DefaultHoming;
+		fPosition := fHomingPosition;
+		fbSetPosition.Execute := FALSE;
+	END_IF
+ELSE
+	fbSetPosition.Execute := FALSE;	
+END_IF
+
+// deactivate limit switches on homing
+MC_SetAcceptBlockedDriveSignal(Axis := refAxis, enable := bHomeAxis);
+fbSetPosition(Axis := refAxis, Position := fLastPposition);
+		
+fbAxis(	
+	enable 			:= bFocusUnlocked,
+	Reset 			:= bReset,
+	moveAxis 		:= bMoveAxis AND bFocusUnlocked,
+	homeAxis 		:= bHomeAxis AND bFocusUnlocked,
+	homingMode 		:= eHomingMode,
+	Position 		:= fPosition,
+	Velocity 		:= fVelocity,
+	enable_Positive := NOT IbLimitFar OR bHomeAxis,
+	enable_Negative := NOT IbLimitNear,
+	Jog_Forward 	:= bMovePos AND bFocusUnlocked,
+	Jog_Backwards 	:= bMoveNeg AND bFocusUnlocked,
+	bCalibrationCam := IbLimitFar,
+	ActualPosition 	=> fActualPosition,
+	Error 			=> bError,
+	ErrorID 		=> nErrorID,
+	axisRef 		:= refAxis);	
+
+IF fbAxis.MoveDone THEN
+	bMoveAxis := FALSE;
+END_IF
+
+IF fbAxis.HomeDone THEN
+	bHomeAxis := FALSE;
+	fLastPposition := fPosition;
+END_IF
+	
+IF fbAxis.ResetDone THEN
+	bReset := FALSE;
+END_IF
+
+IF fbAxis.calibrated OR bError THEN
+	bHomeAxis := FALSE;
+END_IF
+
+IF bError THEN
+	fLastPposition := -1.0;
+	//focusAxis.calibrated := FALSE;
+	bCalibrated := FALSE;
+END_IF
+
+bCalibrated := fbAxis.calibrated;
+bReady := fbAxis.Ready AND fbAxis.StandStill OR NOT ObFocusUnlock;
+
+// send telemetry
+tonComm(IN:=TRUE);
+IF tonComm.Q THEN // publish new payload every 5 seconds
+	tonComm(IN:=FALSE);
+	SendTelemetry();	
+END_IF
+HandleEvents();]]></ST>
+    </Implementation>
+    <LineIds Name="FB_MonetFocusControl">
+      <LineId Id="1" Count="95" />
+      <LineId Id="130" Count="5" />
+      <LineId Id="97" Count="0" />
+      <LineId Id="99" Count="0" />
+    </LineIds>
+  </POU>
+</TcPlcObject>
