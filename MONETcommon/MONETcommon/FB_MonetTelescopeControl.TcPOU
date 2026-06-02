@@ -11,6 +11,9 @@ VAR_INPUT
 	fbAzimuth			: REFERENCE TO FB_AzimuthControl;
 	fbDerotator			: REFERENCE TO FB_DerotatorControl;
 
+	fbPointing			: REFERENCE TO FB_PointingModelForward;
+	fbPointingInverse	: REFERENCE TO FB_PointingModelInversion;
+
 	bBrakeClearing		: BOOL	:= TRUE;
 END_VAR
 VAR_OUTPUT
@@ -29,9 +32,6 @@ VAR_OUTPUT
 	fAzimuthVelocity	: LREAL;	// rotational velocity of the elevation
 END_VAR
 VAR
-	fbPointing			: FB_PointingModelForward(AOFF := -0.006778523308102358, BNP := 0.030459575443670728, AN_A := -0.013961935190411667, AE_A := -0.01036163798027645, NPAE := 0.0017131069293910839, 
-                                                  EOFF := 0.04040337399598415, AN_E := -0.011190631316106092, AE_E := -0.009741636951375865, TF := 0.06450337748465318);
-	fbPointingInverse	: FB_PointingModelInversion(fbPointing := fbPointing);
 END_VAR
 ]]></Declaration>
     <Implementation>
