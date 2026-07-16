@@ -135,28 +135,17 @@ fDerotatorVelocity := F_Derotatorvelocity(fElevationCalc, fAzimuthCalc, telescop
 fElevationVelocity := F_Elevationvelocity(fAzimuthCalc, telescopeConfig.latitude);
 fAzimuthVelocity := F_Azimuthvelocity(fElevationCalc, fAzimuthCalc, telescopeConfig.latitude);
 
-IF (fAzimuthCalc > 270.0) THEN
+IF (fAzimuthCalc > 310.0 AND fAzimuthVelocity > 0.0) OR (fAzimuthCalc > 440.0) THEN
 	fAzimuthCalc := fAzimuthCalc - 360.0;
-ELSIF (fAzimuthCalc < -274.0) THEN
+ELSIF (fAzimuthCalc < 80.0 AND fAzimuthVelocity < 0.0) OR (fAzimuthCalc < -50.0) THEN
 	fAzimuthCalc := fAzimuthCalc + 360.0;
 END_IF
-IF (fDerotatorCalc > 360.0) THEN
+
+IF (fDerotatorCalc > 290.0 AND fDerotatorVelocity > 0.0) OR (fDerotatorCalc > 380.0) THEN
 	fDerotatorCalc := fDerotatorCalc - 360.0;
-ELSIF (fDerotatorCalc < -90.0) THEN
+ELSIF (fDerotatorCalc < 20.0 AND fDerotatorVelocity < 0.0) OR (fDerotatorCalc < -70.0) THEN
 	fDerotatorCalc := fDerotatorCalc + 360.0;
 END_IF
-
-//IF (fAzimuthCalc > 310.0 AND fAzimuthVelocity > 0.0) OR (fAzimuthCalc > 440.0) THEN
-//	fAzimuthCalc := fAzimuthCalc - 360.0;
-//ELSIF (fAzimuthCalc < 80.0 AND fAzimuthVelocity < 0.0) OR (fAzimuthCalc < -50.0) THEN
-//	fAzimuthCalc := fAzimuthCalc + 360.0;
-//END_IF
-
-//IF (fDerotatorCalc > 290.0 AND fDerotatorVelocity > 0.0) OR (fDerotatorCalc > 380.0) THEN
-//	fDerotatorCalc := fDerotatorCalc - 360.0;
-//ELSIF (fDerotatorCalc < 20.0 AND fDerotatorVelocity < 0.0) OR (fDerotatorCalc < -70.0) THEN
-//	fDerotatorCalc := fDerotatorCalc + 360.0;
-//END_IF
 
 // get current coordinates	
 fAzimuthCurrent := fbAzimuth.fActualPosition;
