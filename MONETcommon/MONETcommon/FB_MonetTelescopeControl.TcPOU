@@ -15,6 +15,8 @@ VAR_INPUT
 	fbPointingInverse	: REFERENCE TO FB_PointingModelInversion;
 
 	bBrakeClearing		: BOOL	:= TRUE;
+
+	fElevationHomingVelocity : LREAL := 5.0; // elevation axis velocity during _HomeTelescope (deg/s) - site-specific, e.g. MONETN uses 10.0
 END_VAR
 VAR_OUTPUT
 	fDerotatorSign		: LREAL := 1.0;	// derotator
@@ -1015,7 +1017,7 @@ CASE nStage OF
 			fElevationOffset	=> fElevationPointingOffset
 		);	
 		fbElevation.Position := fElevation + fElevationPointingOffset + fElevationOffset;
-		fbElevation.Velocity := 5.0;
+		fbElevation.Velocity := fElevationHomingVelocity;
 		fbElevation.MoveAxis := TRUE;
 		fbAzimuth.Position := fAzimuth + fAzimuthPointingOffset + fAzimuthOffset / COS(fElevationCalc * d2r);
 		fbAzimuth.Velocity := 10.0;
