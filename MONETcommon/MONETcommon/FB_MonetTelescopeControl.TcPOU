@@ -1218,6 +1218,28 @@ END_VAR
         </Implementation>
       </Get>
     </Property>
+    <Property Name="CoverAutoOpen" Id="{d750fe74-a7ce-44c0-a77d-2f5e342e939f}">
+      <Declaration><![CDATA[PROPERTY CoverAutoOpen : BOOL
+]]></Declaration>
+      <Get Name="Get" Id="{4134082f-796e-4360-8ca1-5611440c0e09}">
+        <Declaration><![CDATA[VAR
+END_VAR
+]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[CoverAutoOpen := THIS^.bCoverAutoOpen;]]></ST>
+        </Implementation>
+      </Get>
+      <Set Name="Set" Id="{5af5b3f5-890f-4491-8b7f-06921498a3f2}">
+        <Declaration><![CDATA[VAR
+END_VAR
+]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[// MONET telescopes must never skip the automatic cover-open on power-on;
+// this is a hard safety invariant, so any attempt to disable it is ignored.
+THIS^.bCoverAutoOpen := TRUE;]]></ST>
+        </Implementation>
+      </Set>
+    </Property>
     <Property Name="Declination" Id="{b1285964-102f-45b7-af05-6785154ef40d}">
       <Declaration><![CDATA[{warning 'add property implementation'}
 PROPERTY Declination : LREAL
@@ -1587,6 +1609,12 @@ THIS^.bGoto				:= TRUE;]]></ST>
     </LineIds>
     <LineIds Name="FB_MonetTelescopeControl.Azimuth.Get">
       <LineId Id="2" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_MonetTelescopeControl.CoverAutoOpen.Get">
+      <LineId Id="2" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_MonetTelescopeControl.CoverAutoOpen.Set">
+      <LineId Id="2" Count="1" />
     </LineIds>
     <LineIds Name="FB_MonetTelescopeControl.Declination.Get">
       <LineId Id="2" Count="0" />
