@@ -19,7 +19,7 @@
     <Company>IAG</Company>
     <Released>true</Released>
     <Title>MONETcommon</Title>
-    <ProjectVersion>0.2</ProjectVersion>
+    <ProjectVersion>0.2.1</ProjectVersion>
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="E_ModeLanguage.TcDUT">

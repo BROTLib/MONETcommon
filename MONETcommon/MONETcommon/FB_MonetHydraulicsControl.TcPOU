@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
   <POU Name="FB_MonetHydraulicsControl" Id="{0d9c5732-af19-4096-a83e-065687a13da0}" SpecialFunc="None">
     <Declaration><![CDATA[FUNCTION_BLOCK FB_MonetHydraulicsControl IMPLEMENTS I_Hydraulics, I_Brake
@@ -244,7 +244,7 @@ hydraulicsLog(
 	OnMessage 		:= 'FAILURE',
 	OffMessage 		:= 'OK',
 	OffLevel 		:= ADSLOG_MSGTYPE_HINT, 
-	fbComm 			:= fbComm);
+	Comm 			:= fbComm);
 
 pumpLog(
 	Trigger 		:= bPumpRunning,
@@ -253,7 +253,7 @@ pumpLog(
 	OnMessage 		:= 'START',
 	OffMessage 		:= 'STOP',
 	OffLevel 		:= ADSLOG_MSGTYPE_HINT, 
-	fbComm 			:= fbComm);
+	Comm 			:= fbComm);
 	
 reserveLog(
 	Trigger 		:= bOilWarning,
@@ -262,7 +262,7 @@ reserveLog(
 	OnMessage 		:= 'LOW',
 	OffMessage 		:= 'OK',
 	OffLevel 		:= ADSLOG_MSGTYPE_HINT, 
-	fbComm	 		:= fbComm);
+	Comm	 		:= fbComm);
 
 oilLowLog(
 	Trigger 		:= bOilLow,
@@ -271,7 +271,7 @@ oilLowLog(
 	OnMessage 		:= 'LOW',
 	OffMessage 		:= 'OK',
 	OffLevel 		:= ADSLOG_MSGTYPE_HINT, 
-	fbComm 			:= fbComm);
+	Comm 			:= fbComm);
 
 oilMaxLog(
 	Trigger 		:= bOilPanMaximum,
@@ -280,28 +280,28 @@ oilMaxLog(
 	OnMessage 		:= 'MAXIMUM',
 	OffMessage 		:= 'OK',
 	OffLevel 		:= ADSLOG_MSGTYPE_HINT, 
-	fbComm 			:= fbComm);	
+	Comm 			:= fbComm);	
 				
 filterLog(
 	Trigger 		:= bOilFilterDirty,
 	Level 			:= ADSLOG_MSGTYPE_WARN,
 	FormatString 	:= 'Hydraulics Filter is %s',
 	OnMessage 		:= 'dirty.', 
-	fbComm 			:= fbComm);
+	Comm 			:= fbComm);
 
 overTemperatureLog(
 	Trigger 		:= bOilHot,
 	Level 			:= ADSLOG_MSGTYPE_WARN,
 	FormatString 	:= 'Hydraulics Temperature is %s',
 	OnMessage 		:= 'high.', 
-	fbComm 			:= fbComm);
+	Comm 			:= fbComm);
 				
 underTemperatureLog(
 	Trigger 		:= bOilCold,
 	Level 			:= ADSLOG_MSGTYPE_WARN,
 	FormatString 	:= 'Hydraulics Temperature is %s',
 	OnMessage 		:= 'low.', 
-	fbComm 			:= fbComm);
+	Comm 			:= fbComm);
 
 suctionLog(
 	Trigger 		:= bSuctionFailure,
@@ -310,7 +310,7 @@ suctionLog(
 	OnMessage 		:= 'FAILURE',
 	OffMessage 		:= 'OK',
 	OffLevel 		:= ADSLOG_MSGTYPE_HINT, 
-	fbComm 			:= fbComm);
+	Comm 			:= fbComm);
 
 hydraulicsFailureLog(
 	Trigger 		:= bHydraulicsFailure,
@@ -319,14 +319,14 @@ hydraulicsFailureLog(
 	OnMessage 		:= 'FAILURE',
 	OffMessage 		:= 'OK',
 	OffLevel 		:= ADSLOG_MSGTYPE_HINT, 
-	fbComm 			:= fbComm);
+	Comm 			:= fbComm);
 				
 brakeClearingWarning(
 	Trigger 		:= NOT bBrakeClearing AND bOpenBrake,
 	Level 			:= ADSLOG_MSGTYPE_WARN,
 	FormatString 	:= '%s',
 	OnMessage 		:= 'Cannot open brake without brake clearing.', 
-	fbComm 			:= fbComm);
+	Comm 			:= fbComm);
 
 brakeWarning(	
 	Trigger 		:= bBrakeOpen,
@@ -334,14 +334,14 @@ brakeWarning(
 	FormatString 	:= '%s',
 	OnMessage 		:= 'Brake is open.',
 	OffMessage 		:= 'Brake is closed.', 
-	fbComm 			:= fbComm);
+	Comm 			:= fbComm);
 
 brakeHydraulicsWarning(
 	Trigger 		:= NOT bEnable AND bOpenBrake,
 	Level 			:= ADSLOG_MSGTYPE_WARN,
 	FormatString 	:= '%s',
 	OnMessage 		:= 'Cannot open brake without running hydraulics.', 
-	fbComm 			:= fbComm);]]></ST>
+	Comm 			:= fbComm);]]></ST>
     </Implementation>
     <Property Name="BrakeOpen" Id="{0f49c805-8206-4d47-881c-fcf69eddebfe}">
       <Declaration><![CDATA[PROPERTY BrakeOpen : BOOL]]></Declaration>
