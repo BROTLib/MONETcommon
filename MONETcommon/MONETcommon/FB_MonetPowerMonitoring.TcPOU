@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
   <POU Name="FB_MonetPowerMonitoring" Id="{1c33c5f1-1a01-4451-9e8f-b85db9566c06}" SpecialFunc="None">
     <Declaration><![CDATA[FUNCTION_BLOCK FB_MonetPowerMonitoring
@@ -49,25 +49,25 @@ mqttTimer(IN:=TRUE);
 IF mqttTimer.Q THEN
 	mqttTimer(IN:=FALSE);
 
-	fbComm.Publish('telescope', 'power', 'FrequencyGuardWarning',	BOOL_TO_STRING(FrequencyGuardWarning));
-	fbComm.Publish('telescope', 'power', 'FrequencyGuardError',	BOOL_TO_STRING(FrequencyGuardError));
-	fbComm.Publish('telescope', 'power', 'QualityGuardWarning',	BOOL_TO_STRING(QualityGuardWarning));
-	fbComm.Publish('telescope', 'power', 'QualityGuardError',		BOOL_TO_STRING(QualityGuardError));
-	fbComm.Publish('telescope', 'power', 'UnbalanceGuardWarning',	BOOL_TO_STRING(UnbalanceGuardWarning));
-	fbComm.Publish('telescope', 'power', 'UnbalanceGuardError',	BOOL_TO_STRING(UnbalanceGuardError));
-	fbComm.Publish('telescope', 'power', 'PowerQuality',			REAL_TO_STRING(PowerQuality));
-	fbComm.Publish('telescope', 'power', 'L1OverVoltage',			BOOL_TO_STRING(L1OverVoltage));
-	fbComm.Publish('telescope', 'power', 'L1InaccVoltage',		BOOL_TO_STRING(L1InaccVoltage));
-	fbComm.Publish('telescope', 'power', 'L1VoltageGuardWarning',	BOOL_TO_STRING(L1VoltageGuardWarning));
-	fbComm.Publish('telescope', 'power', 'L1VoltageGuardError',	BOOL_TO_STRING(L1VoltageGuardError));
-	fbComm.Publish('telescope', 'power', 'L2OverVoltage',			BOOL_TO_STRING(L2OverVoltage));
-	fbComm.Publish('telescope', 'power', 'L2InaccVoltage',		BOOL_TO_STRING(L2InaccVoltage));
-	fbComm.Publish('telescope', 'power', 'L2VoltageGuardWarning',	BOOL_TO_STRING(L2VoltageGuardWarning));
-	fbComm.Publish('telescope', 'power', 'L2VoltageGuardError',	BOOL_TO_STRING(L2VoltageGuardError));
-	fbComm.Publish('telescope', 'power', 'L3OverVoltage',			BOOL_TO_STRING(L3OverVoltage));
-	fbComm.Publish('telescope', 'power', 'L3InaccVoltage',		BOOL_TO_STRING(L3InaccVoltage));
-	fbComm.Publish('telescope', 'power', 'L3VoltageGuardWarning',	BOOL_TO_STRING(L3VoltageGuardWarning));
-	fbComm.Publish('telescope', 'power', 'L3VoltageGuardError',	BOOL_TO_STRING(L3VoltageGuardError));
+	fbComm.Publish('power', 'power', 'FrequencyGuardWarning',	BOOL_TO_STRING(FrequencyGuardWarning));
+	fbComm.Publish('power', 'power', 'FrequencyGuardError',	BOOL_TO_STRING(FrequencyGuardError));
+	fbComm.Publish('power', 'power', 'QualityGuardWarning',	BOOL_TO_STRING(QualityGuardWarning));
+	fbComm.Publish('power', 'power', 'QualityGuardError',		BOOL_TO_STRING(QualityGuardError));
+	fbComm.Publish('power', 'power', 'UnbalanceGuardWarning',	BOOL_TO_STRING(UnbalanceGuardWarning));
+	fbComm.Publish('power', 'power', 'UnbalanceGuardError',	BOOL_TO_STRING(UnbalanceGuardError));
+	fbComm.Publish('power', 'power', 'PowerQuality',			REAL_TO_STRING(PowerQuality));
+	fbComm.Publish('power', 'power', 'L1OverVoltage',			BOOL_TO_STRING(L1OverVoltage));
+	fbComm.Publish('power', 'power', 'L1InaccVoltage',		BOOL_TO_STRING(L1InaccVoltage));
+	fbComm.Publish('power', 'power', 'L1VoltageGuardWarning',	BOOL_TO_STRING(L1VoltageGuardWarning));
+	fbComm.Publish('power', 'power', 'L1VoltageGuardError',	BOOL_TO_STRING(L1VoltageGuardError));
+	fbComm.Publish('power', 'power', 'L2OverVoltage',			BOOL_TO_STRING(L2OverVoltage));
+	fbComm.Publish('power', 'power', 'L2InaccVoltage',		BOOL_TO_STRING(L2InaccVoltage));
+	fbComm.Publish('power', 'power', 'L2VoltageGuardWarning',	BOOL_TO_STRING(L2VoltageGuardWarning));
+	fbComm.Publish('power', 'power', 'L2VoltageGuardError',	BOOL_TO_STRING(L2VoltageGuardError));
+	fbComm.Publish('power', 'power', 'L3OverVoltage',			BOOL_TO_STRING(L3OverVoltage));
+	fbComm.Publish('power', 'power', 'L3InaccVoltage',		BOOL_TO_STRING(L3InaccVoltage));
+	fbComm.Publish('power', 'power', 'L3VoltageGuardWarning',	BOOL_TO_STRING(L3VoltageGuardWarning));
+	fbComm.Publish('power', 'power', 'L3VoltageGuardError',	BOOL_TO_STRING(L3VoltageGuardError));
 END_IF
 
 // EventLog section
