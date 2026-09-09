@@ -1184,8 +1184,7 @@ END_IF
       </Implementation>
     </Method>
     <Property Name="Altitude" Id="{51b1ff05-1140-4331-8485-239187f5f8b1}">
-      <Declaration><![CDATA[{warning 'add property implementation'}
-PROPERTY Altitude : LREAL
+      <Declaration><![CDATA[PROPERTY Altitude : LREAL
 ]]></Declaration>
       <Get Name="Get" Id="{05a6ac86-f3fe-4579-ad82-04708fa0864e}">
         <Declaration><![CDATA[VAR
@@ -1197,8 +1196,7 @@ END_VAR
       </Get>
     </Property>
     <Property Name="Azimuth" Id="{0dd05217-329b-419a-a3b6-a7f2c3a7b182}">
-      <Declaration><![CDATA[{warning 'add property implementation'}
-PROPERTY Azimuth : LREAL
+      <Declaration><![CDATA[PROPERTY Azimuth : LREAL
 ]]></Declaration>
       <Get Name="Get" Id="{fd6f0d71-0c53-4de5-af62-a6f082f3b2fe}">
         <Declaration><![CDATA[VAR
@@ -1232,8 +1230,7 @@ THIS^.bCoverAutoOpen := TRUE;]]></ST>
       </Set>
     </Property>
     <Property Name="Declination" Id="{b1285964-102f-45b7-af05-6785154ef40d}">
-      <Declaration><![CDATA[{warning 'add property implementation'}
-PROPERTY Declination : LREAL
+      <Declaration><![CDATA[PROPERTY Declination : LREAL
 ]]></Declaration>
       <Get Name="Get" Id="{add754b0-d14d-4a0e-b482-234fdfd51176}">
         <Declaration><![CDATA[VAR
@@ -1297,8 +1294,7 @@ bGoto			:= TRUE;]]></ST>
       </Implementation>
     </Method>
     <Property Name="RightAscension" Id="{11e4e9e9-9e18-4d9f-ab19-1c208929d2bc}">
-      <Declaration><![CDATA[{warning 'add property implementation'}
-PROPERTY RightAscension : LREAL
+      <Declaration><![CDATA[PROPERTY RightAscension : LREAL
 ]]></Declaration>
       <Get Name="Get" Id="{b17aa26c-317b-4e3f-8426-b76a55e02df1}">
         <Declaration><![CDATA[VAR
@@ -1340,8 +1336,7 @@ END_VAR
       </Implementation>
     </Method>
     <Method Name="Slew" Id="{ee4e9e45-2bba-488b-8094-f2bf4a28ec2b}">
-      <Declaration><![CDATA[{warning 'add method implementation '}
-METHOD Slew : BOOL
+      <Declaration><![CDATA[METHOD Slew : BOOL
 VAR_INPUT
 	fAzimuth	: LREAL;
 	fAltitude	: LREAL;
@@ -1361,8 +1356,7 @@ THIS^.bSlew		:= TRUE;]]></ST>
       </Implementation>
     </Method>
     <Method Name="Track" Id="{36f6a798-1a7b-442f-88f7-fc8d7dfa3dc0}">
-      <Declaration><![CDATA[{warning 'add method implementation '}
-METHOD Track : BOOL
+      <Declaration><![CDATA[METHOD Track : BOOL
 VAR_INPUT
 	fRightAscension	: LREAL;
 	fDeclination	: LREAL;
