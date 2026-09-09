@@ -17,9 +17,9 @@
     <Implicit_Jitter_Distribution>{936f4818-9550-4811-908b-2fb8ece4ebf5}</Implicit_Jitter_Distribution>
     <LibraryReferences>{be7c504c-6b68-4f30-b141-74c1cd44fc74}</LibraryReferences>
     <Company>IAG</Company>
-    <Released>false</Released>
+    <Released>true</Released>
     <Title>MONETcommon</Title>
-    <ProjectVersion>0.1</ProjectVersion>
+    <ProjectVersion>0.2</ProjectVersion>
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="E_ModeLanguage.TcDUT">
