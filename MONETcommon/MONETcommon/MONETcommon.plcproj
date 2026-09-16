@@ -49,7 +49,7 @@
     <Compile Include="FB_MonetTelescopeControl.TcPOU">
       <SubType>Code</SubType>
     </Compile>
-    <Compile Include="GVL_Version.TcGVL">
+    <Compile Include="Global_Version.TcGVL">
       <SubType>Code</SubType>
       <LinkAlways>true</LinkAlways>
     </Compile>
