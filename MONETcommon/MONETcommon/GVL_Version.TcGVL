@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <GVL Name="GVL_Version" Id="{4c7c84a7-bebe-4299-bc08-b7c1375cfec9}">
+    <Declaration><![CDATA[{attribute 'qualified_only'}
+VAR_GLOBAL CONSTANT
+	// Mirrors Beckhoff's own Global_Version.stLibVersion_* pattern (see ST_LibVersion),
+	// which only covers Tc2_*/Tc3_* library references, not custom ones like this one.
+	// Kept in sync with <ProjectVersion> in MONETcommon.plcproj at release time.
+	stVersion : ST_LibVersion := (
+		iMajor := 0,
+		iMinor := 3,
+		iBuild := 1,
+		iRevision := 0,
+		nFlags := 1,
+		sVersion := '0.3.1'
+	);
+END_VAR]]></Declaration>
+  </GVL>
+</TcPlcObject>

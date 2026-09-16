@@ -19,7 +19,7 @@
     <Company>IAG</Company>
     <Released>true</Released>
     <Title>MONETcommon</Title>
-    <ProjectVersion>0.3.0</ProjectVersion>
+    <ProjectVersion>0.3.1</ProjectVersion>
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="E_ModeLanguage.TcDUT">
@@ -48,6 +48,10 @@
     </Compile>
     <Compile Include="FB_MonetTelescopeControl.TcPOU">
       <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="GVL_Version.TcGVL">
+      <SubType>Code</SubType>
+      <LinkAlways>true</LinkAlways>
     </Compile>
   </ItemGroup>
   <ItemGroup>
