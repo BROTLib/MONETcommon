@@ -9,10 +9,10 @@ VAR_GLOBAL CONSTANT
 	stVersion : ST_LibVersion := (
 		iMajor := 0,
 		iMinor := 3,
-		iBuild := 1,
+		iBuild := 2,
 		iRevision := 0,
 		nFlags := 1,
-		sVersion := '0.3.1'
+		sVersion := '0.3.2'
 	);
 END_VAR]]></Declaration>
   </GVL>
