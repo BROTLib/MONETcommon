@@ -584,14 +584,21 @@ VAR
     commandTimeout    : TON;
 END_VAR]]></Declaration>
       <Implementation>
-        <ST><![CDATA[commandTimeout(IN := NOT _HomeTelescope, PT := T#600S);
+        <ST><![CDATA[// reset/interrupt aborts the homing without moving anything, like the other stage methods
+IF bReset OR bError OR bInterrupted THEN
+    commandTimeout(IN := FALSE);
+    RETURN;
+END_IF
+
+commandTimeout(IN := NOT _HomeTelescope, PT := T#600S);
 IF commandTimeout.Q THEN
     bError := TRUE;
     nErrorID := 16#30;
     _HomeTelescope :=TRUE;
 END_IF
 
-IF bReady AND bStopped AND NOT bBusy AND NOT bTracking THEN
+// only move while a home command is active (Stop/Park/Reset call this with bGoHome cleared to abort it)
+IF bGoHome AND bReady AND bStopped AND NOT bBusy AND NOT bTracking THEN
     fbElevation.Velocity := 10.0;
     fbElevation.Position := telescopeConfig.elevationHome;
     fbElevation.MoveAxis := TRUE;
