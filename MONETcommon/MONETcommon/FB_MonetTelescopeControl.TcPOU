@@ -37,10 +37,17 @@ VAR
 END_VAR
 ]]></Declaration>
     <Implementation>
-      <ST><![CDATA[// get the system time
+      <ST><![CDATA[// get the system time; fJd only follows the clock while the clock is valid (synced, see FB_AstroClock)
 fbTime();
-fJd := DateTime2JD(fbTime.time_RTCEX2);
+IF fbTime.bValid THEN
+	fJd := DateTime2JD(fbTime.time_RTCEX2);
+END_IF
 fLst := CT2LST(telescopeConfig.longitude, fJd);
+
+// without a trustworthy time nothing may be pointed or tracked: refuse through the normal stop path
+IF NOT fbTime.bValid AND (bGoto OR bSlew OR bTrack) THEN
+	bStop := TRUE;
+END_IF
 
 // set reset state either by hardware (key pressed) or by software (set by e.g. tcs)
 rtrigReset(CLK := bReset);
