@@ -207,13 +207,15 @@ IF tonPowerTimeout.Q AND NOT bIsParked THEN
 END_IF
 		
 // set TCS_command according to state variables ordered by precedence
-IF bPower THEN
-	TCS_command := E_TCSCommand.poweron;
-	
-ELSIF bStop THEN
+// Stop outranks everything, including a running power-on
+IF bStop THEN
 	bTrack := FALSE;
 	
-	// If the stop is during a movement, reset the stage of the movement first
+	// If the stop is during a power-on or a movement, reset the stage of the movement first
+	IF bPower THEN
+		bPower := FALSE;
+		_PowerOn();
+	END_IF
 	IF bPark THEN
 		bPark := FALSE;
 		_ParkTelescope();
@@ -228,6 +230,9 @@ ELSIF bStop THEN
 		_HomeTelescope();
 	END_IF
 	TCS_command := E_TCSCommand.stop;
+	
+ELSIF bPower THEN
+	TCS_command := E_TCSCommand.poweron;
 	
 ELSIF bPark THEN
 	bTrack := FALSE;
@@ -761,6 +766,16 @@ END_IF
 
 IF bReset OR bError OR bStop OR bInterrupted THEN
 	nStage := 0;
+	// abort without leaving the last written axis commands set
+	fbElevation.MoveAxis := FALSE;
+	fbElevation.HomeAxis := FALSE;
+	fbAzimuth.MoveAxis := FALSE;
+	fbAzimuth.HomeAxis := FALSE;
+	fbDerotator.MoveAxis := FALSE;
+	fbDerotator.HomeAxis := FALSE;
+	IF fbFocus <> 0 THEN
+		fbFocus.HomeAxis := FALSE;
+	END_IF
 	RETURN;
 END_IF
 
