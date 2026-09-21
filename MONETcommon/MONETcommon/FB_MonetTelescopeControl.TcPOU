@@ -37,10 +37,17 @@ VAR
 END_VAR
 ]]></Declaration>
     <Implementation>
-      <ST><![CDATA[// get the system time
+      <ST><![CDATA[// get the system time; fJd only follows the clock while the clock is valid (synced, see FB_AstroClock)
 fbTime();
-fJd := DateTime2JD(fbTime.time_RTCEX2);
+IF fbTime.bValid THEN
+	fJd := DateTime2JD(fbTime.time_RTCEX2);
+END_IF
 fLst := CT2LST(telescopeConfig.longitude, fJd);
+
+// without a trustworthy time nothing may be pointed or tracked: refuse through the normal stop path
+IF NOT fbTime.bValid AND (bGoto OR bSlew OR bTrack) THEN
+	bStop := TRUE;
+END_IF
 
 // set reset state either by hardware (key pressed) or by software (set by e.g. tcs)
 rtrigReset(CLK := bReset);
@@ -175,7 +182,7 @@ hor2eq(alt := fElevationCurrentSky - fElevationOffset,
 		lat := telescopeConfig.latitude,
 		lon := telescopeConfig.longitude,
 		altitude := telescopeConfig.altitude,
-		refract_to_observed := FALSE,
+		alt_is_observed := TRUE,
 		// refract := FALSE,
 		ra => fRightAscensionCurrent,
 		dec => fDeclinationCurrent);		
@@ -185,7 +192,7 @@ hor2eq(alt := fElevationCurrentSky,
 		lat := telescopeConfig.latitude,
 		lon := telescopeConfig.longitude,
 		altitude := telescopeConfig.altitude,
-		refract_to_observed := FALSE,
+		alt_is_observed := TRUE,
 		ra => fRightAscensionCurrentSky,
 		dec => fDeclinationCurrentSky);
 	
@@ -207,13 +214,15 @@ IF tonPowerTimeout.Q AND NOT bIsParked THEN
 END_IF
 		
 // set TCS_command according to state variables ordered by precedence
-IF bPower THEN
-	TCS_command := E_TCSCommand.poweron;
-	
-ELSIF bStop THEN
+// Stop outranks everything, including a running power-on
+IF bStop THEN
 	bTrack := FALSE;
 	
-	// If the stop is during a movement, reset the stage of the movement first
+	// If the stop is during a power-on or a movement, reset the stage of the movement first
+	IF bPower THEN
+		bPower := FALSE;
+		_PowerOn();
+	END_IF
 	IF bPark THEN
 		bPark := FALSE;
 		_ParkTelescope();
@@ -228,6 +237,9 @@ ELSIF bStop THEN
 		_HomeTelescope();
 	END_IF
 	TCS_command := E_TCSCommand.stop;
+	
+ELSIF bPower THEN
+	TCS_command := E_TCSCommand.poweron;
 	
 ELSIF bPark THEN
 	bTrack := FALSE;
@@ -584,14 +596,21 @@ VAR
     commandTimeout    : TON;
 END_VAR]]></Declaration>
       <Implementation>
-        <ST><![CDATA[commandTimeout(IN := NOT _HomeTelescope, PT := T#600S);
+        <ST><![CDATA[// reset/interrupt aborts the homing without moving anything, like the other stage methods
+IF bReset OR bError OR bInterrupted THEN
+    commandTimeout(IN := FALSE);
+    RETURN;
+END_IF
+
+commandTimeout(IN := NOT _HomeTelescope, PT := T#600S);
 IF commandTimeout.Q THEN
     bError := TRUE;
     nErrorID := 16#30;
     _HomeTelescope :=TRUE;
 END_IF
 
-IF bReady AND bStopped AND NOT bBusy AND NOT bTracking THEN
+// only move while a home command is active (Stop/Park/Reset call this with bGoHome cleared to abort it)
+IF bGoHome AND bReady AND bStopped AND NOT bBusy AND NOT bTracking THEN
     fbElevation.Velocity := 10.0;
     fbElevation.Position := telescopeConfig.elevationHome;
     fbElevation.MoveAxis := TRUE;
@@ -754,6 +773,16 @@ END_IF
 
 IF bReset OR bError OR bStop OR bInterrupted THEN
 	nStage := 0;
+	// abort without leaving the last written axis commands set
+	fbElevation.MoveAxis := FALSE;
+	fbElevation.HomeAxis := FALSE;
+	fbAzimuth.MoveAxis := FALSE;
+	fbAzimuth.HomeAxis := FALSE;
+	fbDerotator.MoveAxis := FALSE;
+	fbDerotator.HomeAxis := FALSE;
+	IF fbFocus <> 0 THEN
+		fbFocus.HomeAxis := FALSE;
+	END_IF
 	RETURN;
 END_IF
 

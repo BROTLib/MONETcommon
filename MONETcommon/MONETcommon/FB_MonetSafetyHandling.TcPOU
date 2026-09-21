@@ -49,11 +49,15 @@ VAR
 	startDelay 				: TON := (PT := T#2S);
 	stateDelay 				: TON := (PT := T#1S);
 
-	
+	// external reset request (cabinet/pendant reset button)
+	rtrigReset				: R_TRIG;
+	resetStep				: INT := 0;
+	resetDelay				: TON := (PT := T#1S);
+
 	ErrAckLog				: FB_EventLog;		// Errack logging
 	RestartLog				: FB_EventLog;		// restart logging
 	SafetyLog				: FB_EventLog;		// safety logging
-	
+
 	fbComm					: I_Comm;
 END_VAR
 VAR_OUTPUT
@@ -66,6 +70,8 @@ VAR_INPUT
 	//remote_restart:		BOOL;
 	// issue a remute run/stop
 	remote_run		: BOOL := TRUE;
+	// cabinet/pendant reset button: toggles Restart, then ErrAck
+	resetRequest	: BOOL;
 END_VAR
 ]]></Declaration>
     <Implementation>
@@ -149,9 +155,34 @@ CASE initialStartUpStep OF
 			initialStartUpStep := 100;
 		END_IF			
 END_CASE
-	
 
-ErrAckLog(  
+// external reset request (cabinet/pendant button): toggle Restart, then ErrAck
+rtrigReset(CLK := resetRequest);
+IF rtrigReset.Q THEN
+	resetStep := 10;
+END_IF
+
+CASE resetStep OF
+	10:
+		outRestart := TRUE;
+		resetDelay(IN := TRUE);
+		IF resetDelay.Q THEN
+			resetDelay(IN := FALSE);
+			outRestart := FALSE;
+			resetStep := 20;
+		END_IF
+	20:
+		outErrAck := TRUE;
+		resetDelay(IN := TRUE);
+		IF resetDelay.Q THEN
+			resetDelay(IN := FALSE);
+			outErrAck := FALSE;
+			resetStep := 0;
+		END_IF
+END_CASE
+
+
+ErrAckLog(
 	Trigger 	:= outErrAck,
 	OnMessage 	:= 'Safety error was acknowledged.',
 	Comm		:= fbComm

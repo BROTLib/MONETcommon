@@ -1,6 +1,6 @@
 # Code review of MONETcommon (develop @ 4073ee6)
 
-**Status: draft. Review finished, no fixes applied. Nothing here has been run on a PLC.**
+**Status: draft. Review finished; the body below describes `develop` at the review commit. Since then fixes for #4 (`_HomeTelescope` guard, `4e9f876`), #5 (Stop outranks power-on, `7b627cc`) and the `Reset()` part of #9 (`a623090`) landed on `develop`, plus a reset input on `FB_MonetSafetyHandling` (`5d959af`, workaround for #26). Nothing has been run on a PLC or a telescope; #29 tracks the check of the #5 fix. Open items: GitHub issues.**
 
 Reviewed at `develop` 4073ee6 (v0.3.2). `origin/main` is 5 commits ahead (visualization profile, two
 `Released` flag flips, a manual TcBuild workflow, runner labels); those matter only for the release
