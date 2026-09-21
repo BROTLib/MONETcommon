@@ -9,11 +9,11 @@ VAR_GLOBAL CONSTANT
 	// Kept in sync with <ProjectVersion> in MONETcommon.plcproj at release time.
 	stLibVersion_MONETcommon : ST_LibVersion := (
 		iMajor := 0,
-		iMinor := 3,
-		iBuild := 2,
+		iMinor := 4,
+		iBuild := 0,
 		iRevision := 0,
 		nFlags := 1,
-		sVersion := '0.3.2'
+		sVersion := '0.4.0'
 	);
 END_VAR]]></Declaration>
   </GVL>
