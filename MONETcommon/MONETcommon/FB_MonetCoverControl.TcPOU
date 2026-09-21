@@ -88,6 +88,11 @@ srErrorTrigger(
 	RESET := bReset,
 	Q1 => bError);
 
+// clear reset, if no error present
+IF NOT bError THEN
+	bReset := FALSE;
+END_IF
+
 IF bAllClosed THEN
 	bClose := FALSE;
 END_IF
@@ -269,7 +274,8 @@ VAR_INPUT
 END_VAR
 ]]></Declaration>
       <Implementation>
-        <ST><![CDATA[Reset := TRUE;]]></ST>
+        <ST><![CDATA[bReset := TRUE;
+Reset := TRUE;]]></ST>
       </Implementation>
     </Method>
     <LineIds Name="FB_MonetCoverControl">
