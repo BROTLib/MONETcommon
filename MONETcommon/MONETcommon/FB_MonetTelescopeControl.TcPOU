@@ -469,7 +469,7 @@ TCSstopEvent(	Trigger := bStop,
 				OffMEssage := 'completed',
 				OffLevel := ADSLOG_MSGTYPE_HINT, 
 				Comm := fbComm);
-TCStargetHorizonEvent(	Trigger := bPower AND fElevationCalc<fHorizon, 
+TCStargetHorizonEvent(	Trigger := fElevationCalc<fHorizon,
 				Level := ADSLOG_MSGTYPE_WARN,
 				FormatString := '%s',
 				OnMessage := 'Target below safe horizon',
@@ -482,7 +482,7 @@ TCSreadyEvent(	Trigger := bPower AND bReady,
 				Comm := fbComm);
 TCSCTOEvent(	Trigger := tonCommandTimeout.Q,
 				Level := ADSLOG_MSGTYPE_WARN,
-				FormatString := 'A timeout occured during %s command!',
+				FormatString := 'A timeout occurred during %s command!',
 				OnMessage := 'NOCOMMAND', 
 				Comm := fbComm);]]></ST>
     </Implementation>
@@ -765,7 +765,7 @@ END_VAR]]></Declaration>
 	bPower := FALSE;
 ELSIF bError THEN
 	bPowerFailure := TRUE;
-	TCSpowerEvent.OnMessage := 'Generic error during power on occured.';
+	TCSpowerEvent.OnMessage := 'Generic error during power on occurred.';
 	bPower := FALSE;
 ELSE
 	bPowerFailure := FALSE;		
@@ -788,8 +788,9 @@ END_IF
 
 CASE nStage OF
 	0:
-		_PowerOn := FALSE; 
+		_PowerOn := FALSE;
 		// COVER MUST BE OPENED FOR A SUCCESSFUL WAKE & SHAKE COMMAND!
+		// unconditional by design: does not consult bCoverAutoOpen (see CoverAutoOpen.Set)
 		fbCovers.Open();
 		IF bMainReady AND fbCovers.Opened THEN
 			nStage := 10;
@@ -1021,9 +1022,11 @@ IF command_timeout.Q THEN
 	nErrorID := 16#40;
 	bSlew := FALSE;
 	nStage := 0;
+	RETURN;
 END_IF
 IF bReset OR bError OR bInterrupted THEN
 	nStage := 0;
+	RETURN;
 END_IF
 CASE nStage OF
 	0:	
@@ -1252,8 +1255,10 @@ END_VAR
 END_VAR
 ]]></Declaration>
         <Implementation>
-          <ST><![CDATA[// MONET telescopes must never skip the automatic cover-open on power-on;
-// this is a hard safety invariant, so any attempt to disable it is ignored.
+          <ST><![CDATA[// This property has no effect on MONET: _PowerOn always opens the covers
+// unconditionally and never reads bCoverAutoOpen. Forcing it TRUE here keeps
+// the property honest, but does not by itself guarantee the invariant, since
+// bCoverAutoOpen is a public VAR_INPUT a caller can still write to directly.
 THIS^.bCoverAutoOpen := TRUE;]]></ST>
         </Implementation>
       </Set>

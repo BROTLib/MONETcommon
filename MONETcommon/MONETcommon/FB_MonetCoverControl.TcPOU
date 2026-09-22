@@ -3,7 +3,7 @@
   <POU Name="FB_MonetCoverControl" Id="{febe04fb-b0fe-4b52-a725-1c7655537933}" SpecialFunc="None">
     <Declaration><![CDATA[FUNCTION_BLOCK FB_MonetCoverControl IMPLEMENTS I_MirrorCovers
 VAR_INPUT
-	bReset				: BOOL;		// resets all drives after an error has occured
+	bReset				: BOOL;		// resets all drives after an error has occurred
 	bOpen				: BOOL;		// open the cover in proper order
 	bClose				: BOOL;		// close the cover in proper order
 	
@@ -20,7 +20,9 @@ VAR
 	fbComm				: I_Comm;
 	tonComm 			: TON := (PT:=fTelemetryInterval);	
 
-	// output signals for opening/closing covers	
+	// AT%I*/AT%Q* below are mapped directly on this FB: only one instance per PLC is
+	// supported, a second instance would collide on the same physical hardware.
+	// output signals for opening/closing covers
 	OabOpenCover  AT%Q* : ARRAY[1..3] OF BOOL;	// open cover1-3 command
 	OabCloseCover AT%Q* : ARRAY[1..3] OF BOOL;   // close cover1-3 command
 	

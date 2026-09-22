@@ -22,6 +22,7 @@ VAR_OUTPUT
 	bSuctionFailure		: BOOL;				// suction was started, but it is not running
 	bHydraulicsFailure	: BOOL;				// main pump is running but suction has a timeout
 	bMainPumpFailure	: BOOL;
+	bSuctionStuckOn		: BOOL;				// suction pump is running without being commanded (welded contactor)
 	bOilLow				: BOOL;				// oil is low
 	bOilHigh			: BOOL;				// oil is high (unused?)
 	bOilPressureOK		: BOOL;				// oil pressure is 25 bars
@@ -37,6 +38,8 @@ END_VAR
 VAR
 	fbComm				: I_Comm;
  
+	// AT%I*/AT%Q* below are mapped directly on this FB: only one instance per PLC is
+	// supported, a second instance would collide on the same physical hardware.
 	IbOilLow			AT%I* : BOOL;	// 2.1
 	IbOilHigh			AT%I* : BOOL;	// ?
 	IbOilPressureOK		AT%I* : BOOL;	// 2.3
@@ -58,6 +61,7 @@ VAR
 	tonSuctionWatchdog	: TON;				// monitors the activation of the suction pump
 	tonMainPumpWatchdog	: TON;				// monitors the activation of the main pump			
 	tonHydraulicsWatchdog	: TON;				// watch the hydraulics and suction pumps
+	tonSuctionStuckWatchdog	: TON;			// detects the suction pump running while not commanded
 	
 	rsOilPumpState		: RS;				// represents the state of the main pump
 	
@@ -80,6 +84,7 @@ VAR
 	overTemperatureLog,
 	underTemperatureLog,
 	suctionLog,
+	suctionStuckLog,
 	hydraulicsFailureLog,
 	brakeClearingWarning,
 	brakeHydraulicsWarning,
@@ -119,7 +124,7 @@ ObResetSuctionPump := bReset;
 
 // error state?
 srErrorState(
-	SET1  := bPressureFailure OR bSuctionFailure OR bHydraulicsFailure OR bOilLow OR bMainPumpFailure,
+	SET1  := bPressureFailure OR bSuctionFailure OR bHydraulicsFailure OR bOilLow OR bMainPumpFailure OR bSuctionStuckOn,
 	RESET := bReset,
 	Q1    => bError);
 			
@@ -197,6 +202,12 @@ tonMainPumpWatchdog(
 	PT := T#10S,
 	Q  => bMainPumpFailure);
 
+// welded/stuck-on suction contactor: feedback says running while not commanded
+tonSuctionStuckWatchdog(
+	IN := bSuctionRunning AND NOT ObOilSuctionEnable,
+	PT := T#5S,
+	Q  => bSuctionStuckOn);
+
 statusWord.0 := bOilLow;
 statusWord.1 := bOilHigh;
 statusWord.2 := bOilWarning;
@@ -211,6 +222,7 @@ statusWord.10 := bSuctionRunning;
 statusWord.11 := bOilPanMaximum;
 statusWord.12 := ObOilPumpEnable;
 statusWord.13 := ObOilSuctionEnable;
+statusWord.14 := bSuctionStuckOn;
 IF ABS(fLastOilLevel - fOilLevel) > 5 THEN
 	statusWord.15 := TRUE;
 	fLastOilLevel := fOilLevel;
@@ -232,6 +244,7 @@ IF statusWord<>LastStatus THEN // publish new payload every second
 	fbComm.Publish('hydraulics', 'base', 'BrakeClearing',	BOOL_TO_STRING(bBrakeClearing));
 	fbComm.Publish('hydraulics', 'base', 'PumpRunning',	BOOL_TO_STRING(bPumpRunning));
 	fbComm.Publish('hydraulics', 'base', 'SuctionRunning',BOOL_TO_STRING(bSuctionRunning));
+	fbComm.Publish('hydraulics', 'base', 'SuctionStuckOn',BOOL_TO_STRING(bSuctionStuckOn));
 	fbComm.Publish('hydraulics', 'base', 'OilLevel',		REAL_TO_STRING(fOilLevel));
 	fbComm.Publish('hydraulics', 'base', 'StatusWord',	UDINT_TO_STRING(statusWord));
 END_IF
@@ -310,6 +323,15 @@ suctionLog(
 	OnMessage 		:= 'FAILURE',
 	OffMessage 		:= 'OK',
 	OffLevel 		:= ADSLOG_MSGTYPE_HINT, 
+	Comm 			:= fbComm);
+
+suctionStuckLog(
+	Trigger 		:= bSuctionStuckOn,
+	Level 			:= ADSLOG_MSGTYPE_ERROR,
+	FormatString 	:= 'suction pump running while not commanded: %s',
+	OnMessage 		:= 'FAILURE',
+	OffMessage 		:= 'OK',
+	OffLevel 		:= ADSLOG_MSGTYPE_HINT,
 	Comm 			:= fbComm);
 
 hydraulicsFailureLog(

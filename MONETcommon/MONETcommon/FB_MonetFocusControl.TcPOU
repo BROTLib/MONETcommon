@@ -7,6 +7,7 @@ END_VAR
 VAR_OUTPUT
 END_VAR
 VAR
+	bAcceptBlockedDriveSignalOk	: BOOL;	// result of MC_SetAcceptBlockedDriveSignal, checked below
 END_VAR
 VAR PERSISTENT
 END_VAR
@@ -48,7 +49,7 @@ IF eTelescopeMode = E_TelescopeMode.automatic AND NOT fbAxis.calibrated AND fbAx
 END_IF
 
 IF bHomeAxis THEN
-	IF fLastPposition > 0.0 THEN
+	IF fLastPposition >= 0.0 THEN
 		eHomingMode := MC_ForceCalibration; // MC_Direct
 		fPosition := fLastPposition;
 		fbSetPosition.Execute := TRUE;
@@ -62,7 +63,7 @@ ELSE
 END_IF
 
 // deactivate limit switches on homing
-MC_SetAcceptBlockedDriveSignal(Axis := refAxis, enable := bHomeAxis);
+bAcceptBlockedDriveSignalOk := MC_SetAcceptBlockedDriveSignal(Axis := refAxis, enable := bHomeAxis);
 fbSetPosition(Axis := refAxis, Position := fLastPposition);
 		
 fbAxis(	
@@ -81,7 +82,11 @@ fbAxis(
 	ActualPosition 	=> fActualPosition,
 	Error 			=> bError,
 	ErrorID 		=> nErrorID,
-	axisRef 		:= refAxis);	
+	axisRef 		:= refAxis);
+
+IF NOT bAcceptBlockedDriveSignalOk THEN
+	bError := TRUE;
+END_IF
 
 IF fbAxis.MoveDone THEN
 	bMoveAxis := FALSE;
@@ -102,11 +107,11 @@ END_IF
 
 IF bError THEN
 	fLastPposition := -1.0;
-	//focusAxis.calibrated := FALSE;
 	bCalibrated := FALSE;
+ELSE
+	bCalibrated := fbAxis.calibrated;
 END_IF
 
-bCalibrated := fbAxis.calibrated;
 bReady := fbAxis.Ready AND fbAxis.StandStill OR NOT ObFocusUnlock;
 
 // send telemetry

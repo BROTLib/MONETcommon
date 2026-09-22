@@ -10,6 +10,8 @@ END_VAR
 VAR
 	fbComm					: I_Comm;	
 
+	// AT%I*/AT%Q* below are mapped directly on this FB: only one instance per PLC is
+	// supported, a second instance would collide on the same physical hardware.
 	FrequencyGuardWarning	AT%I*: BOOL;
 	FrequencyGuardError		AT%I*: BOOL;
 	QualityGuardWarning		AT%I*: BOOL;
