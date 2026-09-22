@@ -1,7 +1,24 @@
 # Wire UT1-UTC (dut1) correction into MONET pointing
 
-**Status: planned, not started.** Follow-up to [MONETcommon#18](https://github.com/BROTLib/MONETcommon/issues/18)
-(M12: AstroBROT refraction/UT1 findings reach MONET pointing).
+**Status: `dut1` receiving/wiring implemented (BROTLib `093854d`, MONETcommon `dcb59ed`),
+pressure/temperature passthrough dropped as infeasible, pyBROT push still open.** Follow-up to
+[MONETcommon#18](https://github.com/BROTLib/MONETcommon/issues/18) (M12: AstroBROT refraction/UT1
+findings reach MONET pointing).
+
+**Design changed from steps 1-2 below during implementation**: `dut1` ended up on
+`I_AltAzTelescope.Dut1` (a new property, mirroring `AzimuthOffset`/`AltitudeOffset`/
+`DerotatorOffset` — `FB_Comm_MQTT_Influx` pushes straight onto `AltAzTelescope.Dut1`), not on
+`fbComm`/`I_Comm` as originally planned. `fbComm` is typed as the generic `I_Comm` interface in
+`FB_MonetTelescopeControl` (`Publish`/`PublishLog` only), which doesn't expose `Dut1` — extending
+`I_Comm` would have meant every `I_Comm` implementer needs a `Dut1` getter, whereas routing it
+through the telescope interface (like every other MQTT-settable value already does) needed no
+interface changes beyond `I_AltAzTelescope` itself, which only `FB_AltAzTelescopeControl`
+implements. Steps 1-2 below are kept for context but describe the abandoned design; see the
+commits above for what actually shipped. The optional pressure/temperature passthrough (end of
+step 2) turned out to be **not possible at all**: `FB_EQ2HOR` doesn't expose `pressure`/
+`temperature` as parameters, only `dut1`/`altitude` — its internal `co_refract` call hardcodes
+those to their auto-estimate defaults. Dropped from scope; would need an AstroBROT change to
+revisit.
 
 ## Context
 
