@@ -928,36 +928,26 @@ END_VAR
 fbComm.Publish('telescope', 'dome', 'TELESCOPE.READY_STATE',	LREAL_TO_STRING(fReadyState));
 fbComm.Publish('telescope', 'dome', 'TELESCOPE.MOTION_STATE',	LREAL_TO_STRING(nMotionState));
 
-// INFO
-fbComm.Publish('telescope', 'dome', 'TELESCOPE.INFO.NAME',	telescopeConfig.name);
-fbComm.Publish('telescope', 'dome', 'TELESCOPE.INFO.DIAMETER',	LREAL_TO_STRING(telescopeConfig.diameter));
-fbComm.Publish('telescope', 'dome', 'TELESCOPE.INFO.CABINET',	telescopeConfig.cabinet);
-fbComm.Publish('telescope', 'dome', 'TELESCOPE.INFO.MANUFACTURER', telescopeConfig.manufacturer);
-
-// config
-fbComm.Publish('telescope', 'dome', 'TELESCOPE.CONFIG.MOUNTOPTIONS', telescopeConfig.mountOptions);
-fbComm.Publish('telescope', 'dome', 'TELESCOPE.CONFIG.MOUNT', telescopeConfig.mount);
-
-// STATUS
-IF bEstopTriggered THEN
-	fbComm.Publish('telescope', 'dome', 'TELESCOPE.STATUS.GLOBAL', '1');
-ELSIF bError THEN
-	fbComm.Publish('telescope', 'dome', 'TELESCOPE.STATUS.GLOBAL', '2');
-ELSE
-	fbComm.Publish('telescope', 'dome', 'TELESCOPE.STATUS.GLOBAL', '0');
-END_IF
-
-// INSTRUMENTAL
-fbComm.Publish('telescope', 'dome', 'OBJECT.INSTRUMENTAL.ALT', LREAL_TO_STRING(fElevation));
-fbComm.Publish('telescope', 'dome', 'OBJECT.INSTRUMENTAL.AZ', LREAL_TO_STRING(fAzimuth));
+// INFO, CONFIG.MOUNTOPTIONS/MOUNT, STATUS.GLOBAL, OBJECT.INSTRUMENTAL.ALT/AZ and the static
+// OBJECT.EQUATORIAL.EPOCH/EQUINOX/RA_PM/DEC_PM/RA_RATE/DEC_RATE fields used to be republished
+// here too, byte-identical to what SUPER^._PublishTelemetry() above already sends under the same
+// field names from the same source variables -- removed as pure duplication (#22).
+//
+// OBJECT.EQUATORIAL.RA_ICRS/DEC_ICRS kept even though pybrotlib's schema (the Python MQTT
+// consumer, BROTLib/pyBROT src/pybrotlib/telemetry.py) has no such field under
+// object.equatorial -- only object.equatorial.ra/dec, which SUPER already publishes with the
+// same value -- so this specific publish looks like dead weight for that consumer. Not removing
+// it here anyway: Telegraf/InfluxDB ingests the raw MQTT line independent of pybrotlib's schema,
+// so something else could still depend on this exact field name landing in Influx. (For contrast,
+// POSITION.EQUATORIAL.RA_ICRS/DEC_ICRS -- a different field, published further down -- *is* in
+// pybrotlib's schema and is a real, actively consumed field.)
+//
+// OBJECT.HORIZONTAL.ALT/AZ below is also kept even though SUPER publishes those same field names:
+// SUPER's version is conditional on bSlew (fElevation/fAzimuth vs fElevationCalc/fAzimuthCalc);
+// this unconditional republish runs after it and is what has actually been on the wire -- changing
+// that is a behavior change, not a dedup.
 
 // EQUATORIAL
-fbComm.Publish('telescope', 'dome', 'OBJECT.EQUATORIAL.EPOCH', 'J2000.0');
-fbComm.Publish('telescope', 'dome', 'OBJECT.EQUATORIAL.EQUINOX', 'J2000.0');
-fbComm.Publish('telescope', 'dome', 'OBJECT.EQUATORIAL.RA_PM', '0.0');
-fbComm.Publish('telescope', 'dome', 'OBJECT.EQUATORIAL.DEC_PM', '0.0');
-fbComm.Publish('telescope', 'dome', 'OBJECT.EQUATORIAL.RA_RATE', '0.0');
-fbComm.Publish('telescope', 'dome', 'OBJECT.EQUATORIAL.DEC_RATE', '0.0');
 fbComm.Publish('telescope', 'dome', 'OBJECT.EQUATORIAL.RA_ICRS', LREAL_TO_STRING(fRightAscension/15.0));
 fbComm.Publish('telescope', 'dome', 'OBJECT.EQUATORIAL.DEC_ICRS', LREAL_TO_STRING(fDeclination));
 
