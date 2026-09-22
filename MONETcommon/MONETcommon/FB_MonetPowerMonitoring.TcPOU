@@ -41,7 +41,14 @@ VAR
 END_VAR
 ]]></Declaration>
     <Implementation>
-      <ST><![CDATA[phaseOK := NOT FrequencyGuardWarning AND NOT L1VoltageGuardWarning AND NOT L2VoltageGuardWarning AND NOT L3VoltageGuardWarning;
+      <ST><![CDATA[// M5: previously ignored *GuardError entirely (only PowerError's log message used them)
+// and QualityGuard*/UnbalanceGuard* altogether; phaseOK now gates bMainReady (see MONETcommon#11).
+phaseOK := NOT FrequencyGuardWarning AND NOT FrequencyGuardError AND
+	NOT QualityGuardWarning AND NOT QualityGuardError AND
+	NOT UnbalanceGuardWarning AND NOT UnbalanceGuardError AND
+	NOT L1VoltageGuardWarning AND NOT L1VoltageGuardError AND
+	NOT L2VoltageGuardWarning AND NOT L2VoltageGuardError AND
+	NOT L3VoltageGuardWarning AND NOT L3VoltageGuardError;
 
 powerWarningDelay(IN := NOT phaseOK);
 powerWarningRetain(IN := powerWarningDelay.Q);
