@@ -46,7 +46,17 @@ VAR
 END_VAR
 ]]></Declaration>
     <Implementation>
-      <ST><![CDATA[// get the system time; fJd only follows the clock while the clock is valid (synced, see FB_AstroClock)
+      <ST><![CDATA[// revert fDut1 (set via the Dut1 property, e.g. from an external time bridge over MQTT) to its
+// safe 0.0 default if nothing fresh arrives for a while, instead of serving an arbitrarily
+// stale UT1-UTC correction forever. FB_AltAzTelescopeControl's own body is never called (this FB
+// doesn't call SUPER^() in its main body), so this has to live here rather than up there.
+tonDut1Stale(IN := NOT bDut1Received, PT := T#10M);
+bDut1Received := FALSE;
+IF tonDut1Stale.Q THEN
+	fDut1 := 0.0;
+END_IF
+
+// get the system time; fJd only follows the clock while the clock is valid (synced, see FB_AstroClock)
 fbTime();
 IF fbTime.bValid THEN
 	fJd := DateTime2JD(fbTime.time_RTCEX2);
@@ -133,6 +143,7 @@ eq2hor(
 	lat := telescopeConfig.latitude,
 	altitude := telescopeConfig.altitude,
 	JD := fJd + fTimeOffset,
+	dut1 := fDut1,
 	refract_to_observed := TRUE,
 	// refract := FALSE,
 	alt => fElevationCalc,
@@ -189,19 +200,21 @@ fElevationCurrentSky := fElevationCurrent - fElevationPointingOffset2;
 //fAzimuthCurrent := fAzimuthCurrentSky - fAzimuthOffset / COS(fElevationCalc * d2r);
 
 // calculate equatorial coordinates
-hor2eq(alt := fElevationCurrentSky - fElevationOffset, 
+hor2eq(alt := fElevationCurrentSky - fElevationOffset,
 		az := fAzimuthCurrentSky - fAzimuthOffset / COS(fElevationCurrent * d2r),	// M7: was fElevationCalc
 		jd := fJd,
+		dut1 := fDut1,
 		lat := telescopeConfig.latitude,
 		lon := telescopeConfig.longitude,
 		altitude := telescopeConfig.altitude,
 		alt_is_observed := TRUE,
 		// refract := FALSE,
 		ra => fRightAscensionCurrent,
-		dec => fDeclinationCurrent);		
-hor2eq(alt := fElevationCurrentSky, 
+		dec => fDeclinationCurrent);
+hor2eq(alt := fElevationCurrentSky,
 		az := fAzimuthCurrentSky,
 		jd := fJd,
+		dut1 := fDut1,
 		lat := telescopeConfig.latitude,
 		lon := telescopeConfig.longitude,
 		altitude := telescopeConfig.altitude,
