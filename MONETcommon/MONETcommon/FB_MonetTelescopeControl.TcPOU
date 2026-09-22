@@ -253,8 +253,13 @@ ELSIF bPower THEN
 	
 ELSIF bPark THEN
 	bTrack := FALSE;
+	// M2: emergency park bypasses the bReady/bBusy gating below entirely, since bReady
+	// requires NOT bError and would otherwise make park unreachable during an error.
+	IF bError THEN
+		bInterrupted := FALSE;
+		TCS_command := E_TCSCommand.park;
 	// If lower presedence commands are ongoing, let them know they are interupted
-	IF bGoto OR bSlew OR bGoHome THEN
+	ELSIF bGoto OR bSlew OR bGoHome THEN
 		bGoHome := FALSE;
 		bGoto := FALSE;
 		bSlew := FALSE;
@@ -262,7 +267,7 @@ ELSIF bPark THEN
 		_HomeTelescope();
 		_GotoTelescope();
 		_SlewTelescope();
-		
+
 	ELSE
 		IF bReady AND NOT bBusy THEN
 			bInterrupted := FALSE;
@@ -668,6 +673,7 @@ VAR_INPUT
 END_VAR
 VAR
 	ParkEvent	: FB_Eventlog;
+	rtrigError	: R_TRIG;	// M2: reset the stage only on the rising edge of bError, not every scan
 END_VAR
 VAR_STAT
 	nStage		: USINT := 0;
@@ -675,9 +681,17 @@ VAR_STAT
 END_VAR]]></Declaration>
       <Implementation>
         <ST><![CDATA[_ParkTelescope := nStage;
-IF bReset OR bError OR bStop OR bInterrupted THEN
+IF bReset OR bStop OR bInterrupted THEN
 	nStage := 0;
 	RETURN;
+END_IF
+// M2: bError does NOT return early here, unlike the other state machines: stage 0's
+// "emergency park" branch below is the safe-state response to bError and must run.
+// Only force the stage back to 0 on the rising edge, so the emergency branch can still
+// progress through its own stages (80 -> 100) on later scans while bError stays TRUE.
+rtrigError(CLK := bError);
+IF rtrigError.Q THEN
+	nStage := 0;
 END_IF
 IF bIsParked THEN
 	nStage := 100;
