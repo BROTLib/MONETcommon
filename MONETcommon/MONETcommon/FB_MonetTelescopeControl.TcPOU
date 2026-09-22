@@ -90,7 +90,7 @@ ELSIF fbDerotator.bError THEN
 	IF bReset THEN
 		fbDerotator.Reset();
 	END_IF	
-ELSIF fbFocus <> 0 AND_THEN fbFocus.Error THEN
+ELSIF fbFocus.Error THEN
 	nErrorID := fbFocus.ErrorID;
 	IF bReset THEN
 		fbFocus.Reset();
@@ -104,7 +104,7 @@ fSlewTime :=  MAX(MAX(fbElevation.fSlewTime, fbAzimuth.fSlewTime), fbDerotator.f
 
 bError := fbElevation.Error OR
 		 fbAzimuth.bError OR
-		 (fbFocus <> 0 AND_THEN fbFocus.Error) OR
+		 fbFocus.Error OR
 		 fbDerotator.bError OR
 		 bSoftwareError;
 			
@@ -718,9 +718,7 @@ CASE nStage OF
 		bTrack := 	FALSE;
 		bGoto := 	FALSE;
 		bSlew := 	FALSE;
-		IF fbFocus <> 0 THEN
-			fbFocus.Position := telescopeConfig.focusPark;
-		END_IF
+		fbFocus.Position := telescopeConfig.focusPark;
 		IF bError THEN // emergency park
 			fbBrake.CloseBrake();
 			fbElevation.Enable := FALSE;
@@ -833,9 +831,7 @@ IF bReset OR bError OR bStop OR bInterrupted THEN
 	fbAzimuth.HomeAxis := FALSE;
 	fbDerotator.MoveAxis := FALSE;
 	fbDerotator.HomeAxis := FALSE;
-	IF fbFocus <> 0 THEN
-		fbFocus.HomeAxis := FALSE;
-	END_IF
+	fbFocus.HomeAxis := FALSE;
 	RETURN;
 END_IF
 
@@ -869,7 +865,7 @@ CASE nStage OF
 		
 		// start calibration of focus after elevation has been calibrated
 		// this avoids imbalance by the M2 mirror on the elvation during its calibration
-		IF fbElevation.Calibrated AND (fbFocus <> 0 AND_THEN NOT fbFocus.Calibrated) THEN
+		IF fbElevation.Calibrated AND NOT fbFocus.Calibrated THEN
 			fbFocus.Enable := TRUE;
 			fbFocus.HomeAxis := TRUE;
 		END_IF
