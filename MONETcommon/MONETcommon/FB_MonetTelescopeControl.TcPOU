@@ -210,7 +210,8 @@ hor2eq(alt := fElevationCurrentSky - fElevationOffset,
 		alt_is_observed := TRUE,
 		// refract := FALSE,
 		ra => fRightAscensionCurrent,
-		dec => fDeclinationCurrent);
+		dec => fDeclinationCurrent,
+		ha => fHourAngleCurrent);	// M13: was never assigned, HA_ICRS telemetry was stuck at 0.0
 hor2eq(alt := fElevationCurrentSky,
 		az := fAzimuthCurrentSky,
 		jd := fJd,
@@ -450,9 +451,9 @@ END_IF
 
 // send telemetry
 IF bSlewing OR bTrack OR bTracking THEN
-	tonMQTTTimer.PT := T#500MS; // during movement every second
+	tonMQTTTimer.PT := T#500MS; // M13: was "every second", actually twice a second while moving
 ELSE
-	tonMQTTTimer.PT := T#1000MS; // otherwise every five seconds
+	tonMQTTTimer.PT := T#1000MS; // M13: was "every five seconds", actually every second otherwise
 END_IF
 tonMQTTTimer(IN:=TRUE);
 IF tonMQTTTimer.Q THEN
@@ -958,7 +959,7 @@ fbComm.Publish('telescope', 'dome', 'OBJECT.EQUATORIAL.DEC_PM', '0.0');
 fbComm.Publish('telescope', 'dome', 'OBJECT.EQUATORIAL.RA_RATE', '0.0');
 fbComm.Publish('telescope', 'dome', 'OBJECT.EQUATORIAL.DEC_RATE', '0.0');
 fbComm.Publish('telescope', 'dome', 'OBJECT.EQUATORIAL.RA_ICRS', LREAL_TO_STRING(fRightAscension/15.0));
-fbComm.Publish('telescope', 'dome', 'OBJECT.EQUATORIAL.DEC_IRCS', LREAL_TO_STRING(fDeclination));	
+fbComm.Publish('telescope', 'dome', 'OBJECT.EQUATORIAL.DEC_ICRS', LREAL_TO_STRING(fDeclination));
 
 // HORIZONTAL
 fbComm.Publish('telescope', 'dome', 'OBJECT.HORIZONTAL.ALT', LREAL_TO_STRING(fElevationCalc));
