@@ -1330,13 +1330,6 @@ END_VAR
         </Implementation>
       </Get>
     </Property>
-    <Method Name="Home" Id="{5b365a4e-cda4-42b8-9d62-ce493e72979f}">
-      <Declaration><![CDATA[METHOD Home : BOOL
-]]></Declaration>
-      <Implementation>
-        <ST><![CDATA[bGoHome := TRUE;]]></ST>
-      </Implementation>
-    </Method>
     <Method Name="Init" Id="{78ec73c4-02ac-4d83-aefd-694e0077d330}">
       <Declaration><![CDATA[METHOD Init : BOOL
 ]]></Declaration>
