@@ -150,10 +150,10 @@ fElevationCalc := fElevationCalc + fElevationPointingOffset + fElevationOffset;
 fAzimuthCalc := fAzimuthCalc + fAzimuthPointingOffset + fAzimuthOffset / COS(fElevationCalc * d2r);
 
 // calculate derotator position 
-fDerotatorCalc := F_DerotatorPosition2(fAzimuthCalc, fElevationCalc, fDeclination, telescopeConfig.latitude, fDerotatorSign)  + fDerotatorOffset;
+fDerotatorCalc := F_DerotatorPosition2(fAzimuthCalc, fElevationCalc, telescopeConfig.latitude, fDerotatorSign)  + fDerotatorOffset;
 
 // calculate velocities
-fDerotatorVelocity := F_Derotatorvelocity(fElevationCalc, fAzimuthCalc, telescopeConfig.latitude);
+fDerotatorVelocity := F_Derotatorvelocity(fAzimuthCalc, fElevationCalc, telescopeConfig.latitude, fDerotatorSign);
 fElevationVelocity := F_Elevationvelocity(fAzimuthCalc, telescopeConfig.latitude);
 fAzimuthVelocity := F_Azimuthvelocity(fElevationCalc, fAzimuthCalc, telescopeConfig.latitude);
 
@@ -1186,7 +1186,7 @@ END_VAR
 ]]></Declaration>
       <Implementation>
         <ST><![CDATA[// Elevation
-fDerotatorVelocity := F_Derotatorvelocity(fElevationCalc, fAzimuthCalc, telescopeConfig.latitude);
+fDerotatorVelocity := F_Derotatorvelocity(fAzimuthCalc, fElevationCalc, telescopeConfig.latitude, fDerotatorSign);
 fElevationVelocity := F_Elevationvelocity(fAzimuthCalc, telescopeConfig.latitude);
 fAzimuthVelocity := F_Azimuthvelocity(fElevationCalc, fAzimuthCalc, telescopeConfig.latitude);
 IF fElevationCurrent < 5.0 OR fElevationCurrent > 89.5 THEN
