@@ -38,24 +38,37 @@ infrequently-updated value (daily, or even weekly) is far better than the curren
 `0.0`. A companion issue is filed against `pyBROT` (the Python MQTT client/bridge repo) to add a
 push for this, mirroring however the weather bridge works — see below.
 
-## Staleness
+## Staleness and reasonable defaults
 
 `Temperature`/`Humidity`/`Pressure` currently default to `GVL_Math.LREAL_MIN` (an error sentinel,
 not a physical default) and, once a value has been received once, hold it **forever** with no
 staleness check -- if the weather bridge dies, a reading from days ago would silently keep being
-used indefinitely. `dut1`'s natural default (`0.0`, "treat UTC as UT1") is already a genuinely
-sensible fallback, not just a sentinel, and UT1-UTC itself drifts slowly (bounded to +/-0.9s by
-design) -- staleness matters far less for it, but it's cheap to handle the same way for
-consistency.
+used indefinitely.
+
+Rather than invent a separate "reasonable" weather constant, reuse `FB_CO_REFRACT`'s own
+convention: it already treats `pressure := 0.0` (and `temperature_set := FALSE`) as "no data,
+estimate from altitude" via a standard-atmosphere formula -- which *is* the reasonable default
+for refraction, since it's altitude/site-aware rather than a generic guess. So:
+
+- Change `Temperature`'s and `Pressure`'s default -- both the initial value and what staleness
+  reverts to -- from `GVL_Math.LREAL_MIN` to `0.0`, matching `FB_CO_REFRACT`'s own sentinel. Any
+  consumer can then pass `fbComm.Pressure`/`fbComm.Temperature` straight through to `co_refract`
+  with no guard needed: "no data yet" and "reasonable fallback" become the same value. (Drop the
+  `> 0.0` guard mentioned for the optional pressure passthrough in step 2 below -- it's no longer
+  needed once the default itself is `0.0`.)
+- `Humidity` isn't consumed by `FB_CO_REFRACT` or anywhere else in this codebase today -- no
+  refraction-style "reasonable default" exists to reuse for it. Leave its default as `GVL_Math.LREAL_MIN`
+  unless/until something actually reads it, at which point pick a default appropriate to that use.
+- `dut1`'s natural default (`0.0`, "treat UTC as UT1") is already a genuinely sensible fallback,
+  not just a sentinel, and UT1-UTC itself drifts slowly (bounded to +/-0.9s by design) --
+  staleness matters far less for it, but it's cheap to handle the same way for consistency.
 
 Add a staleness timeout in `FB_Comm_MQTT_Influx` itself, alongside receiving the values (step 1):
 a `TON` per value (or one shared timer if the bridge publishes all of them together in practice)
 that resets on each received message; if the timer elapses before a fresh value arrives, revert
-that value to its safe default (`LREAL_MIN` for weather -- which callers already have to treat as
-"no data, auto-estimate" -- and `0.0` for `dut1`) rather than continuing to serve an arbitrarily
-old reading. Pick the timeout comfortably longer than the bridge's expected publish interval
-(exact cadence depends on how pyBROT/the weather bridge ends up scheduled -- see the companion
-pyBROT issue).
+that value to its default above. Pick the timeout comfortably longer than the bridge's expected
+publish interval (exact cadence depends on how pyBROT/the weather bridge ends up scheduled --
+see the companion pyBROT issue).
 
 ## Steps
 
@@ -88,9 +101,12 @@ how the file already reads `fbComm` elsewhere) into all three coordinate-transfo
 `0.0` default (before the bridge ever pushes anything, or if it's offline) reproduces today's
 exact behavior — safe fallback, no regression if the Python side isn't running.
 
-Optionally, same call sites: pass `pressure := fbComm.Pressure` (only if `> 0.0`, since `0.0` is
-the "auto-estimate from altitude" sentinel) for the marginal refraction accuracy improvement —
-secondary, can be dropped from scope if it complicates the change.
+Optionally, same call sites: pass `pressure := fbComm.Pressure` (and `temperature :=
+fbComm.Temperature, temperature_set := fbComm.Temperature <> 0.0` if going further) for the
+marginal refraction accuracy improvement — secondary, can be dropped from scope if it
+complicates the change. No guard needed against `fbComm.Pressure` being unset: per the
+"Staleness and reasonable defaults" section above, its default is now `0.0`, `FB_CO_REFRACT`'s
+own "estimate from altitude" sentinel, so passing it straight through is always safe.
 
 ### 3. Confirm AstroBROT library version
 
