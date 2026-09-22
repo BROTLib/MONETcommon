@@ -34,6 +34,12 @@ VAR_OUTPUT
 	fAzimuthVelocity	: LREAL;	// rotational velocity of the elevation
 END_VAR
 VAR
+	// M1: internal (non-axis) errors from the Goto/Home/Slew state machines, latched
+	// until bReset since bError/nErrorID are otherwise recomputed from the axes every
+	// scan and would silently wipe these within the same cycle they're set in.
+	bSoftwareError		: BOOL;
+	nSoftwareErrorID	: UINT;
+	SoftwareErrorEvent	: FB_EventLog;
 END_VAR
 ]]></Declaration>
     <Implementation>
@@ -54,6 +60,7 @@ rtrigReset(CLK := bReset);
 
 IF bReset THEN
 	bHorizonError := FALSE; // if reset, the bHorizonError can be switched off
+	bSoftwareError := FALSE;
 	
 	// reset the stages of all statemachine methods
 	bInterrupted := TRUE; 
@@ -85,15 +92,18 @@ ELSIF fbFocus <> 0 AND_THEN fbFocus.Error THEN
 	IF bReset THEN
 		fbFocus.Reset();
 	END_IF
+ELSIF bSoftwareError THEN
+	nErrorID := nSoftwareErrorID;
 END_IF
 
 // fSlewTime
 fSlewTime :=  MAX(MAX(fbElevation.fSlewTime, fbAzimuth.fSlewTime), fbDerotator.fSlewTime);
 
-bError := fbElevation.Error OR 
+bError := fbElevation.Error OR
 		 fbAzimuth.bError OR
 		 (fbFocus <> 0 AND_THEN fbFocus.Error) OR
-		 fbDerotator.bError;
+		 fbDerotator.bError OR
+		 bSoftwareError;
 			
 IF bError THEN
 	bTrack := 	FALSE;
@@ -483,7 +493,14 @@ TCSreadyEvent(	Trigger := bPower AND bReady,
 TCSCTOEvent(	Trigger := tonCommandTimeout.Q,
 				Level := ADSLOG_MSGTYPE_WARN,
 				FormatString := 'A timeout occurred during %s command!',
-				OnMessage := 'NOCOMMAND', 
+				OnMessage := 'NOCOMMAND',
+				Comm := fbComm);
+SoftwareErrorEvent(	Trigger := bSoftwareError,
+				Level := ADSLOG_MSGTYPE_ERROR,
+				FormatString := 'Internal command error, ID: %s',
+				OnMessage := UINT_TO_STRING(nSoftwareErrorID),
+				OffMessage := 'cleared',
+				OffLevel := ADSLOG_MSGTYPE_HINT,
 				Comm := fbComm);]]></ST>
     </Implementation>
     <Folder Name="internal methods" Id="{d1e7fbc6-9662-4c16-bf25-8044ef92da3b}" />
@@ -505,6 +522,8 @@ commandTimeout(IN := nStage < 100, PT := T#600S);
 IF commandTimeout.Q THEN
 	bError := TRUE;
 	nErrorID := 16#10;
+	bSoftwareError := TRUE;
+	nSoftwareErrorID := 16#10;
 	bGoto := FALSE;
 	nStage := 0;
 	RETURN;
@@ -513,6 +532,8 @@ END_IF
 IF fElevationCalc<2.0 THEN
 	bError := TRUE;
 	nErrorID := 16#15;
+	bSoftwareError := TRUE;
+	nSoftwareErrorID := 16#15;
 	bGoto := FALSE;
 	nStage := 0;
 	RETURN;
@@ -606,6 +627,8 @@ commandTimeout(IN := NOT _HomeTelescope, PT := T#600S);
 IF commandTimeout.Q THEN
     bError := TRUE;
     nErrorID := 16#30;
+    bSoftwareError := TRUE;
+    nSoftwareErrorID := 16#30;
     _HomeTelescope :=TRUE;
 END_IF
 
@@ -1020,6 +1043,8 @@ command_timeout(IN := nStage < 100, PT := T#600S);
 IF command_timeout.Q THEN
 	bError := TRUE;
 	nErrorID := 16#40;
+	bSoftwareError := TRUE;
+	nSoftwareErrorID := 16#40;
 	bSlew := FALSE;
 	nStage := 0;
 	RETURN;
