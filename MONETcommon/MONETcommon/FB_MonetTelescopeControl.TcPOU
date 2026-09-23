@@ -43,6 +43,17 @@ VAR
 	bSoftwareError		: BOOL;
 	nSoftwareErrorID	: UINT;
 	SoftwareErrorEvent	: FB_EventLog;
+
+	// #26 / ADR 0001 option 1: auto-clear a latched bInterrupted if nothing has been
+	// requested for a while, since the normal arbitration path can never do it on its
+	// own (bReady needs the axes enabled, axis enable needs bInterrupted already clear).
+	// Visible, not silent: logged and counted, not just quietly cleared.
+	bInterruptedIdle			: BOOL;
+	tonInterruptedAutoClear		: TON;
+	InterruptedAutoClearEvent	: FB_EventLog;
+END_VAR
+VAR PERSISTENT
+	nInterruptedAutoClearCount	: UDINT;	// how many times auto-clear has fired, ever
 END_VAR
 ]]></Declaration>
     <Implementation>
@@ -240,6 +251,25 @@ IF tonPowerTimeout.Q AND NOT bIsParked THEN
 	bPark := TRUE;
 END_IF
 		
+// #26 / ADR 0001 option 1: bInterrupted otherwise cannot clear itself once latched with
+// nothing pending (see specs/design/telescopecontrol-command-arbitration.md); auto-clear
+// after a few seconds of true idle (no error, nothing requested), logged and counted so
+// it's visible rather than a silent recovery. TUNE PT if this fires too eagerly/late on
+// site.
+bInterruptedIdle := bInterrupted AND NOT bError AND
+	NOT (bPower OR bPark OR bGoHome OR bGoto OR bSlew OR bTrack);
+tonInterruptedAutoClear(IN := bInterruptedIdle, PT := T#5S);
+IF tonInterruptedAutoClear.Q THEN
+	bInterrupted := FALSE;
+	nInterruptedAutoClearCount := nInterruptedAutoClearCount + 1;
+END_IF
+InterruptedAutoClearEvent(
+	Trigger 		:= tonInterruptedAutoClear.Q,
+	Level 			:= ADSLOG_MSGTYPE_WARN,
+	FormatString 	:= 'bInterrupted auto-cleared after idle timeout (count: %s)',
+	OnMessage 		:= UDINT_TO_STRING(nInterruptedAutoClearCount),
+	Comm 			:= fbComm);
+
 // set TCS_command according to state variables ordered by precedence
 // Stop outranks everything, including a running power-on
 IF bStop THEN
@@ -927,6 +957,7 @@ END_VAR
 
 fbComm.Publish('telescope', 'dome', 'TELESCOPE.READY_STATE',	LREAL_TO_STRING(fReadyState));
 fbComm.Publish('telescope', 'dome', 'TELESCOPE.MOTION_STATE',	LREAL_TO_STRING(nMotionState));
+fbComm.Publish('telescope', 'dome', 'TELESCOPE.INTERRUPTED_AUTO_CLEAR_COUNT', UDINT_TO_STRING(nInterruptedAutoClearCount));
 
 // INFO, CONFIG.MOUNTOPTIONS/MOUNT, STATUS.GLOBAL, OBJECT.INSTRUMENTAL.ALT/AZ and the static
 // OBJECT.EQUATORIAL.EPOCH/EQUINOX/RA_PM/DEC_PM/RA_RATE/DEC_RATE fields used to be republished
