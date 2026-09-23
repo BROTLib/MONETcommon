@@ -1,7 +1,24 @@
 # Add a TcUnit test suite to MONETcommon
 
-**Status: planned, not started.** Follow-up to [MONETcommon#36](https://github.com/BROTLib/MONETcommon/issues/36),
-split off from #20 (M14).
+**Status: spike confirmed, one test passing on real hardware.** Follow-up to
+[MONETcommon#36](https://github.com/BROTLib/MONETcommon/issues/36), split off from #20 (M14).
+
+## Spike result (2026-09-23)
+
+Confirmed on a real `UmRT_Default` runtime: `MONETcommonTests` (commit `5114215`) builds clean and
+runs. `FB_MonetCoverControl_Tests.Unlinked_Hardware_Reports_Error` passed (1 suite, 1 test, 1
+passed, 0 failed) -- `FB_MonetCoverControl` instantiates and runs with zero linked hardware, and
+correctly reports `bError` given the inverted limit-switch polarity's unlinked-default state
+(`Cover1/2/3: limit switch error` in the ADS log, exactly as predicted).
+
+The build needed two fixes along the way, both applied to MONETcommon itself, not just the test
+project: an invalid `ARRAY[1..3] OF TON := [3(PT := T#60S)]` initializer in
+`FB_MonetCoverControl` (real syntax error, unrelated to the test project -- see MONETcommon
+commit `53c0174`), and a missing `System_VisuElemEventTable` library reference in the test
+project's own `.plcproj`.
+
+Still open: whether `FB_MonetTelescopeControl` (needing `REFERENCE TO FB_ElevationControl` etc.)
+runs the same way -- not yet attempted.
 
 ## Context
 
