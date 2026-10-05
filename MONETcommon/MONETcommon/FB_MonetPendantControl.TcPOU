@@ -26,6 +26,8 @@ VAR
 	fbResetTrigger		: R_TRIG;
 
 	//DIN17 2.0
+	// AT%I*/AT%Q* below are mapped directly on this FB: only one instance per PLC is
+	// supported, a second instance would collide on the same physical hardware.
 	IbBCD0				AT%I*: BOOL;
 	IbBCD2				AT%I*: BOOL;
 	IbBCD4				AT%I*: BOOL;

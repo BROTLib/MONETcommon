@@ -1,0 +1,52 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="FB_NullComm" Id="{733d720e-0516-4a55-a5a5-f72ebf9f58f9}" SpecialFunc="None">
+    <Declaration><![CDATA[// Minimal I_Comm stub for tests: every Publish/PublishLog call is a no-op that reports success,
+// so FBs under test can call fbComm.Publish(...) freely without a real MQTT connection.
+FUNCTION_BLOCK FB_NullComm IMPLEMENTS BROTLib.I_Comm
+VAR
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[]]></ST>
+    </Implementation>
+    <Method Name="Publish" Id="{79b3e026-bcb6-4a3a-bdc7-e228b153f1bc}">
+      <Declaration><![CDATA[METHOD Publish : BOOL
+VAR_INPUT
+	domain			: STRING(255) := 'environment';
+	location		: STRING(255) := 'roof';
+	parameter		: STRING(255);
+	value			: STRING(255);
+END_VAR
+VAR_OUTPUT
+	published	: BOOL;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Publish := TRUE;
+published := TRUE;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="PublishLog" Id="{27dc438e-e3f1-4f55-b4bb-810991230d3e}">
+      <Declaration><![CDATA[METHOD PublishLog : BOOL
+VAR_INPUT
+	level		: STRING(255) := 'INFO';
+	message		: STRING(255);
+END_VAR
+VAR_OUTPUT
+	published	: BOOL;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[PublishLog := TRUE;
+published := TRUE;]]></ST>
+      </Implementation>
+    </Method>
+    <LineIds Name="FB_NullComm.Publish">
+      <LineId Id="1" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_NullComm.PublishLog">
+      <LineId Id="1" Count="0" />
+    </LineIds>
+  </POU>
+</TcPlcObject>

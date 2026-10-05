@@ -16,7 +16,10 @@ VAR_INPUT
 
 	bBrakeClearing		: BOOL	:= TRUE;
 
-	fElevationHomingVelocity : LREAL := 5.0; // elevation axis velocity during _HomeTelescope (deg/s) - site-specific, e.g. MONETN uses 10.0
+	// M6: applied to every commanded elevation move (Goto/Home/Park/PowerOn/Slew, not
+	// the computed tracking rate), NOT just _HomeTelescope despite the old name.
+	// 5.0 deg/s confirmed correct on-site for MONETS; 10.0 was too fast.
+	fElevationMoveVelocity : LREAL := 5.0;
 END_VAR
 VAR_OUTPUT
 	fDerotatorSign		: LREAL := 1.0;	// derotator
@@ -34,10 +37,37 @@ VAR_OUTPUT
 	fAzimuthVelocity	: LREAL;	// rotational velocity of the elevation
 END_VAR
 VAR
+	// M1: internal (non-axis) errors from the Goto/Home/Slew state machines, latched
+	// until bReset since bError/nErrorID are otherwise recomputed from the axes every
+	// scan and would silently wipe these within the same cycle they're set in.
+	bSoftwareError		: BOOL;
+	nSoftwareErrorID	: UINT;
+	SoftwareErrorEvent	: FB_EventLog;
+
+	// #26 / ADR 0001 option 1: auto-clear a latched bInterrupted if nothing has been
+	// requested for a while, since the normal arbitration path can never do it on its
+	// own (bReady needs the axes enabled, axis enable needs bInterrupted already clear).
+	// Visible, not silent: logged and counted, not just quietly cleared.
+	bInterruptedIdle			: BOOL;
+	tonInterruptedAutoClear		: TON;
+	InterruptedAutoClearEvent	: FB_EventLog;
+END_VAR
+VAR PERSISTENT
+	nInterruptedAutoClearCount	: UDINT;	// how many times auto-clear has fired, ever
 END_VAR
 ]]></Declaration>
     <Implementation>
-      <ST><![CDATA[// get the system time; fJd only follows the clock while the clock is valid (synced, see FB_AstroClock)
+      <ST><![CDATA[// revert fDut1 (set via the Dut1 property, e.g. from an external time bridge over MQTT) to its
+// safe 0.0 default if nothing fresh arrives for a while, instead of serving an arbitrarily
+// stale UT1-UTC correction forever. FB_AltAzTelescopeControl's own body is never called (this FB
+// doesn't call SUPER^() in its main body), so this has to live here rather than up there.
+tonDut1Stale(IN := NOT bDut1Received, PT := T#10M);
+bDut1Received := FALSE;
+IF tonDut1Stale.Q THEN
+	fDut1 := 0.0;
+END_IF
+
+// get the system time; fJd only follows the clock while the clock is valid (synced, see FB_AstroClock)
 fbTime();
 IF fbTime.bValid THEN
 	fJd := DateTime2JD(fbTime.time_RTCEX2);
@@ -54,6 +84,7 @@ rtrigReset(CLK := bReset);
 
 IF bReset THEN
 	bHorizonError := FALSE; // if reset, the bHorizonError can be switched off
+	bSoftwareError := FALSE;
 	
 	// reset the stages of all statemachine methods
 	bInterrupted := TRUE; 
@@ -80,20 +111,23 @@ ELSIF fbDerotator.bError THEN
 	IF bReset THEN
 		fbDerotator.Reset();
 	END_IF	
-ELSIF fbFocus <> 0 AND_THEN fbFocus.Error THEN
+ELSIF fbFocus.Error THEN
 	nErrorID := fbFocus.ErrorID;
 	IF bReset THEN
 		fbFocus.Reset();
 	END_IF
+ELSIF bSoftwareError THEN
+	nErrorID := nSoftwareErrorID;
 END_IF
 
 // fSlewTime
 fSlewTime :=  MAX(MAX(fbElevation.fSlewTime, fbAzimuth.fSlewTime), fbDerotator.fSlewTime);
 
-bError := fbElevation.Error OR 
+bError := fbElevation.Error OR
 		 fbAzimuth.bError OR
-		 (fbFocus <> 0 AND_THEN fbFocus.Error) OR
-		 fbDerotator.bError;
+		 fbFocus.Error OR
+		 fbDerotator.bError OR
+		 bSoftwareError;
 			
 IF bError THEN
 	bTrack := 	FALSE;
@@ -120,6 +154,7 @@ eq2hor(
 	lat := telescopeConfig.latitude,
 	altitude := telescopeConfig.altitude,
 	JD := fJd + fTimeOffset,
+	dut1 := fDut1,
 	refract_to_observed := TRUE,
 	// refract := FALSE,
 	alt => fElevationCalc,
@@ -137,10 +172,10 @@ fElevationCalc := fElevationCalc + fElevationPointingOffset + fElevationOffset;
 fAzimuthCalc := fAzimuthCalc + fAzimuthPointingOffset + fAzimuthOffset / COS(fElevationCalc * d2r);
 
 // calculate derotator position 
-fDerotatorCalc := F_DerotatorPosition2(fAzimuthCalc, fElevationCalc, fDeclination, telescopeConfig.latitude, fDerotatorSign)  + fDerotatorOffset;
+fDerotatorCalc := F_DerotatorPosition2(fAzimuthCalc, fElevationCalc, telescopeConfig.latitude, fDerotatorSign)  + fDerotatorOffset;
 
 // calculate velocities
-fDerotatorVelocity := F_Derotatorvelocity(fElevationCalc, fAzimuthCalc, telescopeConfig.latitude);
+fDerotatorVelocity := F_Derotatorvelocity(fAzimuthCalc, fElevationCalc, telescopeConfig.latitude, fDerotatorSign);
 fElevationVelocity := F_Elevationvelocity(fAzimuthCalc, telescopeConfig.latitude);
 fAzimuthVelocity := F_Azimuthvelocity(fElevationCalc, fAzimuthCalc, telescopeConfig.latitude);
 
@@ -176,19 +211,22 @@ fElevationCurrentSky := fElevationCurrent - fElevationPointingOffset2;
 //fAzimuthCurrent := fAzimuthCurrentSky - fAzimuthOffset / COS(fElevationCalc * d2r);
 
 // calculate equatorial coordinates
-hor2eq(alt := fElevationCurrentSky - fElevationOffset, 
-		az := fAzimuthCurrentSky - fAzimuthOffset / COS(fElevationCalc * d2r),
+hor2eq(alt := fElevationCurrentSky - fElevationOffset,
+		az := fAzimuthCurrentSky - fAzimuthOffset / COS(fElevationCurrent * d2r),	// M7: was fElevationCalc
 		jd := fJd,
+		dut1 := fDut1,
 		lat := telescopeConfig.latitude,
 		lon := telescopeConfig.longitude,
 		altitude := telescopeConfig.altitude,
 		alt_is_observed := TRUE,
 		// refract := FALSE,
 		ra => fRightAscensionCurrent,
-		dec => fDeclinationCurrent);		
-hor2eq(alt := fElevationCurrentSky, 
+		dec => fDeclinationCurrent,
+		ha => fHourAngleCurrent);	// M13: was never assigned, HA_ICRS telemetry was stuck at 0.0
+hor2eq(alt := fElevationCurrentSky,
 		az := fAzimuthCurrentSky,
 		jd := fJd,
+		dut1 := fDut1,
 		lat := telescopeConfig.latitude,
 		lon := telescopeConfig.longitude,
 		altitude := telescopeConfig.altitude,
@@ -213,6 +251,25 @@ IF tonPowerTimeout.Q AND NOT bIsParked THEN
 	bPark := TRUE;
 END_IF
 		
+// #26 / ADR 0001 option 1: bInterrupted otherwise cannot clear itself once latched with
+// nothing pending (see specs/design/telescopecontrol-command-arbitration.md); auto-clear
+// after a few seconds of true idle (no error, nothing requested), logged and counted so
+// it's visible rather than a silent recovery. TUNE PT if this fires too eagerly/late on
+// site.
+bInterruptedIdle := bInterrupted AND NOT bError AND
+	NOT (bPower OR bPark OR bGoHome OR bGoto OR bSlew OR bTrack);
+tonInterruptedAutoClear(IN := bInterruptedIdle, PT := T#5S);
+IF tonInterruptedAutoClear.Q THEN
+	bInterrupted := FALSE;
+	nInterruptedAutoClearCount := nInterruptedAutoClearCount + 1;
+END_IF
+InterruptedAutoClearEvent(
+	Trigger 		:= tonInterruptedAutoClear.Q,
+	Level 			:= ADSLOG_MSGTYPE_WARN,
+	FormatString 	:= 'bInterrupted auto-cleared after idle timeout (count: %s)',
+	OnMessage 		:= UDINT_TO_STRING(nInterruptedAutoClearCount),
+	Comm 			:= fbComm);
+
 // set TCS_command according to state variables ordered by precedence
 // Stop outranks everything, including a running power-on
 IF bStop THEN
@@ -243,8 +300,13 @@ ELSIF bPower THEN
 	
 ELSIF bPark THEN
 	bTrack := FALSE;
+	// M2: emergency park bypasses the bReady/bBusy gating below entirely, since bReady
+	// requires NOT bError and would otherwise make park unreachable during an error.
+	IF bError THEN
+		bInterrupted := FALSE;
+		TCS_command := E_TCSCommand.park;
 	// If lower presedence commands are ongoing, let them know they are interupted
-	IF bGoto OR bSlew OR bGoHome THEN
+	ELSIF bGoto OR bSlew OR bGoHome THEN
 		bGoHome := FALSE;
 		bGoto := FALSE;
 		bSlew := FALSE;
@@ -252,7 +314,7 @@ ELSIF bPark THEN
 		_HomeTelescope();
 		_GotoTelescope();
 		_SlewTelescope();
-		
+
 	ELSE
 		IF bReady AND NOT bBusy THEN
 			bInterrupted := FALSE;
@@ -419,9 +481,9 @@ END_IF
 
 // send telemetry
 IF bSlewing OR bTrack OR bTracking THEN
-	tonMQTTTimer.PT := T#500MS; // during movement every second
+	tonMQTTTimer.PT := T#500MS; // M13: was "every second", actually twice a second while moving
 ELSE
-	tonMQTTTimer.PT := T#1000MS; // otherwise every five seconds
+	tonMQTTTimer.PT := T#1000MS; // M13: was "every five seconds", actually every second otherwise
 END_IF
 tonMQTTTimer(IN:=TRUE);
 IF tonMQTTTimer.Q THEN
@@ -469,7 +531,7 @@ TCSstopEvent(	Trigger := bStop,
 				OffMEssage := 'completed',
 				OffLevel := ADSLOG_MSGTYPE_HINT, 
 				Comm := fbComm);
-TCStargetHorizonEvent(	Trigger := bPower AND fElevationCalc<fHorizon, 
+TCStargetHorizonEvent(	Trigger := fElevationCalc<fHorizon,
 				Level := ADSLOG_MSGTYPE_WARN,
 				FormatString := '%s',
 				OnMessage := 'Target below safe horizon',
@@ -482,8 +544,15 @@ TCSreadyEvent(	Trigger := bPower AND bReady,
 				Comm := fbComm);
 TCSCTOEvent(	Trigger := tonCommandTimeout.Q,
 				Level := ADSLOG_MSGTYPE_WARN,
-				FormatString := 'A timeout occured during %s command!',
-				OnMessage := 'NOCOMMAND', 
+				FormatString := 'A timeout occurred during %s command!',
+				OnMessage := 'NOCOMMAND',
+				Comm := fbComm);
+SoftwareErrorEvent(	Trigger := bSoftwareError,
+				Level := ADSLOG_MSGTYPE_ERROR,
+				FormatString := 'Internal command error, ID: %s',
+				OnMessage := UINT_TO_STRING(nSoftwareErrorID),
+				OffMessage := 'cleared',
+				OffLevel := ADSLOG_MSGTYPE_HINT,
 				Comm := fbComm);]]></ST>
     </Implementation>
     <Folder Name="internal methods" Id="{d1e7fbc6-9662-4c16-bf25-8044ef92da3b}" />
@@ -505,6 +574,8 @@ commandTimeout(IN := nStage < 100, PT := T#600S);
 IF commandTimeout.Q THEN
 	bError := TRUE;
 	nErrorID := 16#10;
+	bSoftwareError := TRUE;
+	nSoftwareErrorID := 16#10;
 	bGoto := FALSE;
 	nStage := 0;
 	RETURN;
@@ -513,6 +584,21 @@ END_IF
 IF fElevationCalc<2.0 THEN
 	bError := TRUE;
 	nErrorID := 16#15;
+	bSoftwareError := TRUE;
+	nSoftwareErrorID := 16#15;
+	bGoto := FALSE;
+	nStage := 0;
+	RETURN;
+END_IF
+
+// M7: near zenith COS(elevation) -> 0, so any nonzero fAzimuthOffset blows up into a
+// huge azimuth (see the offset divisions elsewhere in this FB). 89.5 matches the
+// existing tracking cutoff (_TrackTelescope: fElevationCurrent > 89.5).
+IF fElevationCalc>89.5 THEN
+	bError := TRUE;
+	nErrorID := 16#16;
+	bSoftwareError := TRUE;
+	nSoftwareErrorID := 16#16;
 	bGoto := FALSE;
 	nStage := 0;
 	RETURN;
@@ -541,7 +627,7 @@ CASE nStage OF
 		fbAzimuth.Position := fAzimuthCalc;
 		fbDerotator.Position := fDerotatorCalc;
 		fbDerotator.Velocity := 10.0;
-		fbElevation.Velocity := 10.0;
+		fbElevation.Velocity := fElevationMoveVelocity;
 		fbAzimuth.Velocity := 10.0;
 		
 		fbElevation.MoveAxis := TRUE;
@@ -606,12 +692,14 @@ commandTimeout(IN := NOT _HomeTelescope, PT := T#600S);
 IF commandTimeout.Q THEN
     bError := TRUE;
     nErrorID := 16#30;
+    bSoftwareError := TRUE;
+    nSoftwareErrorID := 16#30;
     _HomeTelescope :=TRUE;
 END_IF
 
 // only move while a home command is active (Stop/Park/Reset call this with bGoHome cleared to abort it)
 IF bGoHome AND bReady AND bStopped AND NOT bBusy AND NOT bTracking THEN
-    fbElevation.Velocity := 10.0;
+    fbElevation.Velocity := fElevationMoveVelocity;
     fbElevation.Position := telescopeConfig.elevationHome;
     fbElevation.MoveAxis := TRUE;
     fbAzimuth.Velocity := 10.0;
@@ -645,6 +733,7 @@ VAR_INPUT
 END_VAR
 VAR
 	ParkEvent	: FB_Eventlog;
+	rtrigError	: R_TRIG;	// M2: reset the stage only on the rising edge of bError, not every scan
 END_VAR
 VAR_STAT
 	nStage		: USINT := 0;
@@ -652,9 +741,17 @@ VAR_STAT
 END_VAR]]></Declaration>
       <Implementation>
         <ST><![CDATA[_ParkTelescope := nStage;
-IF bReset OR bError OR bStop OR bInterrupted THEN
+IF bReset OR bStop OR bInterrupted THEN
 	nStage := 0;
 	RETURN;
+END_IF
+// M2: bError does NOT return early here, unlike the other state machines: stage 0's
+// "emergency park" branch below is the safe-state response to bError and must run.
+// Only force the stage back to 0 on the rising edge, so the emergency branch can still
+// progress through its own stages (80 -> 100) on later scans while bError stays TRUE.
+rtrigError(CLK := bError);
+IF rtrigError.Q THEN
+	nStage := 0;
 END_IF
 IF bIsParked THEN
 	nStage := 100;
@@ -665,9 +762,7 @@ CASE nStage OF
 		bTrack := 	FALSE;
 		bGoto := 	FALSE;
 		bSlew := 	FALSE;
-		IF fbFocus <> 0 THEN
-			fbFocus.Position := telescopeConfig.focusPark;
-		END_IF
+		fbFocus.Position := telescopeConfig.focusPark;
 		IF bError THEN // emergency park
 			fbBrake.CloseBrake();
 			fbElevation.Enable := FALSE;
@@ -688,7 +783,7 @@ CASE nStage OF
 		END_IF		
 	20:
 		fbElevation.Position := telescopeConfig.elevationPark;
-		fbElevation.Velocity := 10.0;
+		fbElevation.Velocity := fElevationMoveVelocity;
 		fbElevation.MoveAxis := TRUE;
 		fbAzimuth.Position := telescopeConfig.azimuthPark;
 		fbAzimuth.Velocity := 10;
@@ -765,7 +860,7 @@ END_VAR]]></Declaration>
 	bPower := FALSE;
 ELSIF bError THEN
 	bPowerFailure := TRUE;
-	TCSpowerEvent.OnMessage := 'Generic error during power on occured.';
+	TCSpowerEvent.OnMessage := 'Generic error during power on occurred.';
 	bPower := FALSE;
 ELSE
 	bPowerFailure := FALSE;		
@@ -780,16 +875,15 @@ IF bReset OR bError OR bStop OR bInterrupted THEN
 	fbAzimuth.HomeAxis := FALSE;
 	fbDerotator.MoveAxis := FALSE;
 	fbDerotator.HomeAxis := FALSE;
-	IF fbFocus <> 0 THEN
-		fbFocus.HomeAxis := FALSE;
-	END_IF
+	fbFocus.HomeAxis := FALSE;
 	RETURN;
 END_IF
 
 CASE nStage OF
 	0:
-		_PowerOn := FALSE; 
+		_PowerOn := FALSE;
 		// COVER MUST BE OPENED FOR A SUCCESSFUL WAKE & SHAKE COMMAND!
+		// unconditional by design: does not consult bCoverAutoOpen (see CoverAutoOpen.Set)
 		fbCovers.Open();
 		IF bMainReady AND fbCovers.Opened THEN
 			nStage := 10;
@@ -815,7 +909,7 @@ CASE nStage OF
 		
 		// start calibration of focus after elevation has been calibrated
 		// this avoids imbalance by the M2 mirror on the elvation during its calibration
-		IF fbElevation.Calibrated AND (fbFocus <> 0 AND_THEN NOT fbFocus.Calibrated) THEN
+		IF fbElevation.Calibrated AND NOT fbFocus.Calibrated THEN
 			fbFocus.Enable := TRUE;
 			fbFocus.HomeAxis := TRUE;
 		END_IF
@@ -826,7 +920,7 @@ CASE nStage OF
 		END_IF
 		
 	30:
-		fbElevation.Velocity := 10.0;
+		fbElevation.Velocity := fElevationMoveVelocity;
 		fbElevation.Position := telescopeConfig.elevationHome;
 		fbElevation.MoveAxis := TRUE;
 		fbAzimuth.Velocity := 10.0;
@@ -863,39 +957,30 @@ END_VAR
 
 fbComm.Publish('telescope', 'dome', 'TELESCOPE.READY_STATE',	LREAL_TO_STRING(fReadyState));
 fbComm.Publish('telescope', 'dome', 'TELESCOPE.MOTION_STATE',	LREAL_TO_STRING(nMotionState));
+fbComm.Publish('telescope', 'dome', 'TELESCOPE.INTERRUPTED_AUTO_CLEAR_COUNT', UDINT_TO_STRING(nInterruptedAutoClearCount));
 
-// INFO
-fbComm.Publish('telescope', 'dome', 'TELESCOPE.INFO.NAME',	telescopeConfig.name);
-fbComm.Publish('telescope', 'dome', 'TELESCOPE.INFO.DIAMETER',	LREAL_TO_STRING(telescopeConfig.diameter));
-fbComm.Publish('telescope', 'dome', 'TELESCOPE.INFO.CABINET',	telescopeConfig.cabinet);
-fbComm.Publish('telescope', 'dome', 'TELESCOPE.INFO.MANUFACTURER', telescopeConfig.manufacturer);
-
-// config
-fbComm.Publish('telescope', 'dome', 'TELESCOPE.CONFIG.MOUNTOPTIONS', telescopeConfig.mountOptions);
-fbComm.Publish('telescope', 'dome', 'TELESCOPE.CONFIG.MOUNT', telescopeConfig.mount);
-
-// STATUS
-IF bEstopTriggered THEN
-	fbComm.Publish('telescope', 'dome', 'TELESCOPE.STATUS.GLOBAL', '1');
-ELSIF bError THEN
-	fbComm.Publish('telescope', 'dome', 'TELESCOPE.STATUS.GLOBAL', '2');
-ELSE
-	fbComm.Publish('telescope', 'dome', 'TELESCOPE.STATUS.GLOBAL', '0');
-END_IF
-
-// INSTRUMENTAL
-fbComm.Publish('telescope', 'dome', 'OBJECT.INSTRUMENTAL.ALT', LREAL_TO_STRING(fElevation));
-fbComm.Publish('telescope', 'dome', 'OBJECT.INSTRUMENTAL.AZ', LREAL_TO_STRING(fAzimuth));
+// INFO, CONFIG.MOUNTOPTIONS/MOUNT, STATUS.GLOBAL, OBJECT.INSTRUMENTAL.ALT/AZ and the static
+// OBJECT.EQUATORIAL.EPOCH/EQUINOX/RA_PM/DEC_PM/RA_RATE/DEC_RATE fields used to be republished
+// here too, byte-identical to what SUPER^._PublishTelemetry() above already sends under the same
+// field names from the same source variables -- removed as pure duplication (#22).
+//
+// OBJECT.EQUATORIAL.RA_ICRS/DEC_ICRS kept even though pybrotlib's schema (the Python MQTT
+// consumer, BROTLib/pyBROT src/pybrotlib/telemetry.py) has no such field under
+// object.equatorial -- only object.equatorial.ra/dec, which SUPER already publishes with the
+// same value -- so this specific publish looks like dead weight for that consumer. Not removing
+// it here anyway: Telegraf/InfluxDB ingests the raw MQTT line independent of pybrotlib's schema,
+// so something else could still depend on this exact field name landing in Influx. (For contrast,
+// POSITION.EQUATORIAL.RA_ICRS/DEC_ICRS -- a different field, published further down -- *is* in
+// pybrotlib's schema and is a real, actively consumed field.)
+//
+// OBJECT.HORIZONTAL.ALT/AZ below is also kept even though SUPER publishes those same field names:
+// SUPER's version is conditional on bSlew (fElevation/fAzimuth vs fElevationCalc/fAzimuthCalc);
+// this unconditional republish runs after it and is what has actually been on the wire -- changing
+// that is a behavior change, not a dedup.
 
 // EQUATORIAL
-fbComm.Publish('telescope', 'dome', 'OBJECT.EQUATORIAL.EPOCH', 'J2000.0');
-fbComm.Publish('telescope', 'dome', 'OBJECT.EQUATORIAL.EQUINOX', 'J2000.0');
-fbComm.Publish('telescope', 'dome', 'OBJECT.EQUATORIAL.RA_PM', '0.0');
-fbComm.Publish('telescope', 'dome', 'OBJECT.EQUATORIAL.DEC_PM', '0.0');
-fbComm.Publish('telescope', 'dome', 'OBJECT.EQUATORIAL.RA_RATE', '0.0');
-fbComm.Publish('telescope', 'dome', 'OBJECT.EQUATORIAL.DEC_RATE', '0.0');
 fbComm.Publish('telescope', 'dome', 'OBJECT.EQUATORIAL.RA_ICRS', LREAL_TO_STRING(fRightAscension/15.0));
-fbComm.Publish('telescope', 'dome', 'OBJECT.EQUATORIAL.DEC_IRCS', LREAL_TO_STRING(fDeclination));	
+fbComm.Publish('telescope', 'dome', 'OBJECT.EQUATORIAL.DEC_ICRS', LREAL_TO_STRING(fDeclination));
 
 // HORIZONTAL
 fbComm.Publish('telescope', 'dome', 'OBJECT.HORIZONTAL.ALT', LREAL_TO_STRING(fElevationCalc));
@@ -982,7 +1067,7 @@ ELSE
 END_IF
 
 fbComm.Publish('telescope', 'dome', 'POSITION.INSTRUMENTAL.AZ.CURRPOS', LREAL_TO_STRING(fAzimuthCurrent));
-fbComm.Publish('telescope', 'dome', 'POSITION.INSTRUMENTAL.AZ.REALPOS', LREAL_TO_STRING(fAzimuthCurrent-fAzimuthOffset/COS(fElevation*d2r)));
+fbComm.Publish('telescope', 'dome', 'POSITION.INSTRUMENTAL.AZ.REALPOS', LREAL_TO_STRING(fAzimuthCurrent-fAzimuthOffset/COS(fElevationCurrent*d2r)));	// M7: was fElevation (stale)
 fbComm.Publish('telescope', 'dome', 'POSITION.INSTRUMENTAL.AZ.TARGETPOS', LREAL_TO_STRING(fbAzimuth.Position));
 fbComm.Publish('telescope', 'dome', 'POSITION.INSTRUMENTAL.AZ.CURRSPEED', LREAL_TO_STRING(fbAzimuth.Velocity));
 fbComm.Publish('telescope', 'dome', 'POSITION.INSTRUMENTAL.AZ.TARGETDISTANCE', LREAL_TO_STRING(ABS(fAzimuthCurrent-fbAzimuth.Position)));
@@ -1019,11 +1104,15 @@ command_timeout(IN := nStage < 100, PT := T#600S);
 IF command_timeout.Q THEN
 	bError := TRUE;
 	nErrorID := 16#40;
+	bSoftwareError := TRUE;
+	nSoftwareErrorID := 16#40;
 	bSlew := FALSE;
 	nStage := 0;
+	RETURN;
 END_IF
 IF bReset OR bError OR bInterrupted THEN
 	nStage := 0;
+	RETURN;
 END_IF
 CASE nStage OF
 	0:	
@@ -1046,9 +1135,9 @@ CASE nStage OF
 			fElevationOffset	=> fElevationPointingOffset
 		);	
 		fbElevation.Position := fElevation + fElevationPointingOffset + fElevationOffset;
-		fbElevation.Velocity := fElevationHomingVelocity;
+		fbElevation.Velocity := fElevationMoveVelocity;
 		fbElevation.MoveAxis := TRUE;
-		fbAzimuth.Position := fAzimuth + fAzimuthPointingOffset + fAzimuthOffset / COS(fElevationCalc * d2r);
+		fbAzimuth.Position := fAzimuth + fAzimuthPointingOffset + fAzimuthOffset / COS(fElevation * d2r);	// M7: was fElevationCalc, mismatched with fAzimuth above
 		fbAzimuth.Velocity := 10.0;
 		fbAzimuth.MoveAxis := TRUE;
 		fbDerotator.Position := fElevation + fDerotatorOffset;
@@ -1141,10 +1230,10 @@ END_VAR
 ]]></Declaration>
       <Implementation>
         <ST><![CDATA[// Elevation
-fDerotatorVelocity := F_Derotatorvelocity(fElevationCalc, fAzimuthCalc, telescopeConfig.latitude);
+fDerotatorVelocity := F_Derotatorvelocity(fAzimuthCalc, fElevationCalc, telescopeConfig.latitude, fDerotatorSign);
 fElevationVelocity := F_Elevationvelocity(fAzimuthCalc, telescopeConfig.latitude);
 fAzimuthVelocity := F_Azimuthvelocity(fElevationCalc, fAzimuthCalc, telescopeConfig.latitude);
-IF fElevationCurrent < 5.0 OR fElevationCurrent > 89.5 THEN 
+IF fElevationCurrent < 5.0 OR fElevationCurrent > 89.5 THEN
 	bTrack := FALSE;
 END_IF
 IF fAzimuthCurrent > 440.0 THEN
@@ -1156,7 +1245,7 @@ END_IF
 
 fbElevation.Position := fElevationCalc;
 IF NOT fbElevation.Tracking THEN
-	fbElevation.Velocity := 10.0;
+	fbElevation.Velocity := fElevationMoveVelocity;
 	fbElevation.MoveAxis := TRUE;
 	IF NOT fbElevation.Busy AND fbElevation.MoveDone THEN
 		fbElevation.MoveAxis := FALSE;
@@ -1252,8 +1341,10 @@ END_VAR
 END_VAR
 ]]></Declaration>
         <Implementation>
-          <ST><![CDATA[// MONET telescopes must never skip the automatic cover-open on power-on;
-// this is a hard safety invariant, so any attempt to disable it is ignored.
+          <ST><![CDATA[// This property has no effect on MONET: _PowerOn always opens the covers
+// unconditionally and never reads bCoverAutoOpen. Forcing it TRUE here keeps
+// the property honest, but does not by itself guarantee the invariant, since
+// bCoverAutoOpen is a public VAR_INPUT a caller can still write to directly.
 THIS^.bCoverAutoOpen := TRUE;]]></ST>
         </Implementation>
       </Set>
@@ -1270,13 +1361,6 @@ END_VAR
         </Implementation>
       </Get>
     </Property>
-    <Method Name="Home" Id="{5b365a4e-cda4-42b8-9d62-ce493e72979f}">
-      <Declaration><![CDATA[METHOD Home : BOOL
-]]></Declaration>
-      <Implementation>
-        <ST><![CDATA[bGoHome := TRUE;]]></ST>
-      </Implementation>
-    </Method>
     <Method Name="Init" Id="{78ec73c4-02ac-4d83-aefd-694e0077d330}">
       <Declaration><![CDATA[METHOD Init : BOOL
 ]]></Declaration>

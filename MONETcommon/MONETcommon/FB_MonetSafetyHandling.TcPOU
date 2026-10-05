@@ -5,6 +5,8 @@
 VAR
 	// power on delay
 
+	// AT%I*/AT%Q* below are mapped directly on this FB: only one instance per PLC is
+	// supported, a second instance would collide on the same physical hardware.
 	inError					AT%I*:	BOOL;		// Safety Error Condition
 	outRun					AT%Q*:	BOOL;		// Run/Stop Safety
 	outRestart				AT%Q*:	BOOL;		// Restart Safety
@@ -198,7 +200,7 @@ RestartLog(
 SafetyLog(	
 	Trigger 	:= estop,
 	Level 		:= ADSLOG_MSGTYPE_ERROR,
-	OnMessage 	:= 'Safety Error! Emergency stop enganged!',
+	OnMessage 	:= 'Safety Error! Emergency stop engaged!',
 	OffMessage 	:= 'Safety is OK.',
 	OffLevel 	:= ADSLOG_MSGTYPE_HINT,
 	Comm		:= fbComm);

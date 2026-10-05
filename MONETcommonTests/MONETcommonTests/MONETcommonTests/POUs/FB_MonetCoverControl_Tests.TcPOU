@@ -1,0 +1,48 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="FB_MonetCoverControl_Tests" Id="{85b06b26-97ea-436a-ae0c-b1f19a6fe5c4}" SpecialFunc="None">
+    <Declaration><![CDATA[// Tests for MONETcommon.FB_MonetCoverControl.
+//
+// IabCoverOpen/IabCoverClosed are AT%I* (hardware-mapped inside the FB itself), so a test running
+// on a target with no linked EtherCAT hardware sees them default to FALSE. Both limit switches are
+// wired "inverted" (abCoverOpen[i] := NOT IabCoverOpen[i]), so an unlinked/default-FALSE input
+// reads as TRUE on both "open" and "closed" simultaneously -- this is itself the scenario that
+// should raise bError (both switches active is treated as a limit-switch fault), independent of
+// any command ever being issued.
+FUNCTION_BLOCK FB_MonetCoverControl_Tests EXTENDS TcUnit.FB_TestSuite
+VAR
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[Unlinked_Hardware_Reports_Error();
+]]></ST>
+    </Implementation>
+    <Method Name="Unlinked_Hardware_Reports_Error" Id="{3b2a15cf-27d0-4629-976a-daff191c3c22}">
+      <Declaration><![CDATA[// On a target with no linked limit-switch hardware, both IabCoverOpen and IabCoverClosed default to
+// FALSE, and the inverted polarity turns that into "both open and closed simultaneously" for every
+// cover -- a real limit-switch-fault condition, not a test artifact. This anchors that FB_MonetCoverControl
+// actually runs (compiles, instantiates, calls its own internal FBs) without any hardware or other
+// MONETcommon/BROTLib dependency beyond I_Comm -- the open question flagged in the 2026-09-22
+// add-tcunit-tests.md plan.
+METHOD PRIVATE Unlinked_Hardware_Reports_Error
+VAR
+	fbComm	: FB_NullComm;
+	fbCover	: MONETcommon.FB_MonetCoverControl(comm := fbComm);
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Unlinked_Hardware_Reports_Error');
+fbCover();
+AssertTrue(Condition := fbCover.bError, Message := 'bError is TRUE with no limit-switch hardware linked');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <LineIds Name="FB_MonetCoverControl_Tests">
+      <LineId Id="1" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_MonetCoverControl_Tests.Unlinked_Hardware_Reports_Error">
+      <LineId Id="1" Count="2" />
+    </LineIds>
+  </POU>
+</TcPlcObject>

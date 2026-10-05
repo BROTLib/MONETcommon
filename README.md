@@ -5,19 +5,23 @@ the BROT project: it contains the MONET-specific TwinCAT 3 (IEC 61131-3
 Structured Text) function blocks shared by the MONET North (MONETN) and MONET
 South (MONETS) telescope applications. It extends the BROTLib core and the
 HalfBROT hardware layer with the full MONET telescope-control logic: the
-complete Alt-Az telescope lifecycle, TwinSAFE safety handling, hydraulics,
-pendant control, cabinet I/O, focus, power monitoring and mirror-cover control.
+complete Alt-Az telescope lifecycle, TwinSAFE safety handling, pendant
+control, cabinet I/O, power monitoring and mirror-cover control.
 
-MONETcommon is the **reference implementation** of the MONET control code:
-MONETN historically carries vendored copies of these function blocks
-(`MONETN/MONETNRuntime/Components/`, `.../POUs/`), while MONETS references the
-library directly (placeholder resolution `MONETcommon, * (IAG)`) — see
-[BROTLib/MONET_Unification.md](../BROTLib/MONET_Unification.md) for the
-file-by-file comparison and the plan to eliminate the duplication (MONETcommon's
-versions win by default where the copies have drifted).
+MONETcommon is the **reference implementation** of the MONET control code.
+MONETS references the library directly (placeholder resolution
+`MONETcommon, * (IAG)`). MONETN historically carries vendored copies of
+`FB_MonetTelescopeControl`, `FB_MonetCoverControl`, `FB_MonetPendantControl`
+and `FB_MonetCabinetControl` (under a different type name,
+`FB_CabinetControl`) instead of referencing this library — but *not* of
+hydraulics or focus control, which both sites have always driven straight
+from HalfBROT's `FB_HydraulicsControl`/`FB_FocusControl`. See
+[MONETN/specs/plans/2026-09-22-migrate-to-monetcommon.md](https://github.com/BROTLib/MONETN/blob/develop/specs/plans/2026-09-22-migrate-to-monetcommon.md)
+for the migration plan to eliminate MONETN's vendored copies.
 
-The library is versioned in the project file as **0.1** (no release tags yet)
-and is built by the Institut für Astrophysik Göttingen (company field `IAG`).
+The library is versioned in the project file and tagged on release (current:
+see `Global_Version.TcGVL` / the repository's release tags) and is built by
+the Institut für Astrophysik Göttingen (company field `IAG`).
 
 ---
 
@@ -30,9 +34,16 @@ MONETcommon/
 │   ├── MONETcommon.tspproj       # TwinCAT library project
 │   └── MONETcommon/
 │       ├── MONETcommon.plcproj   # PLC library project
+│       ├── Global_Version.TcGVL  # Library version (kept in sync with the release tag)
+│       ├── E_ModeLanguage.TcDUT  # Unused in this library today; only MONETN's own copy is referenced
 │       └── FB_*.TcPOU            # Function blocks (see below)
 └── README.md
 ```
+
+Note: `FB_MonetHydraulicsControl` and `FB_MonetFocusControl` were removed
+(2026-09-22) — neither MONETN nor MONETS ever instantiated them (both sites
+use HalfBROT's `FB_HydraulicsControl`/`FB_FocusControl` directly), so they
+were orphaned forks of HalfBROT's actively-maintained versions.
 
 ## Function blocks
 
@@ -40,10 +51,8 @@ MONETcommon/
 |---|---|
 | `FB_MonetTelescopeControl` | Full Alt-Az telescope lifecycle — extends `FB_AltAzTelescopeControl` (BROTLib) |
 | `FB_MonetSafetyHandling` | TwinSAFE startup/safety handling — E-stop, STO reset for all three axes |
-| `FB_MonetHydraulicsControl` | Hydraulic pump/brake system and oil monitoring |
 | `FB_MonetPendantControl` | Manual hand pendant (BCD selector + buttons) |
 | `FB_MonetCabinetControl` | Cabinet physical I/O — buttons, switches, lamps, temperature |
-| `FB_MonetFocusControl` | Focus motor (Faulhaber, 43:1 gear) |
 | `FB_MonetPowerMonitoring` | Three-phase power-quality monitoring |
 | `FB_MonetCoverControl` | Three mirror covers, sequenced open **1→3→2**, close **2→3→1** (`I_MirrorCovers`) |
 
@@ -58,17 +67,18 @@ hydraulics and safety, publishes MQTT telemetry and handles error states and
 recovery. (In MONETN, the vendored copy is named `FB_MonetTelescopeControl` in
 `MONETNRuntime/Components/`; in MONETS the library version is used.)
 
-### Safety, hydraulics and auxiliary systems
+### Safety and auxiliary systems
 
 - `FB_MonetSafetyHandling` — handles the TwinSAFE startup sequence and the
   safe-torque-off (STO) reset handshake for all three drive axes.
-- `FB_MonetHydraulicsControl` — hydraulic pump/brake system with oil
-  monitoring and watchdog timers.
 - `FB_MonetPendantControl` — BCD-selector manual hand pendant.
 - `FB_MonetCabinetControl` — cabinet buttons/switches/lamps and temperature
   monitoring.
 - `FB_MonetPowerMonitoring` — monitors the three-phase supply quality.
-- `FB_MonetFocusControl` — focus drive (Faulhaber motor, 43:1 gear).
+
+Hydraulics and focus are not part of this library — both MONETN and MONETS
+drive them directly from HalfBROT's `FB_HydraulicsControl` and
+`FB_FocusControl`.
 
 ---
 
@@ -84,22 +94,25 @@ BROTLib  ──►  HalfBROT  ──►  MONETcommon  ──►  MONETN / MONETS
 - **HalfBROT** provides the Halfmann-mount hardware blocks the MONET axes are
   built on.
 - **MONETcommon** adds the MONET-specific control logic and is consumed
-  directly by **MONETS**; **MONETN** currently uses vendored copies of the same
-  blocks (unification in progress, see
-  [MONET_Unification.md](../BROTLib/MONET_Unification.md)).
+  directly by **MONETS**; **MONETN** currently uses vendored copies of four of
+  these blocks instead (unification planned, see below).
 
-## Unification status (per `BROTLib/MONET_Unification.md`)
+## Unification status
 
-- **Done**: `FB_MonetCoverControl` promoted into MONETcommon from MONETN
-  (commit `c277028`, same POU Id); `CoverAutoOpen` hard-locked to TRUE on
-  `FB_MonetTelescopeControl` (HEAD `6e4b835`, main/develop).
-- **Outstanding**: adopt the MONETcommon library reference in MONETN and delete
-  its six vendored copies; unify the `FB_MonetTelescopeControl` divergence
-  (pointing-model wiring, `fReadyState`, azimuth wrap, `_PowerOn` staging,
-  MQTT topic naming, elevation homing velocity).
-- **On `feature/monet-unification` only** (not yet on main/develop):
-  `E_ModeLanguage` DUT, restored velocity-aware azimuth wrap, parameterised
-  `fElevationHomingVelocity`.
+MONETN carries its own vendored copies of `FB_MonetTelescopeControl`,
+`FB_MonetCoverControl`, `FB_MonetPendantControl`, and `FB_CabinetControl`
+(`MONETNRuntime/Components/`), plus separately-named local types
+`FB_SafetyHandling`/`FB_PowerMonitoring` (`MONETNRuntime/POUs/`) in place of
+this library's `FB_MonetSafetyHandling`/`FB_MonetPowerMonitoring` — six files
+in total, none of them kept in sync with MONETcommon. MONETN's `.plcproj`
+doesn't reference the MONETcommon library at all today.
+
+A full migration plan — adding the library reference, extracting MONETN's
+site-specific pointing-model coefficients out of the vendored
+`FB_MonetTelescopeControl`, swapping in the library types, and removing the
+vendored files — is written up at
+[MONETN/specs/plans/2026-09-22-migrate-to-monetcommon.md](https://github.com/BROTLib/MONETN/blob/develop/specs/plans/2026-09-22-migrate-to-monetcommon.md).
+Not started as of this writing.
 
 ## Dependencies
 

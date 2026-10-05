@@ -4,7 +4,12 @@
     <Declaration><![CDATA[FUNCTION_BLOCK FB_MonetCabinetControl
 VAR_INPUT
 END_VAR
+VAR_OUTPUT
+	bCabinetOverTemp	: BOOL;	// cabinet temperature (BT1) is critical (>60°C); not wired to any stop/park action yet, see MONETcommon#21
+END_VAR
 VAR
+	// AT%I*/AT%Q* below are mapped directly on this FB: only one instance per PLC is
+	// supported, a second instance would collide on the same physical hardware.
 	inKeyLocal			AT%I*: BOOL;	//DIN3 0.2
 	inButtonStart		AT%I*: BOOL;	//DIN4 0.3
 	inButtonStop		AT%I*: BOOL;	//DIN5 0.4
@@ -30,6 +35,7 @@ END_VAR
 cabinetTemp := INT_TO_REAL(inCabinetTemp) / 10.0;
 tempWarning(SET1 := cabinetTemp > 50.0, RESET := cabinetTemp < 40.0);
 tempCritical(SET1 := cabinetTemp > 60.0, RESET := cabinetTemp < 50.0);
+bCabinetOverTemp := tempCritical.Q1;
 
 // blinking lights
 blinkErrorLamp(Q => outLampError);
@@ -60,12 +66,22 @@ tempCriticalEvent(
 ]]></ST>
     </Implementation>
     <Method Name="AreBreakesCleared" Id="{febea358-d684-4605-9606-4cfb2e03d90b}">
-      <Declaration><![CDATA[METHOD PUBLIC AreBreakesCleared : BOOL
+      <Declaration><![CDATA[// deprecated: kept for existing callers (MONETN, MONETS MAIN), use AreBrakesCleared instead
+METHOD PUBLIC AreBreakesCleared : BOOL
 VAR_INPUT
 END_VAR
 ]]></Declaration>
       <Implementation>
-        <ST><![CDATA[AreBreakesCleared := inKeyClearBrakes;]]></ST>
+        <ST><![CDATA[AreBreakesCleared := THIS^.AreBrakesCleared();]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="AreBrakesCleared" Id="{f1e9f4c4-2b3a-4a1e-9a4f-8f7e8f1c9d2a}">
+      <Declaration><![CDATA[METHOD PUBLIC AreBrakesCleared : BOOL
+VAR_INPUT
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[AreBrakesCleared := inKeyClearBrakes;]]></ST>
       </Implementation>
     </Method>
     <Method Name="FB_Init" Id="{7d550def-2f64-47d1-ac2f-11dc091e5629}">
@@ -81,15 +97,6 @@ VAR_INPUT
 END_VAR]]></Declaration>
       <Implementation>
         <ST><![CDATA[THIS^.fbComm := comm;]]></ST>
-      </Implementation>
-    </Method>
-    <Method Name="IsKeyOnManual" Id="{c3808b8c-a852-4e65-ad30-2984c388ad32}">
-      <Declaration><![CDATA[METHOD PUBLIC IsKeyOnManual : BOOL
-VAR_INPUT
-END_VAR
-]]></Declaration>
-      <Implementation>
-        <ST><![CDATA[IsKeyOnManual := inKeyLocal;]]></ST>
       </Implementation>
     </Method>
     <Method Name="IsResetPushed" Id="{c5f0543d-d2ee-4085-9cc6-f6a37ba59d95}">
@@ -167,10 +174,10 @@ END_VAR
     <LineIds Name="FB_MonetCabinetControl.AreBreakesCleared">
       <LineId Id="1" Count="0" />
     </LineIds>
-    <LineIds Name="FB_MonetCabinetControl.FB_Init">
+    <LineIds Name="FB_MonetCabinetControl.AreBrakesCleared">
       <LineId Id="1" Count="0" />
     </LineIds>
-    <LineIds Name="FB_MonetCabinetControl.IsKeyOnManual">
+    <LineIds Name="FB_MonetCabinetControl.FB_Init">
       <LineId Id="1" Count="0" />
     </LineIds>
     <LineIds Name="FB_MonetCabinetControl.IsResetPushed">

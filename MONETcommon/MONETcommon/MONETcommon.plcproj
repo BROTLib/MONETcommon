@@ -19,7 +19,7 @@
     <Company>IAG</Company>
     <Released>false</Released>
     <Title>MONETcommon</Title>
-    <ProjectVersion>0.4.0</ProjectVersion>
+    <ProjectVersion>0.4.1</ProjectVersion>
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="E_ModeLanguage.TcDUT">
@@ -29,12 +29,6 @@
       <SubType>Code</SubType>
     </Compile>
     <Compile Include="FB_MonetCoverControl.TcPOU">
-      <SubType>Code</SubType>
-    </Compile>
-    <Compile Include="FB_MonetFocusControl.TcPOU">
-      <SubType>Code</SubType>
-    </Compile>
-    <Compile Include="FB_MonetHydraulicsControl.TcPOU">
       <SubType>Code</SubType>
     </Compile>
     <Compile Include="FB_MonetPendantControl.TcPOU">
