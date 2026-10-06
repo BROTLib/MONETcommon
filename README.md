@@ -126,3 +126,5 @@ The library is built with TwinCAT 3.1 Build 4024 in TwinCAT XAE as a TwinCAT
 library (`.tspproj`, AmsPort 851; solution platforms Debug/Release × TwinCAT
 RT (x64/x86), TwinCAT CE7 (ARMV7), TwinCAT OS (ARMT2)) and referenced from the
 MONETN / MONETS application projects.
+
+**CI.** `.github/workflows/tcbuild.yml` builds `MONETcommon.sln` with TcBuild on every push (self-hosted runner, never on pull requests). A green run means the project compiles; TcBuild exit code 1 (built with warnings) counts as success. The TcUnit tests are not run there (see below).
