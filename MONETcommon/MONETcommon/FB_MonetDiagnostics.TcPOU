@@ -1,0 +1,135 @@
+<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="FB_MonetDiagnostics" Id="{f707e304-f2f9-4451-8558-6affd030d6e9}" SpecialFunc="None">
+    <Declaration><![CDATA[// Diagnostics telemetry (measurement 'diagnostics', location 'base'): telescope interrupted/ready/busy/stopped,
+// per-axis error, error ID and enable, safety error/estop/state. Each value is published when it changes, plus a full
+// snapshot every tHeartbeat so a human scanning history can tell the system was actively reporting, not just silent.
+// Booleans are retained by the broker (FB_Comm_MQTT_Influx.Publish). Moved unchanged from MONETS's MAIN so that
+// MONET/S and MONET/N share it (IAG specs/plans/2026-09-09-extended-diagnostics-telemetry-proposal.md).
+FUNCTION_BLOCK FB_MonetDiagnostics
+VAR_INPUT
+	fbTelescope		: REFERENCE TO FB_MonetTelescopeControl;
+	fbElevation		: REFERENCE TO FB_ElevationControl;
+	fbAzimuth		: REFERENCE TO FB_AzimuthControl;
+	fbDerotator		: REFERENCE TO FB_DerotatorControl;
+	fbFocus			: REFERENCE TO FB_FocusControl;
+	fbSafety		: REFERENCE TO FB_MonetSafetyHandling;
+	tHeartbeat		: TIME := T#30S;	// republish the full snapshot on this cadence even with no change
+END_VAR
+VAR
+	fbComm					: I_Comm;
+	tonHeartbeat			: TON;
+	bHeartbeatTick			: BOOL;
+	bLastInterrupted		: BOOL;
+	bLastElevationError		: BOOL;
+	bLastAzimuthError		: BOOL;
+	bLastDerotatorError		: BOOL;
+	bLastFocusError			: BOOL;
+	bLastElevationEnabled	: BOOL;
+	bLastAzimuthEnabled		: BOOL;
+	bLastDerotatorEnabled	: BOOL;
+	bLastSafetyError		: BOOL;
+	bLastSafetyEstop		: BOOL;
+	bLastSafetyState		: BOOL;
+	bLastTelescopeReady		: BOOL;
+	bLastTelescopeBusy		: BOOL;
+	bLastTelescopeStopped	: BOOL;
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[IF NOT (__ISVALIDREF(fbTelescope) AND __ISVALIDREF(fbElevation) AND __ISVALIDREF(fbAzimuth) AND
+	__ISVALIDREF(fbDerotator) AND __ISVALIDREF(fbFocus) AND __ISVALIDREF(fbSafety)) THEN
+	RETURN;
+END_IF
+
+tonHeartbeat(IN := TRUE, PT := tHeartbeat);
+bHeartbeatTick := tonHeartbeat.Q;
+IF bHeartbeatTick THEN
+	tonHeartbeat(IN := FALSE);
+END_IF
+
+IF (fbTelescope.bInterrupted <> bLastInterrupted) OR bHeartbeatTick THEN
+	fbComm.Publish('diagnostics', 'base', 'Interrupted', BOOL_TO_STRING(fbTelescope.bInterrupted));
+	bLastInterrupted := fbTelescope.bInterrupted;
+END_IF
+
+IF (fbElevation.bError <> bLastElevationError) OR bHeartbeatTick THEN
+	fbComm.Publish('diagnostics', 'base', 'ElevationError', BOOL_TO_STRING(fbElevation.bError));
+	fbComm.Publish('diagnostics', 'base', 'ElevationErrorID', UDINT_TO_STRING(fbElevation.nErrorID));
+	bLastElevationError := fbElevation.bError;
+END_IF
+IF (fbAzimuth.bError <> bLastAzimuthError) OR bHeartbeatTick THEN
+	fbComm.Publish('diagnostics', 'base', 'AzimuthError', BOOL_TO_STRING(fbAzimuth.bError));
+	fbComm.Publish('diagnostics', 'base', 'AzimuthErrorID', UDINT_TO_STRING(fbAzimuth.nErrorID));
+	bLastAzimuthError := fbAzimuth.bError;
+END_IF
+IF (fbDerotator.bError <> bLastDerotatorError) OR bHeartbeatTick THEN
+	fbComm.Publish('diagnostics', 'base', 'DerotatorError', BOOL_TO_STRING(fbDerotator.bError));
+	fbComm.Publish('diagnostics', 'base', 'DerotatorErrorID', UDINT_TO_STRING(fbDerotator.nErrorID));
+	bLastDerotatorError := fbDerotator.bError;
+END_IF
+IF (fbFocus.bError <> bLastFocusError) OR bHeartbeatTick THEN
+	fbComm.Publish('diagnostics', 'base', 'FocusError', BOOL_TO_STRING(fbFocus.bError));
+	fbComm.Publish('diagnostics', 'base', 'FocusErrorID', UDINT_TO_STRING(fbFocus.nErrorID));
+	bLastFocusError := fbFocus.bError;
+END_IF
+
+IF (fbElevation.bEnable <> bLastElevationEnabled) OR bHeartbeatTick THEN
+	fbComm.Publish('diagnostics', 'base', 'ElevationEnabled', BOOL_TO_STRING(fbElevation.bEnable));
+	bLastElevationEnabled := fbElevation.bEnable;
+END_IF
+IF (fbAzimuth.bEnable <> bLastAzimuthEnabled) OR bHeartbeatTick THEN
+	fbComm.Publish('diagnostics', 'base', 'AzimuthEnabled', BOOL_TO_STRING(fbAzimuth.bEnable));
+	bLastAzimuthEnabled := fbAzimuth.bEnable;
+END_IF
+IF (fbDerotator.bEnable <> bLastDerotatorEnabled) OR bHeartbeatTick THEN
+	fbComm.Publish('diagnostics', 'base', 'DerotatorEnabled', BOOL_TO_STRING(fbDerotator.bEnable));
+	bLastDerotatorEnabled := fbDerotator.bEnable;
+END_IF
+
+IF (fbSafety.error <> bLastSafetyError) OR bHeartbeatTick THEN
+	fbComm.Publish('diagnostics', 'base', 'SafetyError', BOOL_TO_STRING(fbSafety.error));
+	bLastSafetyError := fbSafety.error;
+END_IF
+IF (fbSafety.estop <> bLastSafetyEstop) OR bHeartbeatTick THEN
+	fbComm.Publish('diagnostics', 'base', 'SafetyEstop', BOOL_TO_STRING(fbSafety.estop));
+	bLastSafetyEstop := fbSafety.estop;
+END_IF
+IF (fbSafety.state <> bLastSafetyState) OR bHeartbeatTick THEN
+	fbComm.Publish('diagnostics', 'base', 'SafetyState', BOOL_TO_STRING(fbSafety.state));
+	bLastSafetyState := fbSafety.state;
+END_IF
+
+IF (fbTelescope.bReady <> bLastTelescopeReady) OR bHeartbeatTick THEN
+	fbComm.Publish('diagnostics', 'base', 'TelescopeReady', BOOL_TO_STRING(fbTelescope.bReady));
+	bLastTelescopeReady := fbTelescope.bReady;
+END_IF
+IF (fbTelescope.bBusy <> bLastTelescopeBusy) OR bHeartbeatTick THEN
+	fbComm.Publish('diagnostics', 'base', 'TelescopeBusy', BOOL_TO_STRING(fbTelescope.bBusy));
+	bLastTelescopeBusy := fbTelescope.bBusy;
+END_IF
+IF (fbTelescope.bStopped <> bLastTelescopeStopped) OR bHeartbeatTick THEN
+	fbComm.Publish('diagnostics', 'base', 'TelescopeStopped', BOOL_TO_STRING(fbTelescope.bStopped));
+	bLastTelescopeStopped := fbTelescope.bStopped;
+END_IF
+]]></ST>
+    </Implementation>
+    <Method Name="FB_Init" Id="{556afee2-8965-42b1-a300-b36681e3f6f1}">
+      <Declaration><![CDATA[METHOD FB_Init: BOOL
+VAR_INPUT
+    bInitRetains	: BOOL; // TRUE: the retain variables are initialized (reset warm / reset cold)
+    bInCopyCode		: BOOL;  // TRUE: the instance will be copied to the copy code afterward (online change)
+	comm			: I_Comm;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[THIS^.fbComm := comm;]]></ST>
+      </Implementation>
+    </Method>
+    <LineIds Name="FB_MonetDiagnostics">
+      <LineId Id="1" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_MonetDiagnostics.FB_Init">
+      <LineId Id="1" Count="0" />
+    </LineIds>
+  </POU>
+</TcPlcObject>
