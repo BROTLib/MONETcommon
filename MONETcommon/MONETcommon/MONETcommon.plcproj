@@ -46,6 +46,9 @@
     <Compile Include="FB_MonetSafetyHandling.TcPOU">
       <SubType>Code</SubType>
     </Compile>
+    <Compile Include="F_AzimuthOffsetOnAxis.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
     <Compile Include="FB_MonetTelescopeControl.TcPOU">
       <SubType>Code</SubType>
     </Compile>
