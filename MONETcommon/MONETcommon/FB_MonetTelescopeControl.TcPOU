@@ -979,7 +979,8 @@ fbComm.Publish('telescope', 'dome', 'TELESCOPE.INTERRUPTED_AUTO_CLEAR_COUNT', UD
 // that is a behavior change, not a dedup.
 
 // EQUATORIAL
-fbComm.Publish('telescope', 'dome', 'OBJECT.EQUATORIAL.RA_ICRS', LREAL_TO_STRING(fRightAscension/15.0));
+// all angles in the telemetry are degrees, RA included, like the rightascension command (BROTLib#37)
+fbComm.Publish('telescope', 'dome', 'OBJECT.EQUATORIAL.RA_ICRS', LREAL_TO_STRING(fRightAscension));
 fbComm.Publish('telescope', 'dome', 'OBJECT.EQUATORIAL.DEC_ICRS', LREAL_TO_STRING(fDeclination));
 
 // HORIZONTAL
@@ -1080,7 +1081,7 @@ fbComm.Publish('telescope', 'dome', 'POSITION.HORIZONTAL.AZ', LREAL_TO_STRING(fA
 //fbComm.Publish('telescope', 'dome', 'POSITION.HORIZONTAL.DOME', LREAL_TO_STRING(fbDome.Position));
 
 (*EQUITORIAL*)
-fbComm.Publish('telescope', 'dome', 'POSITION.EQUATORIAL.RA_ICRS', LREAL_TO_STRING(fRightAscensionCurrent/15.0));
+fbComm.Publish('telescope', 'dome', 'POSITION.EQUATORIAL.RA_ICRS', LREAL_TO_STRING(fRightAscensionCurrent));	// degrees (BROTLib#37)
 fbComm.Publish('telescope', 'dome', 'POSITION.EQUATORIAL.HA_ICRS', LREAL_TO_STRING(fHourAngleCurrent));
 fbComm.Publish('telescope', 'dome', 'POSITION.EQUATORIAL.DEC_ICRS', LREAL_TO_STRING(fDeclinationCurrent));
 ]]></ST>
