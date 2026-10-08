@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="FB_MonetMqttWatchdog" Id="{c238afa2-d4d6-49ed-9bd6-f604758b5839}" SpecialFunc="None">
+    <Declaration><![CDATA[// Safe state when the MQTT broker is gone: after tGrace without a connection, park the telescope and close the
+// roof, since nobody (pyobs, weather/roof logic on the observatory computer) can command or protect it any more.
+// Armed only after the first successful connect, so a slow or normal boot never trips it. Moved unchanged from
+// MONETS's MAIN so that MONET/S and MONET/N share it.
+FUNCTION_BLOCK FB_MonetMqttWatchdog
+VAR_INPUT
+	bConnected		: BOOL;				// fbComm.bConnected
+	iTelescope		: I_Telescope;		// parked on timeout
+	iRoof			: I_Roof;			// closed on timeout
+	tGrace			: TIME := T#30S;	// grace period before the emergency shutdown
+END_VAR
+VAR_OUTPUT
+	bTriggered		: BOOL;				// TRUE while the watchdog holds the telescope parked and the roof closed
+END_VAR
+VAR
+	fbComm			: I_Comm;
+	tonWatchdog		: TON;
+	bEverConnected	: BOOL := FALSE;
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[bEverConnected := bEverConnected OR bConnected;
+tonWatchdog(IN := bEverConnected AND NOT bConnected, PT := tGrace);
+bTriggered := tonWatchdog.Q;
+
+IF bTriggered THEN
+	IF iTelescope <> 0 THEN
+		iTelescope.Park();
+	END_IF
+	IF iRoof <> 0 THEN
+		iRoof.Close();
+	END_IF
+	fbComm.Publish('electronics', 'base', 'MQTTWatchdog', 'TRIGGERED');
+END_IF
+]]></ST>
+    </Implementation>
+    <Method Name="FB_Init" Id="{97029f07-c483-4efe-8c52-ff0ee8815329}">
+      <Declaration><![CDATA[METHOD FB_Init: BOOL
+VAR_INPUT
+    bInitRetains	: BOOL; // TRUE: the retain variables are initialized (reset warm / reset cold)
+    bInCopyCode		: BOOL;  // TRUE: the instance will be copied to the copy code afterward (online change)
+	comm			: I_Comm;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[THIS^.fbComm := comm;]]></ST>
+      </Implementation>
+    </Method>
+    <LineIds Name="FB_MonetMqttWatchdog">
+      <LineId Id="1" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_MonetMqttWatchdog.FB_Init">
+      <LineId Id="1" Count="0" />
+    </LineIds>
+  </POU>
+</TcPlcObject>

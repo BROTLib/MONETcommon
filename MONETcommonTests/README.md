@@ -44,6 +44,6 @@ cd C:\TwinCAT\3.1\Runtimes\UmRT_Default; .\Start.bat
 
 ## Things to know
 
-Same as `BROTLibTests` -- TcUnit sized to 32 suites / 32 tests / 256 asserts, every test method
+Same as `BROTLibTests` (CI runs these tests through `tests.yml`) -- TcUnit sized to 32 suites / 32 tests / 256 asserts, every test method
 runs every PLC cycle (multi-cycle tests must guard their own state), `.tmc`/`_Boot`/`_CompileInfo`/
 `_Libraries` are generated and git-ignored.

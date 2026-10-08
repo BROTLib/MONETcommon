@@ -277,3 +277,6 @@ VSSettings/
 # The one vendored library: TcUnit, needed to build and run MONETcommonTests
 # (see MONETcommonTests/vendor/README.md)
 !MONETcommonTests/vendor/tcunit.library
+
+# IntelliJ/PyCharm module files
+*.iml
