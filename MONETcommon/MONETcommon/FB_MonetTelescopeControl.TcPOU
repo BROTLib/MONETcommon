@@ -367,9 +367,9 @@ ELSIF bTrack THEN
 	
 ELSE
 	TCS_command := E_TCSCommand.no_command;
-	fbElevation.bMoveAxis := FALSE;
-	fbAzimuth.bMoveAxis := FALSE;
-	fbDerotator.bMoveAxis := FALSE;
+	fbElevation.MoveAxis := FALSE;
+	fbAzimuth.MoveAxis := FALSE;
+	fbDerotator.MoveAxis := FALSE;
 	fbElevation.bTracking := FALSE;
 	fbAzimuth.bTracking := FALSE;
 	fbDerotator.bTracking := FALSE;
@@ -820,9 +820,9 @@ CASE nStage OF
 			fbDerotator.Enable := FALSE;
 		END_IF
 		
-		fbElevation.bMoveAxis := FALSE;
-		fbAzimuth.bMoveAxis := FALSE;
-		fbDerotator.bMoveAxis := FALSE;
+		fbElevation.MoveAxis := FALSE;
+		fbAzimuth.MoveAxis := FALSE;
+		fbDerotator.MoveAxis := FALSE;
 	80:
 		IF fbElevation.Enable OR fbAzimuth.Enable OR fbDerotator.Enable THEN
 			nStage := 60;
@@ -1151,7 +1151,7 @@ CASE nStage OF
 		END_IF
 	50:
 		IF fbElevation.MoveDone THEN
-			fbElevation.bMoveAxis := FALSE;
+			fbElevation.MoveAxis := FALSE;
 		END_IF
 		
 		IF fbAzimuth.MoveDone THEN
