@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="FB_MethodVarProbe_Tests" Id="{104b3320-2b38-43e3-98c6-bf644b05e341}" SpecialFunc="None">
+    <Declaration><![CDATA[// MONETcommon#17: pins down the TwinCAT semantics the telescope state machines rely on. A METHOD's plain VAR is
+// re-initialised on every call (stack, like a FUNCTION); VAR_INST keeps its value per FB instance. So a TON or R_TRIG
+// in plain VAR never keeps state: a timeout never fires and an R_TRIG reports an edge on every call.
+FUNCTION_BLOCK FB_MethodVarProbe_Tests EXTENDS TcUnit.FB_TestSuite
+VAR
+	fbProbe			: FB_MethodVarProbe;
+	nTimerCycles	: INT;		// cycles of the multi-cycle timer test so far
+	bTimerVarQ		: BOOL;		// TON in plain VAR ever reached Q
+	bTimerInstQ		: BOOL;		// TON in VAR_INST ever reached Q
+	bTimerChecked	: BOOL;		// the multi-cycle timer test has evaluated
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[Method_Var_Is_Reinitialised_Every_Call();
+R_TRIG_In_Method_Var_Fires_Every_Call();
+TON_In_Method_Var_Never_Expires();
+]]></ST>
+    </Implementation>
+    <Method Name="Method_Var_Is_Reinitialised_Every_Call" Id="{14c32212-10f2-4846-a133-27cf0aa37d5c}">
+      <Declaration><![CDATA[METHOD PRIVATE Method_Var_Is_Reinitialised_Every_Call
+VAR
+	fbLocal	: FB_MethodVarProbe;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Method_Var_Is_Reinitialised_Every_Call');
+fbLocal.CountVar();
+fbLocal.CountVar();
+AssertEquals_INT(Expected := 1, Actual := fbLocal.CountVar(), Message := 'plain VAR counter after 3 calls');
+fbLocal.CountInst();
+fbLocal.CountInst();
+AssertEquals_INT(Expected := 3, Actual := fbLocal.CountInst(), Message := 'VAR_INST counter after 3 calls');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="R_TRIG_In_Method_Var_Fires_Every_Call" Id="{90c21f35-b32b-4408-b6d3-9f6144cfb36a}">
+      <Declaration><![CDATA[// The _ParkTelescope rtrigError case: CLK stays TRUE, so only the first call should report an edge.
+METHOD PRIVATE R_TRIG_In_Method_Var_Fires_Every_Call
+VAR
+	fbLocal	: FB_MethodVarProbe;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('R_TRIG_In_Method_Var_Fires_Every_Call');
+fbLocal.EdgeVar(bClk := TRUE);
+AssertTrue(Condition := fbLocal.EdgeVar(bClk := TRUE), Message := 'plain VAR R_TRIG reports an edge again on the 2nd call');
+fbLocal.EdgeInst(bClk := TRUE);
+AssertFalse(Condition := fbLocal.EdgeInst(bClk := TRUE), Message := 'VAR_INST R_TRIG reports no edge on the 2nd call');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="TON_In_Method_Var_Never_Expires" Id="{7d3f0c2a-5b1e-4c8a-9f6d-2e4b8a1c3d57}">
+      <Declaration><![CDATA[// The commandTimeout case in _GotoTelescope/_HomeTelescope/_SlewTelescope. Spans many PLC cycles: both TONs (PT 50 ms,
+// IN always TRUE) are called once per cycle, and after 50 cycles (at least 500 ms) the results are evaluated.
+METHOD PRIVATE TON_In_Method_Var_Never_Expires
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('TON_In_Method_Var_Never_Expires');
+IF NOT bTimerChecked THEN
+	bTimerVarQ := bTimerVarQ OR fbProbe.TimerVar();
+	bTimerInstQ := bTimerInstQ OR fbProbe.TimerInst();
+	nTimerCycles := nTimerCycles + 1;
+	IF nTimerCycles >= 50 THEN
+		bTimerChecked := TRUE;
+		AssertFalse(Condition := bTimerVarQ, Message := 'plain VAR TON never reached Q in 50 cycles');
+		AssertTrue(Condition := bTimerInstQ, Message := 'VAR_INST TON reached Q within 50 cycles');
+		TEST_FINISHED();
+	END_IF
+END_IF
+]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>
