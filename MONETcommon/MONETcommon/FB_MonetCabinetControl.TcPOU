@@ -3,9 +3,10 @@
   <POU Name="FB_MonetCabinetControl" Id="{82301626-c59a-4d6c-ac78-2e8e2d6a8e41}" SpecialFunc="None">
     <Declaration><![CDATA[FUNCTION_BLOCK FB_MonetCabinetControl
 VAR_INPUT
+	iTelescope			: I_Telescope;	// optional: held parked while the cabinet temperature is critical (#32)
 END_VAR
 VAR_OUTPUT
-	bCabinetOverTemp	: BOOL;	// cabinet temperature (BT1) is critical (>60°C); not wired to any stop/park action yet, see MONETcommon#21
+	bCabinetOverTemp	: BOOL;	// cabinet temperature (BT1) is critical (>60°C, until <50°C); parks iTelescope if set
 END_VAR
 VAR
 	// AT%I*/AT%Q* below are mapped directly on this FB: only one instance per PLC is
@@ -37,6 +38,14 @@ tempWarning(SET1 := cabinetTemp > 50.0, RESET := cabinetTemp < 40.0);
 tempCritical(SET1 := cabinetTemp > 60.0, RESET := cabinetTemp < 50.0);
 bCabinetOverTemp := tempCritical.Q1;
 
+// #32: park while the electronics are too hot. Park ends with the drives disabled, the brake closed and the
+// hydraulics off, which removes the heat sources; a stop would leave them running. Held every scan like
+// FB_MonetMqttWatchdog: a no-op once parked, and any new move ends parked again until the temperature is below
+// 50°C. A broken sensor reads overrange (3276.7°C) and also parks. The roof is not closed: this is not weather.
+IF bCabinetOverTemp AND iTelescope <> 0 THEN
+	iTelescope.Park();
+END_IF
+
 // blinking lights
 blinkErrorLamp(Q => outLampError);
 blinkPowerLamp(Q => outLampPower);
@@ -58,7 +67,7 @@ tempEvent(
 tempCriticalEvent(	
 	Trigger 		:= tempCritical.Q1, 
 	Level 			:= ADSLOG_MSGTYPE_ERROR,
-	FormatString 	:= 'Main cabinet temperature is critical:	%s!',
+	FormatString 	:= 'Main cabinet temperature is critical, parking the telescope:	%s!',
 	OnMessage 		:= LREAL_TO_FMTSTR(cabinetTemp, 1, TRUE),
 	comm			:= fbComm);
 

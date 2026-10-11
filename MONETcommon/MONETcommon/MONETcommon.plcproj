@@ -19,7 +19,7 @@
     <Company>IAG</Company>
     <Released>false</Released>
     <Title>MONETcommon</Title>
-    <ProjectVersion>0.6.0</ProjectVersion>
+    <ProjectVersion>0.7.0</ProjectVersion>
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="E_ModeLanguage.TcDUT">
@@ -47,6 +47,9 @@
       <SubType>Code</SubType>
     </Compile>
     <Compile Include="F_AzimuthOffsetOnAxis.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="F_HomeBelowHorizon.TcPOU">
       <SubType>Code</SubType>
     </Compile>
     <Compile Include="FB_MonetTelescopeControl.TcPOU">

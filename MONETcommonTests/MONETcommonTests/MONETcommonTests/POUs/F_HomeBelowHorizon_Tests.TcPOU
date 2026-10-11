@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="F_HomeBelowHorizon_Tests" Id="{78730396-b3e3-4033-b3eb-1330592b31c8}" SpecialFunc="None">
+    <Declaration><![CDATA[// Tests for MONETcommon.F_HomeBelowHorizon, the home/park position check against the horizon guard (#34).
+FUNCTION_BLOCK F_HomeBelowHorizon_Tests EXTENDS TcUnit.FB_TestSuite
+VAR
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[Site_Configuration_Is_Valid();
+Home_Below_Horizon_Is_Refused();
+Park_Below_Horizon_Is_Refused();
+Margin_Boundary();
+]]></ST>
+    </Implementation>
+    <Method Name="Site_Configuration_Is_Valid" Id="{601cc185-bc90-4efe-8cc5-ab1b78c888c0}">
+      <Declaration><![CDATA[// MONETN and MONETS: home 40 deg, park 60 deg, default horizon 1 deg.
+METHOD PRIVATE Site_Configuration_Is_Valid
+VAR
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Site_Configuration_Is_Valid');
+AssertFalse(Condition := MONETcommon.F_HomeBelowHorizon(40.0, 60.0, 1.0, 0.2), Message := 'home 40, park 60');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Home_Below_Horizon_Is_Refused" Id="{b7b43df0-97e9-4ca4-83d3-9d0ac5c72dc3}">
+      <Declaration><![CDATA[METHOD PRIVATE Home_Below_Horizon_Is_Refused
+VAR
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Home_Below_Horizon_Is_Refused');
+AssertTrue(Condition := MONETcommon.F_HomeBelowHorizon(1.0, 60.0, 1.0, 0.2), Message := 'home 1.0');
+AssertTrue(Condition := MONETcommon.F_HomeBelowHorizon(30.0, 60.0, 35.0, 0.2), Message := 'horizon raised above home');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Park_Below_Horizon_Is_Refused" Id="{c93d2e57-37fb-41ec-a605-c2f6cbe06bed}">
+      <Declaration><![CDATA[METHOD PRIVATE Park_Below_Horizon_Is_Refused
+VAR
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Park_Below_Horizon_Is_Refused');
+AssertTrue(Condition := MONETcommon.F_HomeBelowHorizon(40.0, 0.0, 1.0, 0.2), Message := 'park 0.0');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Margin_Boundary" Id="{f77b7281-87a5-40e8-ae67-1a177b195091}">
+      <Declaration><![CDATA[// The horizon guard fires below fHorizon + fMargin, so exactly at that elevation is still allowed.
+METHOD PRIVATE Margin_Boundary
+VAR
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Margin_Boundary');
+AssertTrue(Condition := MONETcommon.F_HomeBelowHorizon(1.1, 60.0, 1.0, 0.2), Message := 'home inside the margin');
+AssertFalse(Condition := MONETcommon.F_HomeBelowHorizon(1.5, 60.0, 1.0, 0.2), Message := 'home above the margin');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>
