@@ -47,18 +47,23 @@ VAR
 	bSafetyOutCh3			: BOOL;
 	bSafetyOutCh4			: BOOL;
 	
-	initialStartUpStep		: INT := 0;
-	startDelay 				: TON := (PT := T#2S);
-	stateDelay 				: TON := (PT := T#1S);
+	// #6: one reset sequence (ErrAck -> Restart -> STO reset -> check) for the start-up and for resetRequest
+	initialStartUpStep		: INT := 0;		// 0 waiting for the safety connections, 10 sequence running, 100 done
+	tonWaitConnections		: TON := (PT := T#30S);	// start the sequence anyway if the connections never report data
+	bConnectionsUp			: BOOL;			// EL1904 and EL2904 FSoE connections exchange data
+	nSeqStep				: INT := 0;		// 0 idle, 10 ErrAck, 20 Restart, 30 STO reset, 40 check
+	tonSeqPulse				: TON := (PT := T#1S);	// length of each pulse
+	tonSeqCheck				: TON := (PT := T#5S);	// time for the group to reach RUN after the pulses
+	bSeqFailed				: BOOL;			// last sequence ended without the group in RUN
+	sSeqResult				: STRING(255);
 
-	// external reset request (cabinet/pendant reset button)
+	// external reset request (cabinet/pendant reset button; a remote reset can be OR-ed in by the caller)
 	rtrigReset				: R_TRIG;
-	resetStep				: INT := 0;
-	resetDelay				: TON := (PT := T#1S);
 
 	ErrAckLog				: FB_EventLog;		// Errack logging
 	RestartLog				: FB_EventLog;		// restart logging
 	SafetyLog				: FB_EventLog;		// safety logging
+	SeqFailedLog			: FB_EventLog;		// #6: start-up/reset sequence did not bring the group to RUN
 
 	fbComm					: I_Comm;
 END_VAR
@@ -66,13 +71,14 @@ VAR_OUTPUT
 	error					: BOOL;		// error condition
 	state          			: BOOL;		// safety is okay
 	estop					: BOOL;		// Emergency_stop engaged
+	bStartupDone			: BOOL;		// #6: the start-up sequence has run once
+	bSafetyReady			: BOOL;		// #6: group and E-stop both in RUN
 END_VAR
 VAR_INPUT
-	// issue a remote restart
-	//remote_restart:		BOOL;
 	// issue a remute run/stop
 	remote_run		: BOOL := TRUE;
-	// cabinet/pendant reset button: toggles Restart, then ErrAck
+	// rising edge: run the reset sequence ErrAck -> Restart -> STO reset (ignored while one is running).
+	// Today the cabinet/pendant reset button; a remote (MQTT) reset would be OR-ed in here (#6, to be decided).
 	resetRequest	: BOOL;
 END_VAR
 ]]></Declaration>
@@ -87,14 +93,17 @@ error := inError;
 fbInfoGroup1(
 	stInfoData	:= stInfoGroup1,
 	sState		=> sStateGroup1);
-state := sStateGroup1 = 'RUN' OR initialStartUpStep <> 100;
+// #6: reported as it is, also during the start-up (was forced TRUE until the start-up sequence had run)
+state := sStateGroup1 = 'RUN';
 
 // estop triggered?
 fbInfoEStop1(
 	stInfoData	:= stInfoEStop1, 
 	sState		=> sStateEStop1, 
 	sDiag		=> sDiagEStop1);
-estop := sStateEStop1 <> 'RUN' AND initialStartUpStep = 100;
+// #6: reported as it is, also during the start-up (was forced FALSE until then); only the log waits, see SafetyLog
+estop := sStateEStop1 <> 'RUN';
+bSafetyReady := state AND NOT estop;
 
 //Info SafetyIn EL1904
 fbInfoSafetyIn(
@@ -116,70 +125,72 @@ fbInfoSafetyOut(
 	bChannel3		=>bSafetyOutCh3, 
 	bChannel4		=>bSafetyOutCh4);
 	
-// initial startup	
+// #6: start-up. Wait until the FSoE connections of the EL1904/EL2904 exchange data (they can come up after the PLC,
+// e.g. after a power failure) instead of a fixed 2 s, then run the reset sequence once. After 30 s it runs anyway,
+// and the check at its end logs if the group did not reach RUN.
+bConnectionsUp := sStateSafetyIn = 'State Data' AND sStateSafetyOut = 'State Data';
 CASE initialStartUpStep OF
 	0:
-		// begin start up procedure, do ErrAck
-		startDelay(IN := TRUE);
-		IF startDelay.Q THEN
-			startDelay(IN := FALSE);
+		tonWaitConnections(IN := TRUE);
+		IF bConnectionsUp OR tonWaitConnections.Q THEN
+			tonWaitConnections(IN := FALSE);
+			nSeqStep := 10;
+			bSeqFailed := FALSE;
 			initialStartUpStep := 10;
-		END_IF		
-	10:
-		// do err ack 
-		outErrAck := TRUE;
-		stateDelay(IN := TRUE);
-		IF stateDelay.Q THEN
-			stateDelay(IN := FALSE);
-			outErrAck := FALSE;
-			initialStartUpStep := 20;
 		END_IF
-	20:
-		// do restart
+	10:
+		IF nSeqStep = 0 THEN
+			initialStartUpStep := 100;
+		END_IF
+END_CASE
+bStartupDone := initialStartUpStep = 100;
+
+// external reset request (cabinet/pendant button): same sequence, ignored while one is running
+rtrigReset(CLK := resetRequest);
+IF rtrigReset.Q AND nSeqStep = 0 AND bStartupDone THEN
+	nSeqStep := 10;
+	bSeqFailed := FALSE;	// so a repeated failure is logged again
+END_IF
+
+// #6: the one reset sequence, the only writer of outErrAck/outRestart/outReset*STO. ErrAck first: while the group is
+// in error a Restart has no effect.
+CASE nSeqStep OF
+	10:	// acknowledge group errors
+		outErrAck := TRUE;
+		tonSeqPulse(IN := TRUE);
+		IF tonSeqPulse.Q THEN
+			tonSeqPulse(IN := FALSE);
+			outErrAck := FALSE;
+			nSeqStep := 20;
+		END_IF
+	20:	// restart the E-stop function block (FBEstop1.Restart)
 		outRestart := TRUE;
-		stateDelay(IN := TRUE);
-		IF stateDelay.Q THEN
-			stateDelay(IN := FALSE);
+		tonSeqPulse(IN := TRUE);
+		IF tonSeqPulse.Q THEN
+			tonSeqPulse(IN := FALSE);
 			outRestart := FALSE;
-			initialStartUpStep := 30;
-		END_IF		
-	30:
-		// do STO restart
+			nSeqStep := 30;
+		END_IF
+	30:	// reset STO of the three drives
 		outResetAzimuthSTO := TRUE;
 		outResetElevationSTO := TRUE;
 		outResetDerotatorSTO := TRUE;
-		stateDelay(IN := TRUE);
-		IF stateDelay.Q THEN
-			stateDelay(IN := FALSE);
+		tonSeqPulse(IN := TRUE);
+		IF tonSeqPulse.Q THEN
+			tonSeqPulse(IN := FALSE);
 			outResetAzimuthSTO := FALSE;
 			outResetElevationSTO := FALSE;
 			outResetDerotatorSTO := FALSE;
-			initialStartUpStep := 100;
-		END_IF			
-END_CASE
-
-// external reset request (cabinet/pendant button): toggle Restart, then ErrAck
-rtrigReset(CLK := resetRequest);
-IF rtrigReset.Q THEN
-	resetStep := 10;
-END_IF
-
-CASE resetStep OF
-	10:
-		outRestart := TRUE;
-		resetDelay(IN := TRUE);
-		IF resetDelay.Q THEN
-			resetDelay(IN := FALSE);
-			outRestart := FALSE;
-			resetStep := 20;
+			nSeqStep := 40;
 		END_IF
-	20:
-		outErrAck := TRUE;
-		resetDelay(IN := TRUE);
-		IF resetDelay.Q THEN
-			resetDelay(IN := FALSE);
-			outErrAck := FALSE;
-			resetStep := 0;
+	40:	// check: the group should reach RUN shortly after the pulses
+		tonSeqCheck(IN := TRUE);
+		IF bSafetyReady OR tonSeqCheck.Q THEN
+			tonSeqCheck(IN := FALSE);
+			bSeqFailed := NOT bSafetyReady;
+			sSeqResult := CONCAT(CONCAT(CONCAT('group ', sStateGroup1), ', E-stop '), sStateEStop1);
+			sSeqResult := CONCAT(CONCAT(sSeqResult, ', connections '), SEL(bConnectionsUp, 'not exchanging data', 'up'));
+			nSeqStep := 0;
 		END_IF
 END_CASE
 
@@ -198,11 +209,17 @@ RestartLog(
 );
 
 SafetyLog(	
-	Trigger 	:= estop,
+	Trigger 	:= estop AND bStartupDone,	// #6: no alarm while the safety is still starting up
 	Level 		:= ADSLOG_MSGTYPE_ERROR,
 	OnMessage 	:= 'Safety Error! Emergency stop engaged!',
 	OffMessage 	:= 'Safety is OK.',
 	OffLevel 	:= ADSLOG_MSGTYPE_HINT,
+	Comm		:= fbComm);
+SeqFailedLog(
+	Trigger 	:= bSeqFailed,
+	Level 		:= ADSLOG_MSGTYPE_ERROR,
+	FormatString := 'Safety start/reset did not reach RUN: %s',
+	OnMessage 	:= sSeqResult,
 	Comm		:= fbComm);
 ]]></ST>
     </Implementation>
