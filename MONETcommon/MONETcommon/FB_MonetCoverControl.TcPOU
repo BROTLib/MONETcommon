@@ -12,6 +12,9 @@ VAR_INPUT
 	
 	// telemetry interval
 	fTelemetryInterval		: TIME := T#5S;	
+	// #27: a cover may only be driven in one direction once its opposite output has been off this long. Only delays a
+	// reversal (a stop is immediate); 1 s is a safe default for any drive, shorten it once the drives are known.
+	tReversalDeadTime		: TIME := T#1S;
 END_VAR
 VAR_OUTPUT
 	bAllOpen			: BOOL;		// all covers are open
@@ -44,6 +47,8 @@ VAR
 	atonMoveTimeout		: ARRAY[1..3] OF TON;
 	asrCoverTimeout		: ARRAY[1..3] OF SR;	// latched until bReset, see the TON note above
 	abCoverTimeout		: ARRAY[1..3] OF BOOL;
+	atofOpen			: ARRAY[1..3] OF TOF;	// #27: Q stays TRUE for tReversalDeadTime after the open output dropped
+	atofClose			: ARRAY[1..3] OF TOF;	// #27: same for the close output
 	
 	srErrorTrigger			: SR;	// trigger for error
 	
@@ -80,6 +85,10 @@ FOR i := 1 TO 3 BY 1 DO
 	atonMoveTimeout[i](IN := OabOpenCover[i] OR OabCloseCover[i], PT := T#60S);
 	asrCoverTimeout[i](SET1 := atonMoveTimeout[i].Q, RESET := bReset, Q1 => abCoverTimeout[i]);
 	abCoverError[i] := abCoverError[i] OR abCoverTimeout[i];
+
+	// #27: evaluated with last scan's outputs, before they are recomputed below, so a reversal in the same scan is caught
+	atofOpen[i](IN := OabOpenCover[i], PT := tReversalDeadTime);
+	atofClose[i](IN := OabCloseCover[i], PT := tReversalDeadTime);
 END_FOR;
 
 // error indicates an axis error on any axis; latched until bReset
@@ -97,14 +106,14 @@ IF bError THEN
 END_IF
 
 // close 2->3->1
-OabCloseCover[2] := bClose AND NOT bError AND NOT abCoverClosed[2] AND NOT abCoverTimeout[2];
-OabCloseCover[3] := bClose AND NOT bError AND NOT abCoverClosed[3] AND abCoverClosed[2] AND NOT abCoverTimeout[3];
-OabCloseCover[1] := bClose AND NOT bError AND NOT abCoverClosed[1] AND abCoverClosed[2] AND abCoverClosed[3] AND NOT abCoverTimeout[1];
+OabCloseCover[2] := bClose AND NOT bError AND NOT atofOpen[2].Q AND NOT abCoverClosed[2] AND NOT abCoverTimeout[2];
+OabCloseCover[3] := bClose AND NOT bError AND NOT atofOpen[3].Q AND NOT abCoverClosed[3] AND abCoverClosed[2] AND NOT abCoverTimeout[3];
+OabCloseCover[1] := bClose AND NOT bError AND NOT atofOpen[1].Q AND NOT abCoverClosed[1] AND abCoverClosed[2] AND abCoverClosed[3] AND NOT abCoverTimeout[1];
 
 // open 1->3->2
-OabOpenCover[1] := bOpen AND NOT bError AND NOT abCoverOpen[1] AND NOT abCoverTimeout[1];
-OabOpenCover[3] := bOpen AND NOT bError AND NOT abCoverOpen[3] AND abCoverOpen[1] AND NOT abCoverTimeout[3];
-OabOpenCover[2] := bOpen AND NOT bError AND NOT abCoverOpen[2] AND abCoverOpen[1] AND abCoverOpen[3] AND NOT abCoverTimeout[2];
+OabOpenCover[1] := bOpen AND NOT bError AND NOT atofClose[1].Q AND NOT abCoverOpen[1] AND NOT abCoverTimeout[1];
+OabOpenCover[3] := bOpen AND NOT bError AND NOT atofClose[3].Q AND NOT abCoverOpen[3] AND abCoverOpen[1] AND NOT abCoverTimeout[3];
+OabOpenCover[2] := bOpen AND NOT bError AND NOT atofClose[2].Q AND NOT abCoverOpen[2] AND abCoverOpen[1] AND abCoverOpen[3] AND NOT abCoverTimeout[2];
 
 // we are open, if all covers are open
 bAllOpen := abCoverOpen[1] AND abCoverOpen[2] AND abCoverOpen[3];
