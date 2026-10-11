@@ -82,26 +82,34 @@ FOR i := 1 TO 3 BY 1 DO
 	abCoverError[i] := abCoverError[i] OR abCoverTimeout[i];
 END_FOR;
 
+// error indicates an axis error on any axis; latched until bReset
+srErrorTrigger(
+	SET1 := abCoverError[1] OR abCoverError[2] OR abCoverError[3],
+	RESET := bReset,
+	Q1 => bError);
+
+// #28: an error stops all covers, not just the faulty one. A cover with a limit-switch error reads both open and
+// closed, so without this the next cover in the sequence would start while the faulty one may still be in its way.
+// The command is dropped too, so nothing moves by itself after Reset(): it needs a new Open()/Close().
+IF bError THEN
+	bOpen := FALSE;
+	bClose := FALSE;
+END_IF
+
 // close 2->3->1
-OabCloseCover[2] := bClose AND NOT abCoverClosed[2] AND NOT abCoverTimeout[2];
-OabCloseCover[3] := bClose AND NOT abCoverClosed[3] AND abCoverClosed[2] AND NOT abCoverTimeout[3];
-OabCloseCover[1] := bClose AND NOT abCoverClosed[1] AND abCoverClosed[2] AND abCoverClosed[3] AND NOT abCoverTimeout[1];
+OabCloseCover[2] := bClose AND NOT bError AND NOT abCoverClosed[2] AND NOT abCoverTimeout[2];
+OabCloseCover[3] := bClose AND NOT bError AND NOT abCoverClosed[3] AND abCoverClosed[2] AND NOT abCoverTimeout[3];
+OabCloseCover[1] := bClose AND NOT bError AND NOT abCoverClosed[1] AND abCoverClosed[2] AND abCoverClosed[3] AND NOT abCoverTimeout[1];
 
 // open 1->3->2
-OabOpenCover[1] := bOpen AND NOT abCoverOpen[1] AND NOT abCoverTimeout[1];
-OabOpenCover[3] := bOpen AND NOT abCoverOpen[3] AND abCoverOpen[1] AND NOT abCoverTimeout[3];
-OabOpenCover[2] := bOpen AND NOT abCoverOpen[2] AND abCoverOpen[1] AND abCoverOpen[3] AND NOT abCoverTimeout[2];
+OabOpenCover[1] := bOpen AND NOT bError AND NOT abCoverOpen[1] AND NOT abCoverTimeout[1];
+OabOpenCover[3] := bOpen AND NOT bError AND NOT abCoverOpen[3] AND abCoverOpen[1] AND NOT abCoverTimeout[3];
+OabOpenCover[2] := bOpen AND NOT bError AND NOT abCoverOpen[2] AND abCoverOpen[1] AND abCoverOpen[3] AND NOT abCoverTimeout[2];
 
 // we are open, if all covers are open
 bAllOpen := abCoverOpen[1] AND abCoverOpen[2] AND abCoverOpen[3];
 // we are closed, if all covers are closed
 bAllClosed := abCoverClosed[1] AND abCoverClosed[2] AND abCoverClosed[3];
-
-// error indicates an axis error on any axis
-srErrorTrigger(
-	SET1 := abCoverError[1] OR abCoverError[2] OR abCoverError[3],
-	RESET := bReset,
-	Q1 => bError);
 
 // clear reset, if no error present
 IF NOT bError THEN
