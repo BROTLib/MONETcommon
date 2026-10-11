@@ -44,6 +44,10 @@ VAR
 	nSoftwareErrorID	: UINT;
 	SoftwareErrorEvent	: FB_EventLog;
 
+	// #34: home or park position at or below fHorizon + fHorizonMargin. The horizon guard
+	// would send the telescope home, find it still below the horizon, and home it again forever.
+	bHomeBelowHorizon	: BOOL;
+
 	// #26 / ADR 0001 option 1: auto-clear a latched bInterrupted if nothing has been
 	// requested for a while, since the normal arbitration path can never do it on its
 	// own (bReady needs the axes enabled, axis enable needs bInterrupted already clear).
@@ -54,6 +58,9 @@ VAR
 END_VAR
 VAR PERSISTENT
 	nInterruptedAutoClearCount	: UDINT;	// how many times auto-clear has fired, ever
+END_VAR
+VAR CONSTANT
+	fHorizonMargin	: LREAL := 0.2;	// deg above fHorizon below which the horizon guard stops and homes
 END_VAR
 ]]></Declaration>
     <Implementation>
@@ -93,6 +100,15 @@ IF bReset THEN
 	_SlewTelescope();
 	_ParkTelescope();
 	bInterrupted := FALSE;
+END_IF
+
+// #34: refuse a home/park position the horizon guard below would keep re-homing to. Checked every
+// scan, so a reset does not clear it until the configuration is fixed.
+bHomeBelowHorizon := F_HomeBelowHorizon(fElevationHome := telescopeConfig.elevationHome,
+	fElevationPark := telescopeConfig.elevationPark, fHorizon := fHorizon, fMargin := fHorizonMargin);
+IF bHomeBelowHorizon THEN
+	bSoftwareError := TRUE;
+	nSoftwareErrorID := 16#31;
 END_IF
 
 // get error ID, reset if bReset command is set
@@ -236,10 +252,10 @@ hor2eq(alt := fElevationCurrentSky,
 		dec => fDeclinationCurrentSky);
 	
 // If the Telescope dips under the fHorizon (e.g. while tracking, stop and gohome)
-IF fbElevation.Calibrated AND fElevationCurrent < (fHorizon+0.2) THEN
+IF fbElevation.Calibrated AND fElevationCurrent < (fHorizon + fHorizonMargin) THEN
 	IF NOT bStopped AND NOT bGoHome THEN
 		bStop := TRUE;
-	ELSE
+	ELSIF NOT bHomeBelowHorizon THEN
 		bGoHome := TRUE;
 	END_IF
 END_IF
