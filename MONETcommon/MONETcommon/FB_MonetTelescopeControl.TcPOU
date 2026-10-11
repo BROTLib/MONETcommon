@@ -48,10 +48,8 @@ VAR
 	// would send the telescope home, find it still below the horizon, and home it again forever.
 	bHomeBelowHorizon	: BOOL;
 
-	// #26 / ADR 0001 option 1: auto-clear a latched bInterrupted if nothing has been
-	// requested for a while, since the normal arbitration path can never do it on its
-	// own (bReady needs the axes enabled, axis enable needs bInterrupted already clear).
-	// Visible, not silent: logged and counted, not just quietly cleared.
+	// #26: safety net for a latched bInterrupted (now a one-shot, see the arbitration): auto-clear after 5 s of
+	// true idle, logged and counted. The counter should stay at 0.
 	bInterruptedIdle			: BOOL;
 	tonInterruptedAutoClear		: TON;
 	InterruptedAutoClearEvent	: FB_EventLog;
@@ -268,11 +266,10 @@ IF tonPowerTimeout.Q AND NOT bIsParked THEN
 	bPark := TRUE;
 END_IF
 		
-// #26 / ADR 0001 option 1: bInterrupted otherwise cannot clear itself once latched with
-// nothing pending (see specs/design/telescopecontrol-command-arbitration.md); auto-clear
-// after a few seconds of true idle (no error, nothing requested), logged and counted so
-// it's visible rather than a silent recovery. TUNE PT if this fires too eagerly/late on
-// site.
+// #26: safety net only. bInterrupted is now a one-shot (cleared in the arbitration below right after the
+// interrupted state machines are called), so it should never stay latched and this should never fire: the
+// counter staying at 0 on site confirms that. Before, it could latch (ADR 0001, IAG design doc
+// monets-telescopecontrol-command-arbitration.md), and this auto-clear after 5 s of true idle was the fix.
 bInterruptedIdle := bInterrupted AND NOT bError AND
 	NOT (bPower OR bPark OR bGoHome OR bGoto OR bSlew OR bTrack);
 tonInterruptedAutoClear(IN := bInterruptedIdle, PT := T#5S);
@@ -331,6 +328,7 @@ ELSIF bPark THEN
 		_HomeTelescope();
 		_GotoTelescope();
 		_SlewTelescope();
+		bInterrupted := FALSE;	// #26: one-shot, the interrupted state machines have reset their stage
 
 	ELSE
 		IF bReady AND NOT bBusy THEN
@@ -348,6 +346,7 @@ ELSIF bGoHome THEN
 		bInterrupted := TRUE;
 		_GotoTelescope();
 		_SlewTelescope();
+		bInterrupted := FALSE;	// #26: one-shot, see the park branch
 		
 	ELSE
 		IF bReady AND NOT bBusy AND bStopped THEN
@@ -364,6 +363,7 @@ ELSIF bGoto THEN
 		bSlew := FALSE;
 		bInterrupted := TRUE;
 		_SlewTelescope();
+		bInterrupted := FALSE;	// #26: one-shot, see the park branch
 	ELSE
 		IF bReady AND NOT bBusy THEN
 			bInterrupted := FALSE;
