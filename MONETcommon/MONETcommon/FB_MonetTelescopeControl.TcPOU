@@ -169,7 +169,8 @@ fbPointing(
 	fElevationOffset	=> fElevationPointingOffset
 );
 fElevationCalc := fElevationCalc + fElevationPointingOffset + fElevationOffset;
-fAzimuthCalc := fAzimuthCalc + fAzimuthPointingOffset + fAzimuthOffset / COS(fElevationCalc * d2r);
+// F_AzimuthOffsetOnAxis: fAzimuthOffset / COS(elevation), bounded near the zenith (BROTLib#27)
+fAzimuthCalc := fAzimuthCalc + fAzimuthPointingOffset + F_AzimuthOffsetOnAxis(fAzimuthOffset, fElevationCalc);
 
 // calculate derotator position 
 fDerotatorCalc := F_DerotatorPosition2(fAzimuthCalc, fElevationCalc, telescopeConfig.latitude, fDerotatorSign)  + fDerotatorOffset;
@@ -212,7 +213,7 @@ fElevationCurrentSky := fElevationCurrent - fElevationPointingOffset2;
 
 // calculate equatorial coordinates
 hor2eq(alt := fElevationCurrentSky - fElevationOffset,
-		az := fAzimuthCurrentSky - fAzimuthOffset / COS(fElevationCurrent * d2r),	// M7: was fElevationCalc
+		az := fAzimuthCurrentSky - F_AzimuthOffsetOnAxis(fAzimuthOffset, fElevationCurrent),	// M7: was fElevationCalc
 		jd := fJd,
 		dut1 := fDut1,
 		lat := telescopeConfig.latitude,
@@ -1068,7 +1069,7 @@ ELSE
 END_IF
 
 fbComm.Publish('telescope', 'dome', 'POSITION.INSTRUMENTAL.AZ.CURRPOS', LREAL_TO_STRING(fAzimuthCurrent));
-fbComm.Publish('telescope', 'dome', 'POSITION.INSTRUMENTAL.AZ.REALPOS', LREAL_TO_STRING(fAzimuthCurrent-fAzimuthOffset/COS(fElevationCurrent*d2r)));	// M7: was fElevation (stale)
+fbComm.Publish('telescope', 'dome', 'POSITION.INSTRUMENTAL.AZ.REALPOS', LREAL_TO_STRING(fAzimuthCurrent-F_AzimuthOffsetOnAxis(fAzimuthOffset, fElevationCurrent)));	// M7: was fElevation (stale)
 fbComm.Publish('telescope', 'dome', 'POSITION.INSTRUMENTAL.AZ.TARGETPOS', LREAL_TO_STRING(fbAzimuth.Position));
 fbComm.Publish('telescope', 'dome', 'POSITION.INSTRUMENTAL.AZ.CURRSPEED', LREAL_TO_STRING(fbAzimuth.Velocity));
 fbComm.Publish('telescope', 'dome', 'POSITION.INSTRUMENTAL.AZ.TARGETDISTANCE', LREAL_TO_STRING(ABS(fAzimuthCurrent-fbAzimuth.Position)));
@@ -1138,7 +1139,7 @@ CASE nStage OF
 		fbElevation.Position := fElevation + fElevationPointingOffset + fElevationOffset;
 		fbElevation.Velocity := fElevationMoveVelocity;
 		fbElevation.MoveAxis := TRUE;
-		fbAzimuth.Position := fAzimuth + fAzimuthPointingOffset + fAzimuthOffset / COS(fElevation * d2r);	// M7: was fElevationCalc, mismatched with fAzimuth above
+		fbAzimuth.Position := fAzimuth + fAzimuthPointingOffset + F_AzimuthOffsetOnAxis(fAzimuthOffset, fElevation);	// M7: was fElevationCalc, mismatched with fAzimuth above
 		fbAzimuth.Velocity := 10.0;
 		fbAzimuth.MoveAxis := TRUE;
 		fbDerotator.Position := fElevation + fDerotatorOffset;

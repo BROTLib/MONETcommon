@@ -5,6 +5,7 @@
 VAR
 	// TcUnit finds every FB_TestSuite instance by itself; it is enough to declare them here.
 	fbCoverControlTests	: FB_MonetCoverControl_Tests;
+	fbAzimuthOffsetTests	: F_AzimuthOffsetOnAxis_Tests;
 END_VAR
 ]]></Declaration>
     <Implementation>
