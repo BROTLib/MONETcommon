@@ -1,0 +1,72 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="F_AzimuthOffsetOnAxis_Tests" Id="{34e72dea-34b1-47a5-a13a-80185cfd55df}" SpecialFunc="None">
+    <Declaration><![CDATA[// Tests for MONETcommon.F_AzimuthOffsetOnAxis, the azimuth offset bounded near the zenith (BROTLib#27).
+FUNCTION_BLOCK F_AzimuthOffsetOnAxis_Tests EXTENDS TcUnit.FB_TestSuite
+VAR
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[Horizon_Is_The_Offset_Itself();
+Sixty_Degrees_Doubles();
+Zenith_Is_Finite();
+Result_Is_Limited_To_Ten_Degrees();
+]]></ST>
+    </Implementation>
+    <Method Name="Horizon_Is_The_Offset_Itself" Id="{f67f8529-49cb-4467-ad87-e50c606e14cd}">
+      <Declaration><![CDATA[METHOD PRIVATE Horizon_Is_The_Offset_Itself
+VAR
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Horizon_Is_The_Offset_Itself');
+AssertEquals_LREAL(Expected := 0.01, Actual := MONETcommon.F_AzimuthOffsetOnAxis(0.01, 0.0), Delta := 1.0E-12, Message := 'elevation 0');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Sixty_Degrees_Doubles" Id="{723e9989-7a0a-47db-a324-8f034873bc71}">
+      <Declaration><![CDATA[// Below 89.5 deg the result is the plain offset / COS(elevation).
+METHOD PRIVATE Sixty_Degrees_Doubles
+VAR
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Sixty_Degrees_Doubles');
+AssertEquals_LREAL(Expected := 0.02, Actual := MONETcommon.F_AzimuthOffsetOnAxis(0.01, 60.0), Delta := 1.0E-12, Message := 'elevation 60');
+AssertEquals_LREAL(Expected := -0.02, Actual := MONETcommon.F_AzimuthOffsetOnAxis(-0.01, 60.0), Delta := 1.0E-12, Message := 'elevation 60, negative offset');
+AssertEquals_LREAL(Expected := 0.01 / COS(85.0 * 0.017453292519943295), Actual := MONETcommon.F_AzimuthOffsetOnAxis(0.01, 85.0), Delta := 1.0E-12, Message := 'elevation 85');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Zenith_Is_Finite" Id="{a849fd02-52dc-4f73-a782-dcddf283762f}">
+      <Declaration><![CDATA[// At exactly 90 deg the old code divided by COS(90 deg) = 0 (up to rounding).
+METHOD PRIVATE Zenith_Is_Finite
+VAR
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Zenith_Is_Finite');
+AssertEquals_LREAL(Expected := 0.01 / 0.008726535498373935, Actual := MONETcommon.F_AzimuthOffsetOnAxis(0.01, 90.0), Delta := 1.0E-9, Message := 'elevation 90');
+AssertEquals_LREAL(Expected := 0.01 / 0.008726535498373935, Actual := MONETcommon.F_AzimuthOffsetOnAxis(0.01, 89.9), Delta := 1.0E-9, Message := 'elevation 89.9');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Result_Is_Limited_To_Ten_Degrees" Id="{d3cd9c61-a18d-4a76-97ad-dca668041daf}">
+      <Declaration><![CDATA[METHOD PRIVATE Result_Is_Limited_To_Ten_Degrees
+VAR
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Result_Is_Limited_To_Ten_Degrees');
+AssertEquals_LREAL(Expected := 10.0, Actual := MONETcommon.F_AzimuthOffsetOnAxis(1.0, 89.9), Delta := 1.0E-12, Message := 'positive');
+AssertEquals_LREAL(Expected := -10.0, Actual := MONETcommon.F_AzimuthOffsetOnAxis(-1.0, 89.9), Delta := 1.0E-12, Message := 'negative');
+AssertEquals_LREAL(Expected := 0.0, Actual := MONETcommon.F_AzimuthOffsetOnAxis(0.0, 90.0), Delta := 1.0E-12, Message := 'no offset at the zenith');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

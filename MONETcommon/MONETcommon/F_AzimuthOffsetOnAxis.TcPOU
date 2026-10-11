@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="F_AzimuthOffsetOnAxis" Id="{5167a527-4a2c-4115-ad07-08ed8319bc69}" SpecialFunc="None">
+    <Declaration><![CDATA[// Azimuth-axis correction (degrees) for a cross-elevation offset on the sky (fAzimuthOffset, degrees) at
+// elevation fElevation (degrees): fAzimuthOffset / COS(fElevation). Near the zenith 1/COS grows without bound and
+// is a division by zero at 90 deg, so COS is floored at COS(89.5 deg) (factor 115 at most) and the result is limited
+// to +-10 deg, the same bound BROTLib puts on the offset command (BROTLib#27). Below 89.5 deg the result is unchanged.
+FUNCTION F_AzimuthOffsetOnAxis : LREAL
+VAR_INPUT
+	fAzimuthOffset	: LREAL;	// cross-elevation offset on the sky, degrees
+	fElevation		: LREAL;	// elevation, degrees
+END_VAR
+VAR CONSTANT
+	D2R				: LREAL := 0.017453292519943295;
+	MIN_COS			: LREAL := 0.008726535498373935;	// COS(89.5 deg)
+	MAX_AXIS_OFFSET	: LREAL := 10.0;					// degrees
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[F_AzimuthOffsetOnAxis := LIMIT(-MAX_AXIS_OFFSET, fAzimuthOffset / MAX(COS(fElevation * D2R), MIN_COS), MAX_AXIS_OFFSET);
+]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>
