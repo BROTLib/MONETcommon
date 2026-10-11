@@ -1,0 +1,92 @@
+<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="FB_MethodVarProbe" Id="{1e105a48-79a6-45e3-b089-6b8abaa15a00}" SpecialFunc="None">
+    <Declaration><![CDATA[// Probe for MONETcommon#17: does a function block instance declared in a METHOD's plain VAR keep its state between
+// calls? Each pair of methods is identical except for VAR versus VAR_INST (the control).
+FUNCTION_BLOCK FB_MethodVarProbe
+VAR
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[]]></ST>
+    </Implementation>
+    <Method Name="CountVar" Id="{dc9e444b-8fa6-4c21-a6e4-74b8779c3418}">
+      <Declaration><![CDATA[METHOD CountVar : INT
+VAR
+	n	: INT;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[n := n + 1;
+CountVar := n;
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="CountInst" Id="{f4542f34-7b6c-4e97-b05c-ffce4d996497}">
+      <Declaration><![CDATA[METHOD CountInst : INT
+VAR_INST
+	n	: INT;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[n := n + 1;
+CountInst := n;
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="EdgeVar" Id="{c5502fde-22b8-4b31-8ce5-17782a13ceb7}">
+      <Declaration><![CDATA[METHOD EdgeVar : BOOL
+VAR_INPUT
+	bClk	: BOOL;
+END_VAR
+VAR
+	rtrig	: R_TRIG;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[rtrig(CLK := bClk);
+EdgeVar := rtrig.Q;
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="EdgeInst" Id="{53cd8a8e-9935-4aa1-a2cf-073db6c2a02c}">
+      <Declaration><![CDATA[METHOD EdgeInst : BOOL
+VAR_INPUT
+	bClk	: BOOL;
+END_VAR
+VAR_INST
+	rtrig	: R_TRIG;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[rtrig(CLK := bClk);
+EdgeInst := rtrig.Q;
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="TimerVar" Id="{12229898-2ab5-4a33-930f-e62e87b1b35d}">
+      <Declaration><![CDATA[METHOD TimerVar : BOOL
+VAR
+	ton	: TON;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[ton(IN := TRUE, PT := T#50MS);
+TimerVar := ton.Q;
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="TimerInst" Id="{93179d1a-42a2-4033-8010-35a8bbf5a555}">
+      <Declaration><![CDATA[METHOD TimerInst : BOOL
+VAR_INST
+	ton	: TON;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[ton(IN := TRUE, PT := T#50MS);
+TimerInst := ton.Q;
+]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

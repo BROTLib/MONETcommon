@@ -48,10 +48,15 @@ VAR
 	// would send the telescope home, find it still below the horizon, and home it again forever.
 	bHomeBelowHorizon	: BOOL;
 
-	// #26 / ADR 0001 option 1: auto-clear a latched bInterrupted if nothing has been
-	// requested for a while, since the normal arbitration path can never do it on its
-	// own (bReady needs the axes enabled, axis enable needs bInterrupted already clear).
-	// Visible, not silent: logged and counted, not just quietly cleared.
+	// #17: 600 s timeouts of the goto/home/slew state machines. They used to be TONs in the methods' plain VAR,
+	// which is re-created on every call, so they never fired. They are fed every scan in the body (the methods are
+	// only called while their command is selected) and reset as soon as the command flag drops, whatever ended it.
+	tonGotoTimeout		: TON;
+	tonHomeTimeout		: TON;
+	tonSlewTimeout		: TON;
+
+	// #26: safety net for a latched bInterrupted (now a one-shot, see the arbitration): auto-clear after 5 s of
+	// true idle, logged and counted. The counter should stay at 0.
 	bInterruptedIdle			: BOOL;
 	tonInterruptedAutoClear		: TON;
 	InterruptedAutoClearEvent	: FB_EventLog;
@@ -264,15 +269,20 @@ tpPowerOnWarning(IN := bPower OR (NOT fbElevation.bEnable AND fbBrake.BrakeOpen)
 
 tonPowerTimeout(IN := TCS_command = E_TCSCommand.no_command AND NOT bIsParked, PT := T#12H);
 tonCommandTimeout();
+
+// #17: state-machine timeouts, checked in _GotoTelescope/_HomeTelescope/_SlewTelescope (which raise the error and
+// clear the flag, so the timer resets on the next scan)
+tonGotoTimeout(IN := bGoto, PT := T#600S);
+tonHomeTimeout(IN := bGoHome, PT := T#600S);
+tonSlewTimeout(IN := bSlew, PT := T#600S);
 IF tonPowerTimeout.Q AND NOT bIsParked THEN
 	bPark := TRUE;
 END_IF
 		
-// #26 / ADR 0001 option 1: bInterrupted otherwise cannot clear itself once latched with
-// nothing pending (see specs/design/telescopecontrol-command-arbitration.md); auto-clear
-// after a few seconds of true idle (no error, nothing requested), logged and counted so
-// it's visible rather than a silent recovery. TUNE PT if this fires too eagerly/late on
-// site.
+// #26: safety net only. bInterrupted is now a one-shot (cleared in the arbitration below right after the
+// interrupted state machines are called), so it should never stay latched and this should never fire: the
+// counter staying at 0 on site confirms that. Before, it could latch (ADR 0001, IAG design doc
+// monets-telescopecontrol-command-arbitration.md), and this auto-clear after 5 s of true idle was the fix.
 bInterruptedIdle := bInterrupted AND NOT bError AND
 	NOT (bPower OR bPark OR bGoHome OR bGoto OR bSlew OR bTrack);
 tonInterruptedAutoClear(IN := bInterruptedIdle, PT := T#5S);
@@ -331,6 +341,7 @@ ELSIF bPark THEN
 		_HomeTelescope();
 		_GotoTelescope();
 		_SlewTelescope();
+		bInterrupted := FALSE;	// #26: one-shot, the interrupted state machines have reset their stage
 
 	ELSE
 		IF bReady AND NOT bBusy THEN
@@ -348,6 +359,7 @@ ELSIF bGoHome THEN
 		bInterrupted := TRUE;
 		_GotoTelescope();
 		_SlewTelescope();
+		bInterrupted := FALSE;	// #26: one-shot, see the park branch
 		
 	ELSE
 		IF bReady AND NOT bBusy AND bStopped THEN
@@ -364,6 +376,7 @@ ELSIF bGoto THEN
 		bSlew := FALSE;
 		bInterrupted := TRUE;
 		_SlewTelescope();
+		bInterrupted := FALSE;	// #26: one-shot, see the park branch
 	ELSE
 		IF bReady AND NOT bBusy THEN
 			bInterrupted := FALSE;
@@ -579,16 +592,14 @@ VAR_INPUT
 END_VAR
 VAR
 	GoToEvent		: FB_Eventlog;
-	commandTimeout	: TON;
 END_VAR
-VAR_STAT
+VAR_INST
 	nStage			: USINT := 0;
 	nLastStage		: USINT := 101;
 END_VAR]]></Declaration>
       <Implementation>
         <ST><![CDATA[_GotoTelescope := nStage;
-commandTimeout(IN := nStage < 100, PT := T#600S);
-IF commandTimeout.Q THEN
+IF tonGotoTimeout.Q THEN	// #17: fed every scan in the body, a method-local TON never kept its state
 	bError := TRUE;
 	nErrorID := 16#10;
 	bSoftwareError := TRUE;
@@ -696,21 +707,19 @@ VAR_INPUT
 END_VAR
 VAR
     HomeEvent        : FB_Eventlog;
-    commandTimeout    : TON;
 END_VAR]]></Declaration>
       <Implementation>
         <ST><![CDATA[// reset/interrupt aborts the homing without moving anything, like the other stage methods
 IF bReset OR bError OR bInterrupted THEN
-    commandTimeout(IN := FALSE);
     RETURN;
 END_IF
 
-commandTimeout(IN := NOT _HomeTelescope, PT := T#600S);
-IF commandTimeout.Q THEN
+IF tonHomeTimeout.Q THEN	// #17: fed every scan in the body
     bError := TRUE;
     nErrorID := 16#30;
     bSoftwareError := TRUE;
     nSoftwareErrorID := 16#30;
+    bGoHome := FALSE;	// #17: like goto/slew; otherwise the expired timer would raise the error again right after a reset
     _HomeTelescope :=TRUE;
 END_IF
 
@@ -750,9 +759,11 @@ VAR_INPUT
 END_VAR
 VAR
 	ParkEvent	: FB_Eventlog;
-	rtrigError	: R_TRIG;	// M2: reset the stage only on the rising edge of bError, not every scan
 END_VAR
-VAR_STAT
+VAR_INST
+	rtrigError	: R_TRIG;	// M2: reset the stage only on the rising edge of bError, not every scan; VAR_INST, a plain method VAR is re-created on every call (#17)
+END_VAR
+VAR_INST
 	nStage		: USINT := 0;
 	nLastStage	: USINT := 101;
 END_VAR]]></Declaration>
@@ -866,7 +877,7 @@ nLastStage := nStage;
       <Declaration><![CDATA[METHOD PRIVATE _PowerOn : BOOL
 VAR_INPUT
 END_VAR
-VAR_STAT
+VAR_INST
 	nStage		: USINT := 0;
 	nLastStage	: USINT := 101;
 END_VAR]]></Declaration>
@@ -1110,16 +1121,14 @@ VAR_INPUT
 END_VAR
 VAR
 	SlewEvent:	FB_Eventlog;
-	command_timeout: TON;
 END_VAR
-VAR_STAT
+VAR_INST
 	nStage:		USINT := 0;
 	nLastStage:	USINT := 101;
 END_VAR]]></Declaration>
       <Implementation>
         <ST><![CDATA[_SlewTelescope := nStage;
-command_timeout(IN := nStage < 100, PT := T#600S);
-IF command_timeout.Q THEN
+IF tonSlewTimeout.Q THEN	// #17: fed every scan in the body
 	bError := TRUE;
 	nErrorID := 16#40;
 	bSoftwareError := TRUE;

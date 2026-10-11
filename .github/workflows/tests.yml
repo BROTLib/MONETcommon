@@ -26,6 +26,9 @@ concurrency:
 jobs:
   test:
     runs-on: [self-hosted, twincat, windows]
+    permissions:
+      contents: read
+      statuses: write   # the commit status below
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
@@ -51,15 +54,17 @@ jobs:
           }
 
       # TcBuild drives XAE over COM and is sometimes busy (RPC_E_SERVERCALL_RETRYLATER, exit 3): retry.
+      # The build job of the same push often still holds XAE when this job starts (four 30 s retries were not
+      # always enough, #23), so retry for up to 6 min.
       # Exit 1 = built with compile warnings, still a success (see tcbuild.yml).
       - name: Install MONETcommon
         shell: powershell
         run: |
           $file = Join-Path $env:RUNNER_TEMP 'MONETcommon.library'
-          for ($i = 1; $i -le 4; $i++) {
+          for ($i = 1; $i -le 8; $i++) {
             & "C:\Program Files\Industrial Brains B.V\TcBuild\TcBuild.exe" install MONETcommon.sln -x MONETcommon -p MONETcommon -l $file
             if ($LASTEXITCODE -ne 3) { break }
-            Start-Sleep -Seconds 30
+            Start-Sleep -Seconds 45
           }
           if ($LASTEXITCODE -gt 1) { exit $LASTEXITCODE }
 
@@ -67,10 +72,10 @@ jobs:
         shell: powershell
         working-directory: MONETcommonTests
         run: |
-          for ($i = 1; $i -le 4; $i++) {
+          for ($i = 1; $i -le 8; $i++) {
             & "C:\Program Files\Industrial Brains B.V\TcBuild\TcBuild.exe" build MONETcommonTests.sln
             if ($LASTEXITCODE -ne 3) { break }
-            Start-Sleep -Seconds 30
+            Start-Sleep -Seconds 45
           }
           if ($LASTEXITCODE -gt 1) { exit $LASTEXITCODE }
 
@@ -80,3 +85,19 @@ jobs:
         run: |
           & .\MONETcommonTests\tools\Run-Tests.ps1
           exit $LASTEXITCODE
+
+      # Same as `build` in tcbuild.yml: a workflow_dispatch run (release.yml dispatches one for the version bump) is
+      # not linked to the release PR, so without this the PR does not show the test result at all. `test` is not a
+      # required check (tools/github-rulesets.sh in the IAG repo: the runtime and the trial license would block
+      # releases whenever they are down), it is only made visible.
+      - name: Report the result as commit status `test`
+        if: always() && github.event_name == 'workflow_dispatch'
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+          STATE: ${{ job.status == 'success' && 'success' || 'failure' }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          gh api "repos/${{ github.repository }}/statuses/${{ github.sha }}" `
+            -f state="$env:STATE" -f context=test -f description="TcUnit tests (dispatched run)" -f target_url="$env:RUN_URL"
+          if ($LASTEXITCODE -ne 0) { throw "posting the commit status failed with exit code $LASTEXITCODE" }
