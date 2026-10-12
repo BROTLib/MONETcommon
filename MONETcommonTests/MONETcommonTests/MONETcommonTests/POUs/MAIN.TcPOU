@@ -8,6 +8,7 @@ VAR
 	fbAzimuthOffsetTests	: F_AzimuthOffsetOnAxis_Tests;
 	fbHomeBelowHorizonTests	: F_HomeBelowHorizon_Tests;
 	fbMethodVarProbeTests	: FB_MethodVarProbe_Tests;
+	fbPendantControlTests	: FB_MonetPendantControl_Tests;
 END_VAR
 ]]></Declaration>
     <Implementation>

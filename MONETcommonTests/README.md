@@ -11,6 +11,7 @@ results); this one only covers what's specific to MONETcommon.
 | Suite | What it checks |
 |---|---|
 | `FB_MonetCoverControl_Tests` | `FB_MonetCoverControl` actually compiles and runs with no linked hardware, and that the inverted limit-switch polarity correctly reports `bError` when both switches read as active (the default state of an unlinked `AT%I*` input) |
+| `FB_MonetPendantControl_Tests` | with no linked hardware (selector 0, key off) the error lamp is on, `bEnable` is FALSE and no direction lamp is lit (HalfBROT #12). The selector, key and buttons are `AT%I*`, so only this unlinked state can be tested |
 
 This is a first, deliberately small slice -- see
 [MONETcommon/specs/plans/2026-09-22-add-tcunit-tests.md](../specs/plans/2026-09-22-add-tcunit-tests.md)

@@ -69,7 +69,8 @@ recovery. Each site passes its own pointing model (`fbPointing`,
 
 - `FB_MonetSafetyHandling` — handles the TwinSAFE startup sequence and the
   safe-torque-off (STO) reset handshake for all three drive axes.
-- `FB_MonetPendantControl` — BCD-selector manual hand pendant.
+- `FB_MonetPendantControl` — BCD-selector manual hand pendant. The error lamp shows the selected function's error;
+  selector 0 (pendant disconnected) lights it and does nothing else. The horn variable is not wired (nothing sounds).
 - `FB_MonetCabinetControl` — cabinet buttons/switches/lamps and temperature
   monitoring.
 - `FB_MonetPowerMonitoring` — monitors the three-phase supply quality.
