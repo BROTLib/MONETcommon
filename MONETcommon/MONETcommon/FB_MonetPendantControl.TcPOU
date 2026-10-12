@@ -18,8 +18,8 @@ END_VAR
 VAR
 	fbComm				: I_Comm;
 	nSelection			: UINT;		// program selection of the pendant control
-	bError				: BOOL;		// error on the pendant control
-	bHorn				: BOOL;
+	bError				: BOOL;		// pendant disconnected or selector at 0; only lights the error lamp (#12)
+	bHorn				: BOOL;		// no AT %Q*, not wired: nothing sounds (HalfBROT #12)
 	fbStartTrigger		: R_TRIG;
 	fbUpTrigger			: R_TRIG;
 	fbDownTrigger		: R_TRIG;	
@@ -61,7 +61,7 @@ nSelection := 1*BOOL_TO_UINT(IbBCD0) +
 			 4*BOOL_TO_UINT(IbBCD4) +
 			 8*BOOL_TO_UINT(IbBCD8);
 
-// detect disconnection of the manual controls (should also trigger emergency stop).			 
+// selector reads 0: pendant disconnected (or selector at 0). Only lights the error lamp, no stop (HalfBROT #12)
 bError := (nSelection = 0);
 
 // disable all the lamps
@@ -73,9 +73,9 @@ bHorn := FALSE;
 
 fbUpTrigger(CLK := IbDirectionUp);
 fbDownTrigger(CLK := IbDirectionDown);
-//R_Enable(CLK := enable);
-// the error lamp is the same as the error lamp of the main panel
-ObLampError := ObLampError;
+// error lamp: bError by default (also with the key off); the selected function overwrites it below with its own
+// error. Was a no-op, so the lamp kept its last value when the selector moved (HalfBROT #12)
+ObLampError := bError;
 
 // enabled?
 bEnable := IbEnableKey;
@@ -153,6 +153,7 @@ CASE nSelection OF
 		ObLampRight := fbAzimuth.inDigitalInputs.1; // NOT GVL_Telescope.azimut_limit_switch;
 		fbAzimuth.MoveNeg := IbDirectionLeft AND fbAzimuth.inDigitalInputs.0;
 		fbAzimuth.MovePos := IbDirectionRight AND fbAzimuth.inDigitalInputs.1;
+		ObLampError := fbAzimuth.Error;
 		IF fbResetTrigger.Q THEN
 			fbAzimuth.Reset();
 		END_IF

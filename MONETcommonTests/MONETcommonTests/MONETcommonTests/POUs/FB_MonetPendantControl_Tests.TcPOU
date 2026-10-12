@@ -1,0 +1,41 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="FB_MonetPendantControl_Tests" Id="{08fefe33-64b1-416b-b29d-2fb550602936}" SpecialFunc="None">
+    <Declaration><![CDATA[// Tests for MONETcommon.FB_MonetPendantControl.
+//
+// The selector, key and button inputs are AT%I* inside the FB, so a test on a target with no linked
+// hardware sees them all FALSE: selector 0 (pendant disconnected) and the enable key off. That is
+// exactly the case this suite pins down: the error lamp lights and nothing else happens. Nothing is
+// dereferenced: with the key off the block returns before its CASE, so no axis/cover references are needed.
+FUNCTION_BLOCK FB_MonetPendantControl_Tests EXTENDS TcUnit.FB_TestSuite
+VAR
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[Unlinked_Pendant_Lights_Error_Lamp();
+]]></ST>
+    </Implementation>
+    <Method Name="Unlinked_Pendant_Lights_Error_Lamp" Id="{160231b1-de38-493f-9d6b-339d6320396b}">
+      <Declaration><![CDATA[// Selector 0 and key off: ObLampError is TRUE (it used to keep its last value, FALSE after start-up),
+// bEnable stays FALSE and no direction lamp is lit (HalfBROT #12).
+METHOD PRIVATE Unlinked_Pendant_Lights_Error_Lamp
+VAR
+	fbComm		: FB_NullComm;
+	fbPendant	: MONETcommon.FB_MonetPendantControl(comm := fbComm);
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Unlinked_Pendant_Lights_Error_Lamp');
+fbPendant();
+AssertTrue(Condition := fbPendant.ObLampError, Message := 'error lamp is on with selector 0');
+AssertFalse(Condition := fbPendant.bEnable, Message := 'bEnable is FALSE with the key off');
+AssertFalse(Condition := fbPendant.ObLampUp, Message := 'up lamp is off');
+AssertFalse(Condition := fbPendant.ObLampDown, Message := 'down lamp is off');
+AssertFalse(Condition := fbPendant.ObLampLeft, Message := 'left lamp is off');
+AssertFalse(Condition := fbPendant.ObLampRight, Message := 'right lamp is off');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>
