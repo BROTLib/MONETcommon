@@ -21,13 +21,6 @@ VAR_INPUT
 	// 5.0 deg/s confirmed correct on-site for MONETS; 10.0 was too fast.
 	fElevationMoveVelocity : LREAL := 5.0;
 END_VAR
-    fbStartupReadiness : BROTLib.FB_StartupReadiness;
-    bStartupStart : BOOL;
-    bStartupCalibrating : BOOL;
-    bStartupCompleted : BOOL;
-    bStartupAborted : BOOL;
-    fLastPublishedReadyState : LREAL := -3.0;
-    bAutomaticPaused : BOOL;
 VAR_OUTPUT
 	fDerotatorSign		: LREAL := 1.0;	// derotator
 	
@@ -44,6 +37,13 @@ VAR_OUTPUT
 	fAzimuthVelocity	: LREAL;	// rotational velocity of the elevation
 END_VAR
 VAR
+    fbStartupReadiness : BROTLib.FB_StartupReadiness;
+    bStartupStart : BOOL;
+    bStartupCalibrating : BOOL;
+    bStartupCompleted : BOOL;
+    bStartupAborted : BOOL;
+    fLastPublishedReadyState : LREAL := -3.0;
+    bAutomaticPaused : BOOL;
 	// M1: internal (non-axis) errors from the Goto/Home/Slew state machines, latched
 	// until bReset since bError/nErrorID are otherwise recomputed from the axes every
 	// scan and would silently wipe these within the same cycle they're set in.
