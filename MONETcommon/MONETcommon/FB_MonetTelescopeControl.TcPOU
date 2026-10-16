@@ -1030,7 +1030,7 @@ METHOD SuspendAutomatic
     END_IF
 END_IF
 fbStartupReadiness(Start := FALSE, Calibrating := FALSE, Completed := FALSE,
-    Aborted := TRUE, Error := bError OR bEstopTriggered, Parked := bIsParked,
+    Aborted := TRUE, Error := bError OR bSoftwareError OR bPowerFailure OR bEstopTriggered, Parked := bIsParked,
     Parking := FALSE, Operational := FALSE);
 fReadyState := fbStartupReadiness.ReadyState;
 // Continue the existing readiness heartbeat without replaying a frozen ONLINE value.

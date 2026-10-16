@@ -138,3 +138,14 @@ Publish readiness on changes and at the existing stationary cadence. The new
 state uses the existing telemetry field and power-on commands. Update Python
 consumers for CALIBRATING/0.8 before firmware rollout. Hardware acceptance and
 firmware deployment are separate from building these changes.
+
+Readiness uses the same error predicate in automatic and suspended/manual mode:
+axis/controller error, latched software error, power-on failure, or E-stop. A
+power-on failure remains visible through reset until the next clean power-on
+attempt clears `bPowerFailure`; it does not wait for that startup to complete.
+A transient operational interlock gates online without erasing completed startup.
+Explicit suspension still aborts readiness; the manual-to-automatic recovery policy
+is tracked separately and is not changed by the interlock correction.
+
+Manual-to-automatic recovery policy: [MONETcommon #72](https://github.com/BROTLib/MONETcommon/issues/72).
+The current explicit mode-suspension invalidation is retained pending that decision.
