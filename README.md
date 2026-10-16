@@ -120,3 +120,21 @@ RT (x64/x86), TwinCAT CE7 (ARMV7), TwinCAT OS (ARMT2)) and referenced from the
 MONETN / MONETS application projects.
 
 **CI.** `.github/workflows/tcbuild.yml` builds `MONETcommon.sln` with TcBuild on every push (self-hosted runner, never on pull requests). A green run means the project compiles; TcBuild exit code 1 (built with warnings) counts as success. The TcUnit tests are not run there (see below).
+
+## Startup readiness (READY_STATE)
+
+Startup preparation reports 0.7, calibration and automatic startup positioning
+report 0.8, and 1.0 means the complete startup has finished. Internal mechanical
+readiness remains separate. An aborted partial startup is not online (-2 remains
+the existing unknown/not-operational value); errors and parking retain their
+existing values. Normal later slew/tracking remains online.
+
+This change requires BROTLib with `FB_StartupReadiness`. MONET/N and MONET/S
+MAIN must call `SuspendAutomatic()` while the cyclic controller is disabled, so
+manual mode cannot replay a frozen ONLINE readiness. Preserve their distinct
+site calibration/home settings. Validate both sites before rollout.
+
+Publish readiness on changes and at the existing stationary cadence. The new
+state uses the existing telemetry field and power-on commands. Update Python
+consumers for CALIBRATING/0.8 before firmware rollout. Hardware acceptance and
+firmware deployment are separate from building these changes.
