@@ -37,13 +37,7 @@ VAR_OUTPUT
 	fAzimuthVelocity	: LREAL;	// rotational velocity of the elevation
 END_VAR
 VAR
-    fbStartupReadiness : BROTLib.FB_StartupReadiness;
-    bStartupStart : BOOL;
-    bStartupCalibrating : BOOL;
-    bStartupCompleted : BOOL;
-    bStartupAborted : BOOL;
-    fLastPublishedReadyState : LREAL := -3.0;
-    bAutomaticPaused : BOOL;
+    fbStartup : BROTLib.FB_StartupControl;
 	// M1: internal (non-axis) errors from the Goto/Home/Slew state machines, latched
 	// until bReset since bError/nErrorID are otherwise recomputed from the axes every
 	// scan and would silently wipe these within the same cycle they're set in.
@@ -77,16 +71,8 @@ END_VAR
 ]]></Declaration>
     <Implementation>
       <ST><![CDATA[// Startup events are reset once per scan. Internal bReady still drives mechanical sequencing.
-bStartupStart := bPower;
-bStartupCalibrating := FALSE;
-bStartupCompleted := FALSE;
-bStartupAborted := FALSE;
-// A repeated request to an already online telescope must not restart calibration.
-IF bPower AND fbStartupReadiness.Initialized AND bReady THEN
-    bPower := FALSE;
-    bStartupStart := FALSE;
-END_IF
-bAutomaticPaused := FALSE;
+// A repeated request to an already online telescope is dropped, it must not restart calibration.
+bPower := fbStartup.BeginScan(Power := bPower, Ready := bReady);
 // revert fDut1 (set via the Dut1 property, e.g. from an external time bridge over MQTT) to its
 // safe 0.0 default if nothing fresh arrives for a while, instead of serving an arbitrarily
 // stale UT1-UTC correction forever. FB_AltAzTelescopeControl's own body is never called (this FB
@@ -113,7 +99,7 @@ END_IF
 rtrigReset(CLK := bReset);
 
 IF bReset THEN
-    bStartupAborted := TRUE;
+    fbStartup.MarkAborted();
 	bHorizonError := FALSE; // if reset, the bHorizonError can be switched off
 	bSoftwareError := FALSE;
 	
@@ -490,16 +476,12 @@ bBusy := fbElevation.fbAxis.Busy OR
 
 (* STATUS STATES*)
 // Public completion is latched only by the final startup stage, never by mechanical bReady alone.
-fbStartupReadiness(
-    Start := bStartupStart,
-    Calibrating := bStartupCalibrating,
-    Completed := bStartupCompleted,
-    Aborted := bStartupAborted OR bEstopTriggered,
+fReadyState := fbStartup.Update(
     Error := bError OR bSoftwareError OR bPowerFailure OR bEstopTriggered,
     Parked := bIsParked,
     Parking := bPark AND NOT bPower,
-    Operational := bReady AND bMainReady AND NOT bEstopTriggered);
-fReadyState := fbStartupReadiness.ReadyState;
+    Operational := bReady AND bMainReady AND NOT bEstopTriggered,
+    AbortExtra := bEstopTriggered);
 //MotionState
 IF bStopped THEN
 	nMotionState := 0;
@@ -526,9 +508,8 @@ END_IF
 
 // send telemetry
 // The readiness field uses its existing topic and numeric format.
-IF fReadyState <> fLastPublishedReadyState AND fbComm <> 0 THEN
+IF fbStartup.PublishDue(CommValid := fbComm <> 0, Heartbeat := FALSE) THEN
     fbComm.Publish('telescope', 'dome', 'TELESCOPE.READY_STATE', LREAL_TO_STRING(fReadyState));
-    fLastPublishedReadyState := fReadyState;
 END_IF
 IF bSlewing OR bTrack OR bTracking THEN
 	tonMQTTTimer.PT := T#500MS; // M13: was "every second", actually twice a second while moving
@@ -918,7 +899,7 @@ ELSE
 END_IF
 
 IF NOT bPower OR bReset OR bError OR bStop OR bInterrupted THEN
-    bStartupAborted := TRUE;
+    fbStartup.MarkAborted();
     bPower := FALSE;
 	nStage := 0;
 	// abort without leaving the last written axis commands set
@@ -933,7 +914,7 @@ IF NOT bPower OR bReset OR bError OR bStop OR bInterrupted THEN
 END_IF
 
 IF nStage >= 10 THEN
-    bStartupCalibrating := TRUE;
+    fbStartup.MarkCalibrating();
 END_IF
 
 CASE nStage OF
@@ -1004,7 +985,7 @@ CASE nStage OF
         END_IF
     100:
         IF bReady AND bMainReady AND bStopped AND NOT bBusy THEN
-            bStartupCompleted := TRUE;
+            fbStartup.MarkCompleted();
             bPower := FALSE;
             fElevation := fElevationCurrent;
             fAzimuth := fAzimuthCurrent;
@@ -1020,24 +1001,19 @@ END_CASE]]></ST>
       <Declaration><![CDATA[// MAIN calls this instead of the cyclic controller while automatic control is disabled.
 METHOD SuspendAutomatic
 ]]></Declaration>
-      <Implementation><ST><![CDATA[IF NOT bAutomaticPaused THEN
-    bAutomaticPaused := TRUE;
-    IF fbStartupReadiness.Initializing OR bPower THEN
+      <Implementation><ST><![CDATA[IF fbStartup.EnterSuspend() THEN
+    IF fbStartup.Initializing OR bPower THEN
         bPower := FALSE;
         bInterrupted := TRUE;
         _PowerOn();
         bInterrupted := FALSE;
     END_IF
 END_IF
-fbStartupReadiness(Start := FALSE, Calibrating := FALSE, Completed := FALSE,
-    Aborted := TRUE, Error := bError OR bSoftwareError OR bPowerFailure OR bEstopTriggered, Parked := bIsParked,
-    Parking := FALSE, Operational := FALSE);
-fReadyState := fbStartupReadiness.ReadyState;
+fReadyState := fbStartup.Suspend(Error := bError OR bSoftwareError OR bPowerFailure OR bEstopTriggered, Parked := bIsParked);
 // Continue the existing readiness heartbeat without replaying a frozen ONLINE value.
 tonMQTTTimer(IN := TRUE, PT := T#1S);
-IF (fReadyState <> fLastPublishedReadyState OR tonMQTTTimer.Q) AND fbComm <> 0 THEN
+IF fbStartup.PublishDue(CommValid := fbComm <> 0, Heartbeat := tonMQTTTimer.Q) THEN
     fbComm.Publish('telescope', 'dome', 'TELESCOPE.READY_STATE', LREAL_TO_STRING(fReadyState));
-    fLastPublishedReadyState := fReadyState;
     tonMQTTTimer(IN := FALSE);
 END_IF
 ]]></ST></Implementation>
@@ -1459,7 +1435,8 @@ END_VAR
       <Declaration><![CDATA[METHOD Init : BOOL
 ]]></Declaration>
       <Implementation>
-        <ST><![CDATA[IF NOT fbStartupReadiness.Initializing AND fReadyState <> 1.0 AND NOT bAutomaticPaused THEN
+        <ST><![CDATA[// AcceptInit refuses while a startup runs or completed (also across a transient interlock, -2), and while suspended.
+IF fbStartup.AcceptInit() THEN
     bPower := TRUE;
     fReadyState := 0.7;
 END_IF
