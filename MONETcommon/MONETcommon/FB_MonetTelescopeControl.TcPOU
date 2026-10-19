@@ -932,11 +932,13 @@ CASE nStage OF
 		fbAzimuth.Enable := TRUE;
 		fbDerotator.Enable := TRUE;
 		
-		IF fbElevation.Ready AND NOT fbElevation.Calibrated THEN
+		// request homing once: HomeAxis stays TRUE until the homing has finished (HalfBROT), and a new request while a
+		// homing runs would restart it. Calibrated can be TRUE for a short moment before the homing is done.
+		IF fbElevation.Ready AND NOT fbElevation.Calibrated AND NOT fbElevation.HomeAxis THEN
 			fbElevation.HomeAxis := TRUE;
 		END_IF
 		
-		IF fbAzimuth.Ready AND NOT fbAzimuth.Calibrated THEN
+		IF fbAzimuth.Ready AND NOT fbAzimuth.Calibrated AND NOT fbAzimuth.HomeAxis THEN
 			fbAzimuth.HomeAxis := TRUE;
 		END_IF
 		
@@ -949,7 +951,9 @@ CASE nStage OF
 		// this avoids imbalance by the M2 mirror on the elvation during its calibration
 		IF fbElevation.Calibrated AND NOT fbFocus.Calibrated THEN
 			fbFocus.Enable := TRUE;
-			fbFocus.HomeAxis := TRUE;
+			IF NOT fbFocus.HomeAxis THEN
+				fbFocus.HomeAxis := TRUE;
+			END_IF
 		END_IF
 	
 		IF fbCovers.Opened AND fbElevation.Calibrated AND fbAzimuth.Calibrated AND fbDerotator.Calibrated AND fbFocus.Calibrated AND
