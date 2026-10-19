@@ -45,6 +45,12 @@ VAR
 	nSoftwareErrorID	: UINT;
 	SoftwareErrorEvent	: FB_EventLog;
 
+	// #80: one-scan flag set by Init() when AcceptInit() refuses; logged once by the body.
+	bInitRefused		: BOOL;
+	sInitRefusedReason	: STRING(80);
+	nInitRefusedLevel	: UDINT;
+	InitRefusedEvent	: FB_EventLog;
+
 	// #34: home or park position at or below fHorizon + fHorizonMargin. The horizon guard
 	// would send the telescope home, find it still below the horizon, and home it again forever.
 	bHomeBelowHorizon	: BOOL;
@@ -305,10 +311,13 @@ InterruptedAutoClearEvent(
 // set TCS_command according to state variables ordered by precedence
 // Stop outranks everything, including a running power-on
 IF bStop THEN
+	// #80: a stop always aborts a startup, also when bPower is already FALSE (power-on dropped by an error)
+	// and also when Init() has just accepted a request that is not Initializing yet. No-op when online.
+	fbStartup.MarkAbortedIfStarting(Power := bPower);
 	bTrack := FALSE;
 	
 	// If the stop is during a power-on or a movement, reset the stage of the movement first
-	IF bPower THEN
+	IF bPower OR fbStartup.Initializing THEN
 		bPower := FALSE;
 		_PowerOn();
 	END_IF
@@ -584,7 +593,13 @@ SoftwareErrorEvent(	Trigger := bSoftwareError,
 				OnMessage := UINT_TO_STRING(nSoftwareErrorID),
 				OffMessage := 'cleared',
 				OffLevel := ADSLOG_MSGTYPE_HINT,
-				Comm := fbComm);]]></ST>
+				Comm := fbComm);
+InitRefusedEvent(	Trigger := bInitRefused,
+				Level := nInitRefusedLevel,
+				FormatString := 'power-on ignored: %s',
+				OnMessage := sInitRefusedReason,
+				Comm := fbComm);
+bInitRefused := FALSE;]]></ST>
     </Implementation>
     <Folder Name="internal methods" Id="{d1e7fbc6-9662-4c16-bf25-8044ef92da3b}" />
     <Method Name="_GotoTelescope" Id="{8976ce61-8856-40e1-8cfb-7b9454a4edbf}" FolderPath="internal methods\">
@@ -886,7 +901,12 @@ VAR_INST
     derotatorDone : BOOL;
 END_VAR]]></Declaration>
       <Implementation>
-        <ST><![CDATA[IF NOT bBrakeClearing THEN
+        <ST><![CDATA[// #66/#80: an explicit stop, reset or interrupt aborts without the failure checks, so the stop path
+// (which calls _PowerOn only to reset its stage) cannot raise a false power failure.
+IF bReset OR bStop OR bInterrupted THEN
+	bPowerFailure := FALSE;
+	bPower := FALSE;
+ELSIF NOT bBrakeClearing THEN
 	bPowerFailure := TRUE;
 	TCSpowerEvent.OnMessage := 'failure: brake clearing not set';
 	bPower := FALSE;
@@ -988,7 +1008,9 @@ CASE nStage OF
             nStage := 100;
         END_IF
     100:
-        IF bReady AND bMainReady AND bStopped AND NOT bBusy THEN
+        // #80: same Operational test FB_StartupControl.Update applies this scan; otherwise the completion is ignored
+        // while bPower is already FALSE and the startup would stay at 0.8. Wait one more scan instead.
+        IF bReady AND bMainReady AND bStopped AND NOT bBusy AND NOT bError AND NOT bEstopTriggered THEN
             fbStartup.MarkCompleted();
             bPower := FALSE;
             fElevation := fElevationCurrent;
@@ -1443,6 +1465,19 @@ END_VAR
 IF fbStartup.AcceptInit() THEN
     bPower := TRUE;
     fReadyState := 0.7;
+ELSIF NOT bInitRefused THEN
+    // #80: do not drop the request silently
+    bInitRefused := TRUE;
+    IF fbStartup.Initializing THEN
+        nInitRefusedLevel := ADSLOG_MSGTYPE_WARN;
+        sInitRefusedReason := 'startup already running, send stop or reset to abort';
+    ELSIF fbStartup.Initialized THEN
+        nInitRefusedLevel := ADSLOG_MSGTYPE_HINT;
+        sInitRefusedReason := 'already online';
+    ELSE
+        nInitRefusedLevel := ADSLOG_MSGTYPE_WARN;
+        sInitRefusedReason := 'automatic mode off';
+    END_IF
 END_IF
 Init := TRUE;]]></ST>
       </Implementation>
