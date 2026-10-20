@@ -65,6 +65,12 @@ hydraulics and safety, publishes MQTT telemetry and handles error states and
 recovery. Each site passes its own pointing model (`fbPointing`,
 `fbPointingInverse`) from `MAIN`.
 
+A new axis or focus error on a telescope that is not parked starts the
+emergency park by itself (brake closed, covers closed, hydraulics off,
+`bIsParked`); not during an E-stop, not when already parked, and not for
+command-level (software) errors. `power=1` is refused until the park is
+finished, `stop=1` cancels it; recover with `reset=1`, then `power=1`.
+
 ### Safety and auxiliary systems
 
 - `FB_MonetSafetyHandling` — handles the TwinSAFE startup sequence and the

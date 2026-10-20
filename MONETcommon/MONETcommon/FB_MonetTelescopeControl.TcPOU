@@ -125,6 +125,11 @@ VAR
 	// #87: park aborted a running power-on (one scan, logged)
 	bPowerAbortedByPark		: BOOL;
 	PowerAbortEvent			: FB_EventLog;
+	// #86: a new axis/focus error on a telescope that is not parked starts the emergency park
+	bHwError				: BOOL;
+	bHwErrorLast			: BOOL;	// edge memory, updated only where the request is made
+	bErrorParkStarted		: BOOL;	// one scan, logged
+	ErrorParkEvent			: FB_EventLog;
 END_VAR
 VAR PERSISTENT
 	nInterruptedAutoClearCount	: UDINT;	// how many times auto-clear has fired, ever
@@ -223,11 +228,11 @@ END_IF
 // fSlewTime
 fSlewTime :=  MAX(MAX(fbElevation.fSlewTime, fbAzimuth.fSlewTime), fbDerotator.fSlewTime);
 
-bError := fbElevation.Error OR
+bHwError := fbElevation.Error OR
 		 fbAzimuth.bError OR
 		 fbFocus.Error OR
-		 fbDerotator.bError OR
-		 bSoftwareError;
+		 fbDerotator.bError;
+bError := bHwError OR bSoftwareError;
 			
 // #83: flags set directly (ADS write, pendant) instead of through a method are decided once, on their rising edge.
 // Nested IFs on purpose: ST does not short-circuit AND and _AcceptMove must only run on the edge.
@@ -433,6 +438,15 @@ IF bSupersedeRequest THEN
 		bMoveAbortPending := TRUE;
 	END_IF
 	bSupersedeRequest := FALSE;
+END_IF
+
+// #86: a new axis/focus error while not parked starts the emergency park by itself (after the supersede block and
+// the horizon guard, before the arbitration, so the stop branch cannot clear the request in the same scan)
+bErrorParkStarted := F_ErrorParkRequest(bHwError := bHwError, bHwErrorLast := bHwErrorLast,
+	bIsParked := bIsParked, bEstop := bEstopTriggered);
+bHwErrorLast := bHwError;
+IF bErrorParkStarted THEN
+	Park();	// same routing as an external park: deferred to standstill during a stop (#83/#87)
 END_IF
 
 // set TCS_command according to state variables ordered by precedence
@@ -790,6 +804,12 @@ PowerAbortEvent(	Trigger := bPowerAbortedByPark,
 				OnMessage := 'power-on aborted: park requested',
 				Comm := fbComm);
 bPowerAbortedByPark := FALSE;
+ErrorParkEvent(	Trigger := bErrorParkStarted,
+				Level := ADSLOG_MSGTYPE_WARN,
+				FormatString := '%s',
+				OnMessage := 'emergency park started: axis error',
+				Comm := fbComm);
+bErrorParkStarted := FALSE;
 // #83: every rejection is logged and published (ADS log and MQTT log topic). An identical rejection repeated
 // within 2 s is logged once (a level writer would flood the log); all of them are counted. The event is re-armed
 // with FALSE first so that rejections in consecutive scans each give a rising edge.
@@ -1255,6 +1275,7 @@ END_CASE]]></ST>
 METHOD SuspendAutomatic
 ]]></Declaration>
       <Implementation><ST><![CDATA[IF fbStartup.EnterSuspend() THEN
+    bHwErrorLast := TRUE;	// #86: an error already present when switching back to automatic does not park
     IF fbStartup.Initializing OR bPower THEN
         bPower := FALSE;
         bInterrupted := TRUE;
