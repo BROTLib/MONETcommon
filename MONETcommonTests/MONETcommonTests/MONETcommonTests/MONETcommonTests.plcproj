@@ -34,6 +34,9 @@
     <Compile Include="POUs\F_AzimuthOffsetOnAxis_Tests.TcPOU">
       <SubType>Code</SubType>
     </Compile>
+    <Compile Include="POUs\F_CommandAcceptance_Tests.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
     <Compile Include="POUs\F_HomeBelowHorizon_Tests.TcPOU">
       <SubType>Code</SubType>
     </Compile>

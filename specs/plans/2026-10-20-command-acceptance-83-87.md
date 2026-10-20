@@ -1,6 +1,12 @@
 # MONETcommon 0.8.6: explicit command acceptance (#83) and park wins over power-on (#87)
 
-Status: proposed. Date: 2026-10-20. Nothing implemented; no PLC code changed. Policy decisions D1-D7 (section 9) were decided on 2026-10-20: all recommendations accepted. Open: D3 needs the roof/pyobs check in 5.7 before implementing.
+Status: implemented in code on branch fix/command-acceptance-83-87 (not compiled or hardware-tested yet; Tim: build, TcUnit and the section 7 hardware test are still to do). Date: 2026-10-20. Policy decisions D1-D7 (section 9) were decided on 2026-10-20: all recommendations accepted. Open: D3 needs the roof/pyobs check in 5.7 before this goes on a telescope.
+
+Implementation notes (deviations from the text below):
+- The pure decision is `F_CommandAcceptance` with `E_CommandDecision`, `E_CommandRejectReason`, `ST_CommandState`, plus `F_CommandRejectText` and `F_TCSCommandText`. For `park` it checks `bStop` first (defer), then power-on (abort_power); the `Park()` method itself defers on `bStop` directly.
+- Only the `F_CommandAcceptance_Tests` suite exists; the optional suites 3-6 of section 6 (park in place, Init decision, throttle, F_Arbitrate) are not extracted/added.
+- The reject log uses `FB_EventLog` re-armed with a FALSE call per scan (no direct ADSLOGSTR/PublishLog call), throttled to once per 2 s for identical repeats.
+- Not done here: the IAG test-plan expectations (5.9) and the IAG arbitration design note (separate private repo).
 Repo: BROTLib/MONETcommon. Base: `origin/develop` @ `94332b3`, which is 0.8.5 as released (tag `v0.8.5`, PR #91/#93).
 `FB_MonetTelescopeControl.TcPOU` is identical on `develop`, `v0.8.5` and `fix/slew-interrupt-reset-84-77-85-88` (`25459d5`).
 0.8.5 itself has not yet been tested on hardware (see [2026-10-20-slew-reset-fixes.md](2026-10-20-slew-reset-fixes.md)). This plan

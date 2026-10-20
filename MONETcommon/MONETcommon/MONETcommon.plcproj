@@ -19,9 +19,27 @@
     <Company>IAG</Company>
     <Released>false</Released>
     <Title>MONETcommon</Title>
-    <ProjectVersion>0.8.5</ProjectVersion>
+    <ProjectVersion>0.8.6</ProjectVersion>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="E_CommandDecision.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="E_CommandRejectReason.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="ST_CommandState.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="F_CommandAcceptance.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="F_CommandRejectText.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="F_TCSCommandText.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
     <Compile Include="E_ModeLanguage.TcDUT">
       <SubType>Code</SubType>
     </Compile>
