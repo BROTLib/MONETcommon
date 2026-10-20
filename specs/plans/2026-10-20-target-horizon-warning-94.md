@@ -1,6 +1,6 @@
 # Target-below-horizon warning only for a requested goto/track (#94)
 
-Date: 2026-10-20. Status: planned, not started.
+Date: 2026-10-20. Status: implemented in code (function F_TargetBelowHorizonWarning + TcUnit suite), not yet compiled or tested on hardware.
 Repo: BROTLib/MONETcommon. Base: `origin/develop` @ `94332b3`.
 
 Main file: `MONETcommon/MONETcommon/FB_MonetTelescopeControl.TcPOU`.
@@ -71,10 +71,10 @@ exactly at `fHorizon` -> FALSE (strict `<`).
 - Warning (`fHorizon` 1.0) and 0x15 (2.0) thresholds differ: targets between 1 and 2 deg only get 0x15. Not new.
 - On develop `iBuild := 4` does not match `sVersion := '0.8.5'`; #95 sets 6 / 0.8.6.
 
-## 8. Decisions needed
-1. Version: put #94 into 0.8.6 with #95 (no own bump, merge after it), or a separate 0.8.7?
-2. Keep `bTrack` in the gate? Harmless, practically dead because of the 5 deg track cutoff.
-3. Fix IAG50cm's `FB_TelescopeControl` too (separate issue)?
-4. Extract the pure function for TcUnit, or keep the edit inline (three lines)?
+## 8. Decisions (2026-10-20)
+1. Version: no own bump; the fix goes into develop and ships with the next release.
+2. `bTrack` stays in the gate: a track request to a target below the horizon warns once at its rising edge.
+3. IAG50cm `FB_TelescopeControl`: separate issue (its event uses `rtrigHorizonError`, different logic).
+4. The condition is a testable function, `F_TargetBelowHorizonWarning`, with `F_TargetBelowHorizonWarning_Tests`.
 
 Branch: `fix/target-horizon-warning-94` from `origin/develop`.

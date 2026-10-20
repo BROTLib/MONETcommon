@@ -11,6 +11,7 @@ results); this one only covers what's specific to MONETcommon.
 | Suite | What it checks |
 |---|---|
 | `FB_MonetCoverControl_Tests` | `FB_MonetCoverControl` actually compiles and runs with no linked hardware, and that the inverted limit-switch polarity correctly reports `bError` when both switches read as active (the default state of an unlinked `AT%I*` input) |
+| `F_TargetBelowHorizonWarning_Tests` | the 'Target below safe horizon' condition (#94): only a requested goto/track below `fHorizon` warns, an idle or parked telescope with a stale RA/Dec target does not, the comparison is strict |
 
 This is a first, deliberately small slice -- see
 [MONETcommon/specs/plans/2026-09-22-add-tcunit-tests.md](../specs/plans/2026-09-22-add-tcunit-tests.md)
