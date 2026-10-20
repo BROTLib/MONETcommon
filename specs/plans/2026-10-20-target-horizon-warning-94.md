@@ -1,6 +1,6 @@
 # Target-below-horizon warning only for a requested goto/track (#94)
 
-Date: 2026-10-20. Status: implemented in code (function F_TargetBelowHorizonWarning + TcUnit suite), not yet compiled or tested on hardware.
+Date: 2026-10-20. Status: merged into develop with PR #97 (function F_TargetBelowHorizonWarning + TcUnit suite), not released yet. Not yet compiled in XAE or tested on hardware: #94 and #77 stay open until the checks in section 6 pass.
 Repo: BROTLib/MONETcommon. Base: `origin/develop` @ `94332b3`.
 
 Main file: `MONETcommon/MONETcommon/FB_MonetTelescopeControl.TcPOU`.
