@@ -1,0 +1,93 @@
+<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="F_AxisTurn" Id="{8b99c0c5-f543-489d-83e2-d34f4443e2c3}" SpecialFunc="None">
+    <Declaration><![CDATA[// Chooses which 360 deg turn of an azimuth/derotator target the axis is sent to (MONETcommon#2). The axis limits are
+// hard (the derotator would tear its cables), so a target is never clamped to a different position: only a turn
+// inside [fMin, fMax] is used, and if there is none the function returns FALSE and the caller must not move.
+// Free choice (bHold FALSE, goto): among the turns inside the limits the one with the longest track time wins,
+// where the track time is the distance to the limit in the direction of fVelocity (minus fMargin) divided by
+// |fVelocity|, capped at fTrackTimeCap. Turns that tie (both reach the cap, or fVelocity = 0) are decided by the
+// distance to fCurrent: the nearest wins.
+// Hold (bHold TRUE, tracking): the turn nearest to fCurrent is kept, never re-chosen, and the result is FALSE as
+// soon as that turn leaves [fMin, fMax] or comes within fMargin of the limit it moves towards, so a track stops
+// there instead of jumping 360 deg.
+// If FALSE, fPosition is the turn nearest to fCurrent and must not be used for a move.
+FUNCTION F_AxisTurn : BOOL
+VAR_INPUT
+	fTarget			: LREAL;	// target, degrees, any turn
+	fVelocity		: LREAL;	// expected velocity of the target, degrees/s; its sign is the direction of motion
+	fCurrent		: LREAL;	// current axis position, degrees
+	bHold			: BOOL;		// keep the turn the axis is on (tracking)
+	fMin			: LREAL;	// lower axis limit, degrees, inclusive
+	fMax			: LREAL;	// upper axis limit, degrees, inclusive
+	fMargin			: LREAL;	// degrees kept free at the limit the axis moves towards
+	fTrackTimeCap	: LREAL;	// seconds; longer track times count as equal
+END_VAR
+VAR_OUTPUT
+	fPosition		: LREAL;	// chosen position, degrees
+END_VAR
+VAR
+	k				: DINT;
+	fBase			: LREAL;	// the turn of fTarget in [fMin, fMin + 360)
+	fCandidate		: LREAL;
+	fNearest		: LREAL;
+	fBest			: LREAL;
+	fTime			: LREAL;
+	fBestTime		: LREAL;
+	bFound			: BOOL;
+END_VAR
+VAR CONSTANT
+	fEps			: LREAL := 1.0E-6;	// degrees, so an endpoint is not lost to REAL/LREAL rounding
+	fEpsV			: LREAL := 1.0E-9;	// degrees/s, below this the target is taken as not moving
+	fEpsT			: LREAL := 1.0E-6;	// seconds, track times closer than this tie
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[fBase := fTarget - 360.0 * FLOOR((fTarget - fMin) / 360.0);
+
+// the turn nearest to the axis; k = -1 matters for an axis just above fMin
+fNearest := fBase;
+FOR k := -1 TO 2 DO
+	fCandidate := fBase + 360.0 * k;
+	IF ABS(fCandidate - fCurrent) < ABS(fNearest - fCurrent) THEN
+		fNearest := fCandidate;
+	END_IF
+END_FOR
+
+IF bHold THEN
+	fPosition := fNearest;
+	F_AxisTurn := fNearest >= fMin - fEps AND fNearest <= fMax + fEps
+		AND NOT (fVelocity > fEpsV AND fNearest > fMax - fMargin)
+		AND NOT (fVelocity < -fEpsV AND fNearest < fMin + fMargin);
+	RETURN;
+END_IF
+
+bFound := FALSE;
+FOR k := 0 TO 2 DO
+	fCandidate := fBase + 360.0 * k;
+	IF fCandidate >= fMin - fEps AND fCandidate <= fMax + fEps THEN
+		fTime := fTrackTimeCap;
+		IF fVelocity > fEpsV THEN
+			fTime := MIN(fTrackTimeCap, MAX(0.0, fMax - fMargin - fCandidate) / fVelocity);
+		ELSIF fVelocity < -fEpsV THEN
+			fTime := MIN(fTrackTimeCap, MAX(0.0, fCandidate - fMin - fMargin) / (-fVelocity));
+		END_IF
+		IF NOT bFound OR fTime > fBestTime + fEpsT
+			OR (ABS(fTime - fBestTime) <= fEpsT AND ABS(fCandidate - fCurrent) < ABS(fBest - fCurrent)) THEN
+			bFound := TRUE;
+			fBest := fCandidate;
+			fBestTime := fTime;
+		END_IF
+	END_IF
+END_FOR
+
+IF bFound THEN
+	fPosition := fBest;
+ELSE
+	fPosition := fNearest;
+END_IF
+F_AxisTurn := bFound;
+]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

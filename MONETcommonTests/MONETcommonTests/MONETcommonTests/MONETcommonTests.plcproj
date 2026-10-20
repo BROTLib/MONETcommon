@@ -34,7 +34,16 @@
     <Compile Include="POUs\F_AzimuthOffsetOnAxis_Tests.TcPOU">
       <SubType>Code</SubType>
     </Compile>
+    <Compile Include="POUs\F_CommandAcceptance_Tests.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
     <Compile Include="POUs\F_HomeBelowHorizon_Tests.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="POUs\F_AxisTurn_Tests.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="POUs\F_TargetBelowHorizonWarning_Tests.TcPOU">
       <SubType>Code</SubType>
     </Compile>
     <Compile Include="POUs\FB_MonetTempSensor_Tests.TcPOU">
@@ -69,6 +78,10 @@
     <PlaceholderReference Include="AstroBROT">
       <DefaultResolution>AstroBROT, * (BROT)</DefaultResolution>
       <Namespace>AstroBROT</Namespace>
+    </PlaceholderReference>
+    <PlaceholderReference Include="Tc2_Math">
+      <DefaultResolution>Tc2_Math, * (Beckhoff Automation GmbH)</DefaultResolution>
+      <Namespace>Tc2_Math</Namespace>
     </PlaceholderReference>
     <PlaceholderReference Include="Tc2_MC2">
       <DefaultResolution>Tc2_MC2, * (Beckhoff Automation GmbH)</DefaultResolution>
