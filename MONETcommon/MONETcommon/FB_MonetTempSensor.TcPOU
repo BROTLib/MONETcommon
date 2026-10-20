@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="FB_MonetTempSensor" Id="{8d3f2a64-5b1e-4c97-a0d2-6e7b94c1f305}" SpecialFunc="None">
+    <Declaration><![CDATA[// Scales a temperature sensor on a 0-10 V analog input (EL3164, raw 0..32767 = -50..100 C) and checks it.
+// A broken wire reads about 0 V, which the plain scaling turns into -50 C: a value inside the measuring
+// range of the terminal, so it raises no terminal error. bValid is therefore FALSE for a raw value below
+// about 1 % of full scale (wire break) or at full scale (over range / short circuit), and one warning
+// is logged per sensor when it becomes invalid, one hint when it recovers. Callers must not publish or use
+// fTemperature while bValid is FALSE.
+FUNCTION_BLOCK FB_MonetTempSensor
+VAR_INPUT
+	iRaw			: INT;				// raw terminal value
+	sName			: STRING(80);		// sensor name for the log message
+	comm			: I_Comm;
+END_VAR
+VAR_OUTPUT
+	fTemperature	: REAL;				// degrees C, only meaningful if bValid
+	bValid			: BOOL;
+END_VAR
+VAR CONSTANT
+	iRawFullScale	: INT := 32767;
+	iRawMin			: INT := 328;		// 1 % of full scale
+END_VAR
+VAR
+	invalidEvent	: FB_EventLog;
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[fTemperature := iRaw / 32767.0 * 150.0 - 50.0;
+bValid := iRaw >= iRawMin AND iRaw < iRawFullScale;
+
+invalidEvent(
+	Trigger			:= NOT bValid,
+	Level			:= ADSLOG_MSGTYPE_WARN,
+	FormatString	:= 'Temperature sensor invalid (broken wire or out of range), not publishing it: %s',
+	OnMessage		:= sName,
+	OffLevel		:= ADSLOG_MSGTYPE_HINT,
+	OffMessage		:= sName,
+	comm			:= comm);
+]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

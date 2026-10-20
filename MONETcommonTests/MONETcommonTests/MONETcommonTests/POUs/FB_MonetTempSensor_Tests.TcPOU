@@ -1,0 +1,85 @@
+<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="FB_MonetTempSensor_Tests" Id="{2c9e5b17-f4a8-4d03-b6e1-93a07d58c2f4}" SpecialFunc="None">
+    <Declaration><![CDATA[// Tests for MONETcommon.FB_MonetTempSensor, the scaling and wire-break check of the 0-10 V temperature sensors.
+FUNCTION_BLOCK FB_MonetTempSensor_Tests EXTENDS TcUnit.FB_TestSuite
+VAR
+	nullComm	: FB_NullComm;
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[Mid_Scale_Is_Valid();
+Wire_Break_Is_Invalid();
+Over_Range_Is_Invalid();
+Recovers_After_Wire_Break();
+]]></ST>
+    </Implementation>
+    <Method Name="Mid_Scale_Is_Valid" Id="{a4d17c3e-8b25-4f60-91ce-5e2b7a0d3c18}">
+      <Declaration><![CDATA[// 16384 of 32767 is 5 V, i.e. 25 C.
+METHOD PRIVATE Mid_Scale_Is_Valid
+VAR
+	sensor	: MONETcommon.FB_MonetTempSensor;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Mid_Scale_Is_Valid');
+sensor(iRaw := 16384, sName := 'TEMP_M1', comm := nullComm);
+AssertTrue(Condition := sensor.bValid, Message := 'valid');
+AssertEquals_REAL(Expected := 25.0, Actual := sensor.fTemperature, Delta := 0.01, Message := 'temperature');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Wire_Break_Is_Invalid" Id="{e61b08f9-37d4-4a52-8c7a-1d9f40b6e253}">
+      <Declaration><![CDATA[// A broken wire reads about 0 V, which scales to -50 C.
+METHOD PRIVATE Wire_Break_Is_Invalid
+VAR
+	sensor	: MONETcommon.FB_MonetTempSensor;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Wire_Break_Is_Invalid');
+sensor(iRaw := 0, sName := 'TEMP_M1', comm := nullComm);
+AssertFalse(Condition := sensor.bValid, Message := 'raw 0');
+sensor(iRaw := 327, sName := 'TEMP_M1', comm := nullComm);
+AssertFalse(Condition := sensor.bValid, Message := 'raw 327, just below 1 %');
+sensor(iRaw := 328, sName := 'TEMP_M1', comm := nullComm);
+AssertTrue(Condition := sensor.bValid, Message := 'raw 328, 1 %');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Over_Range_Is_Invalid" Id="{57f2c9a0-1e6b-4d38-a3b7-c08d9e41f762}">
+      <Declaration><![CDATA[METHOD PRIVATE Over_Range_Is_Invalid
+VAR
+	sensor	: MONETcommon.FB_MonetTempSensor;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Over_Range_Is_Invalid');
+sensor(iRaw := 32766, sName := 'TEMP_M1', comm := nullComm);
+AssertTrue(Condition := sensor.bValid, Message := 'raw 32766');
+sensor(iRaw := 32767, sName := 'TEMP_M1', comm := nullComm);
+AssertFalse(Condition := sensor.bValid, Message := 'raw 32767, full scale');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Recovers_After_Wire_Break" Id="{b83e6d15-9c40-4a7f-82d1-f5a60c2e9b37}">
+      <Declaration><![CDATA[METHOD PRIVATE Recovers_After_Wire_Break
+VAR
+	sensor	: MONETcommon.FB_MonetTempSensor;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Recovers_After_Wire_Break');
+sensor(iRaw := 0, sName := 'TEMP_M1', comm := nullComm);
+AssertFalse(Condition := sensor.bValid, Message := 'broken');
+sensor(iRaw := 16384, sName := 'TEMP_M1', comm := nullComm);
+AssertTrue(Condition := sensor.bValid, Message := 'reconnected');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>
