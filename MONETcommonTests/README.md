@@ -18,6 +18,8 @@ results); this one only covers what's specific to MONETcommon.
 | `F_WakeShakeErrorExempt_Tests` | the Wake&Shake exemption from the emergency park (#113): only the first power-on after a PLC restart, only while powering, only for azimuth/elevation errors |
 | `F_OilLevelValid_Tests` | HalfBROT `F_OilLevelValid` (MONETS#32): the raw oil level range, with the values measured on MONET/S (wire break 0, sensor error 330, empty 883..1330, float switch 9416, over-range 16383/32767) and the no-guard defaults |
 | `F_OilSuctionLatch_Tests` | HalfBROT `F_OilSuctionLatch` (MONETS#32): equal to the old suction SR while the level is valid; invalid: no start by level, a running suction kept while the main pump is enabled, float switch still starts |
+| `FB_MonetStopTransaction_Tests` | `FB_MonetStopTransaction` (#96): one MC_Stop per axis and stop, a latched StopAxis level written low first, no second stop while an axis is Stopping after StopDone (the #96 guard), no settling on a bare standstill sample, three scans at rest after the last StopDone, disabled axes, repeated stop (D2) and the timeout cases (D1) |
+| `StopLoop_Sim_Tests` | scan-level simulation of the stop (#96): three mock axes with the real `BROTLib.FB_AxisCommand` and an MC_Stop model; the 0.9.0 rule restarts MC_Stop with skewed Done times, the transaction sends one stop per axis and settles |
 | `F_GotoTargetCheck_Tests` | the elevation window of a goto/track target (#109): below 2 deg 16#15, above 89.5 deg 16#16, both limits inside, and that with `fHorizon` 1 deg every target that warns is also refused (a warning alone only exists when `fHorizon` is above the floor) |
 
 This is a first, deliberately small slice -- see

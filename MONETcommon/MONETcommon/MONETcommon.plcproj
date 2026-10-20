@@ -88,6 +88,9 @@
     <Compile Include="F_GotoTargetCheck.TcPOU">
       <SubType>Code</SubType>
     </Compile>
+    <Compile Include="FB_MonetStopTransaction.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
     <Compile Include="FB_MonetTelescopeControl.TcPOU">
       <SubType>Code</SubType>
     </Compile>
