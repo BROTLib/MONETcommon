@@ -37,6 +37,9 @@
     <Compile Include="POUs\F_HomeBelowHorizon_Tests.TcPOU">
       <SubType>Code</SubType>
     </Compile>
+    <Compile Include="POUs\F_AxisTurn_Tests.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
     <Compile Include="POUs\F_TargetBelowHorizonWarning_Tests.TcPOU">
       <SubType>Code</SubType>
     </Compile>

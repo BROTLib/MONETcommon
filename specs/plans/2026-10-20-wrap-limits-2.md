@@ -69,8 +69,8 @@ reachable with a margin, with a narrower future config, and for tracking near an
 
 **Use in `FB_MonetTelescopeControl`:**
 1. Replace lines 236-246 with two calls, limits taken from the axis (question 4).
-2. Goto (`_GotoTelescope`, next to the 0x15 / 0x16 checks): no valid turn -> error, `bGoto := FALSE`,
-   no move. Proposed codes 0x17 (azimuth) and 0x18 (derotator), unused in MONETcommon, MONETN, MONETS today.
+2. Goto (`_GotoTelescope`, next to the 0x15 / 0x16 checks): no valid turn -> `bGoto := FALSE`, no move, warning
+   (decided: stop with a warning, so no error code 0x17 / 0x18 and nothing is latched).
 3. Slew: check `fAzimuth + offsets` against the limits (and choose a turn, or not: question 3); reject
    instead of clamping.
 4. Tracking: keep the turn chosen at goto time (pick the candidate nearest the current axis position), do
@@ -199,3 +199,11 @@ Still open:
 8. On-site checklist (6) on MONETS, then MONETN. Close #2 after both pass.
 
 Branch: `fix/wrap-from-limits-2` from `origin/develop`.
+
+## 11. Implementation (PR for #2)
+Implemented as proposed, with these choices: `F_AxisTurn` (pure, tested) with `bHold` for tracking; the hold does not apply to a
+new goto (the axis may be anywhere, and the nearest turn could be outside the limits); goto/track without a turn and a slew
+outside the limits are refused with a warning event, nothing latched; per-axis `fAzimuthTrackMargin` /
+`fDerotatorTrackMargin` (1 deg) and `fAzimuthTrackTimeCap` / `fDerotatorTrackTimeCap` (14400 s) are inputs of
+`FB_MonetTelescopeControl`. The turn is not latched at goto start: a flip mid-slew needs two turns with nearly equal track
+time, stays inside the limits and only costs time.
