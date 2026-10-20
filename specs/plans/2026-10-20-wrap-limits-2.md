@@ -92,13 +92,12 @@ New `F_AxisTurn_Tests.TcPOU`, pattern of `F_HomeBelowHorizon_Tests.TcPOU`:
 - Endpoints: target exactly at `fMin` / `fMax` -> valid, unchanged; 1 deg beyond (with a window that has no
   other turn) -> invalid.
 - No valid turn: narrow window, e.g. [0, 300], target 330 -> FALSE.
-- Velocity tie-break: target with two valid turns, v > 0 -> lower, v < 0 -> higher, v = 0 -> agreed rule.
-- MONETN regression: today's azimuth outputs for the [-50, 440] window. **Caveat:** the pure velocity rule
-  does not reproduce them everywhere. Today az 100 with v < 0 stays 100 (threshold 80), the rule gives 460;
-  az 300 with v > 0 stays 300 (threshold 310), the rule gives -60. Either the regression test covers only
-  the agreeing zones and the difference is accepted, or the function gets a named "room ahead" threshold
-  so MONETN keeps its behaviour (question 3). Derotator: today's outputs in (300, 380] are not reproducible
-  on purpose, they are the bug.
+- Turn rule: target with two valid turns -> the one with the longer track time (and the cap, if adopted);
+  v = 0 -> nearest turn.
+- MONETN: snapshot of today's azimuth outputs for the [-50, 440] window, as a documented difference, not a
+  "must stay identical" test (MONETN gets the new rule, see 9). Example: az 100 with v < 0 stays 100 today
+  (threshold 80), the new rule gives 460 without the cap. Derotator: today's outputs in (300, 380] are not
+  reproduced on purpose, they are the bug.
 - Register the suite in tests `MAIN.TcPOU`, `MONETcommonTests.plcproj`, the coverage table in
   `MONETcommonTests/README.md`; `<Compile>` entry in `MONETcommon.plcproj`.
 
@@ -153,34 +152,35 @@ Decided (Tim, 2026-10-20):
    Whether MONETS runs the affected version cannot be told from the repos (it references `MONETcommon, *`):
    check the installed library version on the engineering PC.
 
-Proposed, to be confirmed (Tim agreed on the turn rule, 2026-10-20; the rest are proposals):
-- `fTrackMargin`: 1 deg on both axes and both sites, as a named per-axis config value, not a literal. 1 deg is
-  today's derotator stop (-69 / 379 inside [-70, 380]); it is a placeholder until the drive behaviour near the
-  endpoints is checked. Reason for a margin: stop tracking cleanly before the measured endpoint, which would
-  probably raise an axis/limit error that needs a reset. No further margin by default (it shrinks range and
-  track time).
-- Turn rule when two fit (Tim): the turn with the longer track time wins. Track time = distance to the limit in
-  the velocity direction / |v|, taking `fTrackMargin` into account. Details to decide:
-  - The velocity at the command is a snapshot; azimuth and derotator velocity change strongly near the zenith.
-    Start with the linear estimate; predicting the target forward a few hours would be more accurate, at more
-    cost.
-  - Proposed cap: track times above a limit (for example 2 h) count as equal, then the turn nearest to the
-    current position wins. Without it a turn 360 deg away can win by a few minutes and the goto must unwind
-    the mount first. Pure "longest wins" also changes MONETN: az 100 with negative velocity would go to 460
-    instead of staying at 100 (see the regression caveat in 5); the cap keeps MONETN close to today.
-  - At v = 0: nearest turn.
-- Azimuth convention: north = 0, east = 90 is consistent with the limits (MONETS [-274, 270] is centred near
-  north, where stars culminate at latitude -32; MONETN [-72, 495] is centred near 210, where they culminate at
-  +30). This is an inference, not read from the conversion code: check the AstroBROT azimuth conversion before
-  implementing, and confirm the cable winding direction on site (not visible in the code).
+Decided (Tim, 2026-10-20, later):
+- `fTrackMargin` = 1 deg on both axes and both sites, as a named per-axis config value, not a literal. It is
+  today's derotator stop (-69 / 379 inside [-70, 380]). Reason for a margin: stop tracking cleanly before the
+  measured endpoint, which would probably raise an axis/limit error that needs a reset. No further margin.
+- MONETN gets the new turn rule too; its 310 / 80 thresholds go away. The regression test in 5 is therefore a
+  documented behaviour change (for example az 100 with negative velocity), not a "must stay identical" test;
+  keep it as a snapshot of the old outputs to show what differs.
+- Azimuth convention: north = 0, east = 90. Checked along the whole chain: pyobs uses astropy's AltAz
+  (azimuth east of north); pyobs-brot passes `az` through unchanged (`brottelescope.py`: `move(alt, az)`,
+  `POSITION.HORIZONTAL.AZ`); the PLC computes it in AstroBROT `FB_HADEC2ALTAZ` (IDL hadec2altaz, default
+  `WS = FALSE` = east from north), and nothing in MONETcommon / BROTLib sets `WS`. The cable winding direction
+  is not visible in the code: confirm on site.
+
+Turn rule when two fit (Tim: the turn with the longer track time wins). Track time = distance to the limit in the
+velocity direction / |v|, taking `fTrackMargin` into account. Proposals still to confirm:
+- The velocity at the command is a snapshot; azimuth and derotator velocity change strongly near the zenith.
+  Start with the linear estimate; predicting the target forward a few hours would be more accurate, at more
+  cost.
+- Cap: track times above a limit (for example 2 h) count as equal, then the turn nearest to the current
+  position wins. Without it a turn 360 deg away can win by a few minutes and the goto must unwind the mount
+  first (az 100 with negative velocity on MONETN would go to 460).
+- At v = 0: nearest turn.
 
 Still open:
-- Confirm `fTrackMargin` (1 deg) and the cap value, or measure them on site.
-- Whether MONETN keeps its 310 / 80 thresholds or gets the cap rule (see above).
-- Confirm the azimuth convention and cable winding direction on site.
+- Cap value (or no cap).
+- Confirm the cable winding direction on site.
 
 ## 10. Tasks (in order)
-1. Settle the remaining open points in 9 (on site: azimuth convention and winding, `fTrackMargin`, cap value, which build MONETS runs); check the AstroBROT azimuth conversion.
+1. Settle the remaining open points in 9 (cap value; on site: cable winding direction, which build MONETS runs).
 2. Branch `fix/wrap-from-limits-2` from `origin/develop` (after #95 merged).
 3. Add `F_AxisTurn` + `F_AxisTurn_Tests`, run the tests (all cases in 5).
 4. Replace the wrap (lines 236-246) with the function, limits per question 4.
