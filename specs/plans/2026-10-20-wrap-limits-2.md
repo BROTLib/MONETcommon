@@ -135,21 +135,32 @@ the emergency stop.
   `tag-release.yml` tags the merge. Behaviour change -> next minor (0.9.0) is suggested, after #95.
 - MONETS and MONETN do not vendor the library; both reference `MONETcommon, * (IAG)`. They pick it up after
   the library is installed on the engineering PC and the project is rebuilt. No site repo change needed,
-  unless question 4 adds config fields (then BROTLib `ST_TelescopeConfig` and both `MAIN.TcPOU` change).
+  since the limits are read from the axis blocks (decision 4 in 9).
 
-## 9. Open questions (not decided)
-1. No valid turn: reject the command with an error code (like 0x15 for elevation) and stop tracking with a
-   warning, or other behaviour? Leaning: reject at command time, stop during tracking. Not decided.
-2. Do the same hard-limit rules apply to MONETS azimuth, or can it be softer? Value of `fTrackMargin` per axis
-   and site (0 = up to the measured endpoint).
-3. MONETS azimuth convention (north at 0? cable winding direction?) and the preferred turn when two fit,
-   including `v = 0` and whether MONETN keeps its 310 / 80 thresholds (see the regression caveat in 5).
-4. How do the limits reach `FB_MonetTelescopeControl`: new fields in `ST_TelescopeConfig` (BROTLib, both sites
-   duplicate the numbers) or read from `fbAzimuth.fMinPosition` / `fMaxPosition` (single source, already
-   there)? And does MONETS already run the affected version?
+## 9. Decisions and open questions
+Decided (Tim, 2026-10-20):
+1. No valid turn: stop with a warning (do not move to a clamped position). A valid turn should always exist,
+   since every site window spans more than 360 deg (MONETS azimuth 544, derotator 450); the stop is the
+   defensive fallback, and it can only trigger if a `fTrackMargin` or an offset shrinks the usable range.
+2. The same hard-limit rules apply to MONETS azimuth: the measured limits are never exceeded or clamped.
+3. Azimuth convention: north is 0 (to be confirmed on site together with the cable winding direction).
+4. Limits are read from the axis blocks, not duplicated: `FB_AzimuthControl` / `FB_DerotatorControl`
+   (HalfBROT, `FB_AxisControl`) have `fMinPosition` / `fMaxPosition` as inputs, set once per site in
+   `MAIN.TcPOU` (MONETS: azimuth -274 / 270, derotator -90 / 360). `FB_MonetTelescopeControl` already holds
+   `fbAzimuth` / `fbDerotator` references, so it reads `fbAzimuth.fMinPosition` etc. No `ST_TelescopeConfig`
+   change, no BROTLib change, no site repo change. The derotator also has drive-level
+   `Enable_Positive` / `Enable_Negative` from the same limits; the PLC wrap must not rely on them.
+   Whether MONETS runs the affected version cannot be told from the repos (it references `MONETcommon, *`):
+   check the installed library version on the engineering PC.
+
+Still open:
+- `fTrackMargin` per axis and site (0 = up to the measured endpoint).
+- Preferred turn when two fit, including `v = 0`, and whether MONETN keeps its 310 / 80 thresholds
+  (see the regression caveat in 5).
+- Confirm the north-0 convention and cable winding direction on site.
 
 ## 10. Tasks (in order)
-1. Answer questions 1-4 (on site: measured endpoints, azimuth convention, which build MONETS runs).
+1. Settle the remaining open points in 9 (on site: azimuth convention, `fTrackMargin`, which build MONETS runs).
 2. Branch `fix/wrap-from-limits-2` from `origin/develop` (after #95 merged).
 3. Add `F_AxisTurn` + `F_AxisTurn_Tests`, run the tests (all cases in 5).
 4. Replace the wrap (lines 236-246) with the function, limits per question 4.
