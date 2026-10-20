@@ -15,4 +15,4 @@ Dated `YYYY-MM-DD-<slug>.md` investigation and work logs, one per unit of work.
   `bStopAxis` latched TRUE, so `_StopTelescope` needs an edge re-arm.
 - [2026-10-20-target-horizon-warning-94.md](2026-10-20-target-horizon-warning-94.md): #94, 'Target below safe
   horizon' only for a requested goto/track, evaluated before the dispatch can clear `bGoto`.
-  **Planned, not started.**
+  **Implemented in code, not yet compiled in XAE or tested on hardware.**

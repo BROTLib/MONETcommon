@@ -38,6 +38,7 @@ VAR_OUTPUT
 END_VAR
 VAR
     fbStartup : BROTLib.FB_StartupControl;
+	bTargetBelowHorizonWarn	: BOOL;	// #94: goto/track requested with the RA/Dec target below fHorizon, taken before the dispatch can clear bGoto
 	// M1: internal (non-axis) errors from the Goto/Home/Slew state machines, latched
 	// until bReset since bError/nErrorID are otherwise recomputed from the axes every
 	// scan and would silently wipe these within the same cycle they're set in.
@@ -224,6 +225,10 @@ fbPointing(
 fElevationCalc := fElevationCalc + fElevationPointingOffset + fElevationOffset;
 // F_AzimuthOffsetOnAxis: fAzimuthOffset / COS(elevation), bounded near the zenith (BROTLib#27)
 fAzimuthCalc := fAzimuthCalc + fAzimuthPointingOffset + F_AzimuthOffsetOnAxis(fAzimuthOffset, fElevationCalc);
+
+// #94: evaluated here, before the arbitration and the Goto/Track dispatch below can clear bGoto/bTrack (error 0x15)
+// in the same scan. Only a requested goto/track makes the RA/Dec target relevant.
+bTargetBelowHorizonWarn := F_TargetBelowHorizonWarning(bGoto := bGoto, bTrack := bTrack, fElevationCalc := fElevationCalc, fHorizon := fHorizon);
 
 // calculate derotator position 
 fDerotatorCalc := F_DerotatorPosition2(fAzimuthCalc, fElevationCalc, telescopeConfig.latitude, fDerotatorSign)  + fDerotatorOffset;
@@ -609,7 +614,7 @@ TCSstopEvent(	Trigger := bStop,
 				OffMEssage := 'completed',
 				OffLevel := ADSLOG_MSGTYPE_HINT, 
 				Comm := fbComm);
-TCStargetHorizonEvent(	Trigger := fElevationCalc<fHorizon,
+TCStargetHorizonEvent(	Trigger := bTargetBelowHorizonWarn,
 				Level := ADSLOG_MSGTYPE_WARN,
 				FormatString := '%s',
 				OnMessage := 'Target below safe horizon',
