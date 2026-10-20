@@ -1,6 +1,6 @@
 # MONETcommon 0.8.5: interruptible moves and a reset that really resets (#84, #77, #85, #88)
 
-Date: 2026-10-20. Status: plan only, no code changed.
+Date: 2026-10-20. Status: implemented in code on branch fix/slew-interrupt-reset-84-77-85-88 (not compiled or hardware-tested yet; the unit-test extraction of section 5 is NOT done, deferred).
 Repo: BROTLib/MONETcommon. Base: `origin/develop` @ `80b80b1` (0.8.4).
 Note: branch from `origin/develop`, not from `main`.
 
@@ -165,6 +165,16 @@ Leave `bPark AND bError` unaffected: on an error the axes are disabled by L164-1
 nothing to wait for. The error clear also drops it: in the `IF bError THEN` block (L164) add
 `bMoveAbortPending := FALSE;`.
 
+Lifecycle of `bMoveAbortPending` (summary of the rules below):
+- **Set** by the interrupt branches and by the stop branch.
+- **Set while `bPower` outranks it** (an interrupt in the scan before a power-on is accepted, or a power-on
+  accepted while an interrupted move is still decelerating): the flag stays set for the whole power-on, because
+  the `bPower` branch is above it and nothing in the power-on clears it. When the power-on ends, the abort branch
+  dispatches STOP once; at standstill it clears and the pending command runs. This is accepted: the power-on is
+  never blocked, and the extra STOP after it only stops axes that should not be moving anyway.
+- **Cleared** only (a) at standstill **and** after STOP was dispatched (refinement below), (b) in the error
+  block, (c) in the reset block. Nothing else clears it.
+
 Clear it at standstill, next to `bStop` (L504):
 
 ```st
@@ -211,7 +221,19 @@ IF bStop THEN
 Interaction: the stop branch must keep the power-on abort first (#80). `_PowerOn` itself does not look at
 `bInterrupted` here, because `bStop` is already TRUE.
 
-**`_StopTelescope`** (L1282-1316): issue everything in the first scan, re-arm the edge, release at standstill:
+**`_StopTelescope`** (L1282-1316): issue everything in the first scan, re-arm the edge, release at standstill.
+
+New VARs (FB VAR block):
+
+```st
+	// #84: this stop request has written its own FALSE->TRUE edge on StopAxis (per axis).
+	// Cleared at standstill and whenever no STOP is dispatched.
+	bStopIssuedAz	: BOOL;
+	bStopIssuedEl	: BOOL;
+	bStopIssuedDr	: BOOL;
+```
+
+Method body, written out per axis:
 
 ```st
 // #84: one scan does it all. fbAxis.Stop() cancels a pending MoveTo itself; clearing MoveAxis
@@ -220,28 +242,84 @@ fbAzimuth.Tracking := FALSE;  fbElevation.Tracking := FALSE;  fbDerotator.Tracki
 fbAzimuth.MoveAxis := FALSE;  fbElevation.MoveAxis := FALSE;  fbDerotator.MoveAxis := FALSE;
 
 IF bStopped THEN
-	fbAzimuth.StopAxis := FALSE; fbElevation.StopAxis := FALSE; fbDerotator.StopAxis := FALSE;
-	_StopTelescope := TRUE;
+	fbAzimuth.StopAxis := FALSE;
+	fbElevation.StopAxis := FALSE;
+	fbDerotator.StopAxis := FALSE;
+	bStopIssuedAz := FALSE;
+	bStopIssuedEl := FALSE;
+	bStopIssuedDr := FALSE;
+	_StopTelescope := FALSE;	// unchanged polarity, see below
 ELSE
-	// re-arm: if a level from an earlier stop is still latched, drop it for one scan so the next TRUE is an edge
-	_StopAxisEdge(fbAzimuth.fbAxis.StandStill, fbAzimuth);	// pseudo-code, written out per axis:
-	//   IF NOT fbX.fbAxis.StandStill THEN
-	//       IF fbX.StopAxis AND NOT bStopIssued THEN fbX.StopAxis := FALSE;	// latched from before -> one scan low
-	//       ELSE fbX.StopAxis := TRUE; END_IF
-	//   END_IF
-	_StopTelescope := FALSE;
+	// Re-arm: a StopAxis level still latched from an earlier stop (step 0) is dropped for one scan,
+	// so that the next TRUE is a fresh FALSE->TRUE edge and the setter really calls fbAxis.Stop().
+	IF NOT fbAzimuth.fbAxis.StandStill THEN
+		IF fbAzimuth.StopAxis AND NOT bStopIssuedAz THEN
+			fbAzimuth.StopAxis := FALSE;	// latched from before -> one scan low
+		ELSE
+			fbAzimuth.StopAxis := TRUE;
+			bStopIssuedAz := TRUE;
+		END_IF
+	END_IF
+
+	IF NOT fbElevation.fbAxis.StandStill THEN
+		IF fbElevation.StopAxis AND NOT bStopIssuedEl THEN
+			fbElevation.StopAxis := FALSE;
+		ELSE
+			fbElevation.StopAxis := TRUE;
+			bStopIssuedEl := TRUE;
+		END_IF
+	END_IF
+
+	IF NOT fbDerotator.fbAxis.StandStill THEN
+		IF fbDerotator.StopAxis AND NOT bStopIssuedDr THEN
+			fbDerotator.StopAxis := FALSE;
+		ELSE
+			fbDerotator.StopAxis := TRUE;
+			bStopIssuedDr := TRUE;
+		END_IF
+	END_IF
 END_IF
 ```
 
-Implement this with a per-axis VAR `bStopIssuedAz/El/Dr : BOOL`, set when this stop request wrote the
-TRUE edge and cleared at `bStopped`. A simpler alternative is acceptable if step 0 shows that `bStopAxis` is
-never latched: then the plain "if not standstill, StopAxis := TRUE" in the first scan is enough.
+Sequence for a latched axis: scan 1 `StopAxis` TRUE->FALSE, scan 2 FALSE->TRUE (edge, `fbAxis.Stop()`),
+`bStopIssuedX` TRUE, later scans keep writing TRUE. An axis that was not latched gets the edge in scan 1.
+If the axis block clears `StopAxis` on `StopDone` before `StandStill` is seen here, the next TRUE is another
+edge and a second `Stop()`; that is harmless (`MC_Stop` is allowed at standstill).
+
+`bStopIssued*` must not survive a STOP that ended without standstill (TCS_command changed by reset, error or a
+new command): otherwise the next stop sees `StopAxis` latched AND `bStopIssued` TRUE and writes TRUE without an
+edge, the original bug. So clear all three in the body whenever STOP is not dispatched, next to the call at L426:
+
+```st
+ELSIF TCS_command = E_TCSCommand.stop THEN
+	_StopTelescope();
+	...
+END_IF
+IF TCS_command <> E_TCSCommand.stop THEN
+	bStopIssuedAz := FALSE; bStopIssuedEl := FALSE; bStopIssuedDr := FALSE;	// #84: re-arm for the next stop
+END_IF
+```
+
+Return value: keep the current polarity (`_StopTelescope := FALSE` when `bStopped`, L1314). Its sole caller
+(L427) ignores it. Alternatively drop the return value (`METHOD PRIVATE _StopTelescope`) in the same commit.
+Do not change it to TRUE.
+
+Step 0 showed `bStopAxis` latched TRUE at idle, so the re-arm is required (the plain "if not standstill,
+StopAxis := TRUE" is not enough).
 Tracking, MoveAxis and Stop in one scan is fine: `FB_Axis` already blocks the tracking request while a stop
 is pending or executing (BROTLib FB_Axis L178).
 
-**Stop timeout** L428: `T#2S` -> `T#15S` (deceleration from 10 deg/s plus settle; the 'NOCOMMAND' text
-in the event is misleading too: set `TCSCTOEvent.OnMessage` before the TON call so that the message names STOP).
-Check: with `bMoveAbortPending` dispatching STOP, the timeout now also applies to interrupts. 15 s is fine there too.
+Test note (unit test of the extracted logic, section 5, and the scope in hardware step 2): with `StopAxis`
+latched TRUE before the stop, `StopAxis` must go **low for exactly one scan and then high** (a fresh
+FALSE->TRUE edge), and `fbAzimuth.fbAxis.StopCommand.Execute` / `Axis_Stop.Busy` must follow.
+
+**Stop timeout** L428: `T#2S` -> `T#15S`, **provisional**. 15 s is an estimate (deceleration from 10 deg/s
+plus settle), not a measurement: step 0 only covered the latched `bStopAxis`, no `MC_Stop` ran. Measure the
+time from `stop=1` to `bStopped` at the highest slew speed on 0.8.5 (hardware step 2) and set the final value
+to that time plus a margin before the release. The 'NOCOMMAND' text in the event is misleading too: set
+`TCSCTOEvent.OnMessage` before the TON call so that the message names STOP.
+Check: with `bMoveAbortPending` dispatching STOP, the timeout now also applies to interrupts. The same value
+is fine there too.
 
 **Event**: `MoveAbortEvent(Trigger := bMoveAbortPending AND NOT bStop, Level := HINT, FormatString := '%s',
 OnMessage := 'move interrupted, stopping axes', OffMessage := 'axes stopped', Comm := fbComm);`
@@ -284,6 +362,10 @@ instead (for example on the rising edge of `fbStartup.Initializing`).
 
 `fbElevation.MoveAxis` etc. are left TRUE after an interrupt only until `_StopTelescope` runs. No further change.
 
+**Non-goal: `SuspendAutomatic`** (L1026-1045). It sets `bInterrupted` only around `_PowerOn()` (L1033-1035),
+to abort a running power-on when automatic control is disabled. It does not stop a running goto/slew, does not
+call `_StopTelescope`, and does not set `bMoveAbortPending`. Changing that is out of scope for 0.8.5.
+
 ---
 
 ## 3. Interactions and risks
@@ -314,6 +396,8 @@ instead (for example on the rising edge of `fbStartup.Initializing`).
    MONETS .tsproj, done manually in XAE). Do not tune that from this branch.
 7. **Command timeout**: STOP 15 s now also covers interrupts. A stuck abort (axis never reaches standstill)
    logs a timeout but still blocks the new command. Acceptable: a stop/reset/emergency park still works.
+   The 15 s value is provisional until the deceleration time is measured (2.2, hardware step 2).
+8. **Suspend (non-goal)**: `SuspendAutomatic` does not stop a moving telescope and is not changed (see 2.4).
 
 ---
 
@@ -354,14 +438,23 @@ Proposed extraction (internal to MONETcommon, used by FB_MonetTelescopeControl):
    - `Power_Accepted_Drops_Stale_Moves`.
    - `Interrupt_Sets_Abort_Pending`, `Abort_Clears_Only_After_Stop_Dispatched_And_Standstill` (the edge case in 2.2),
      `Error_Drops_Abort_Pending`, `Reset_Drops_Abort_Pending`.
+   - `Abort_Set_During_Power_On_Survives_Until_Power_On_Ends` (lifecycle in 2.2): abort set, `bPower` TRUE for
+     several scans -> flag stays TRUE, not cleared by standstill while STOP is not dispatched; after `bPower`
+     drops, STOP is dispatched, then the flag clears at standstill.
+   - `Stop_Rearms_Latched_StopAxis` (if the per-axis stop logic is extracted, e.g. `FB_StopAxisEdge`): StopAxis
+     latched TRUE, axis moving -> scan 1 FALSE, scan 2 TRUE, later scans TRUE; not latched -> TRUE in scan 1;
+     a STOP left before standstill re-arms on the next one.
 3. `F_SoftwareErrorAfterReset` or test it inside 2.: `Reset_Clears_Software_Error_ID` (#88): after Reset(),
    nSoftwareErrorID = 0 and bSoftwareError FALSE when no error source is active; 0x31 comes back when
    bHomeBelowHorizon is TRUE.
-4. `F_Arbitrate(...) : E_TCSCommand` (optional, larger): pure precedence function with bStop, bPower,
-   bMoveAbortPending, bPark, bError, bGoHome, bGoto, bSlew, bTrack, bReady, bBusy, bStopped as inputs. Tests:
+4. `F_Arbitrate(...) : E_TCSCommand` (**required**): pure precedence function with bStop, bPower,
+   bMoveAbortPending, bPark, bError, bGoHome, bGoto, bSlew, bTrack, bReady, bBusy, bStopped as inputs. The
+   stop branch / arbitration change is the riskiest part of 0.8.5, so it must be covered by unit tests, not only
+   by the hardware test. Tests:
    `Emergency_Park_Not_Delayed_By_Abort`, `Abort_Before_GoHome`, `Power_Above_Abort`, `Stop_Above_All`,
-   `Goto_During_Power_On_Waits` (#63 check 2 regression). Only do this if the extraction stays small;
-   otherwise keep 1.-3. and test the arbitration on the hardware.
+   `Goto_During_Power_On_Waits` (#63 check 2 regression). Size note: it is the largest extraction (the
+   body's IF/ELSIF chain L313-420 becomes a function call plus the per-branch side effects). Keep the function
+   to the precedence decision only; the flag clearing and the stage calls stay in the body.
 5. HalfBROT/BROTLib side, optional: a test in BROTLibTests that `FB_Axis` / `FB_AxisCommand` re-issues a stop
    after a latched level (the edge re-arm), if step 0 shows that was the cause. That would be a BROTLib change,
    not part of this release.
@@ -380,7 +473,8 @@ of the power-on as usual. MQTT fields are **comma-separated**
 bPower, bError, nErrorID, nSoftwareErrorID, bSoftwareError, bReset, bStopped, TCS_command`, axis actual
 positions/velocities, `fbX.StopAxis`, `fbX.MoveAxis`, elevation torque, plus the event log.
 
-**Step 0 (DONE 2026-10-20: `bStopAxis` is latched TRUE at idle, no `MC_Stop` is ever requested, so the edge re-arm of 2.2 is required; see #84 comment) (before coding, on 0.8.4, optional but recommended for #84)**: scope `fbAzimuth.bStopAxis`,
+**Step 0 (DONE 2026-10-20: `bStopAxis` is latched TRUE at idle, no `MC_Stop` is ever requested, so the edge re-arm of 2.2 is required; see #84 comment. Step 0 did not measure a deceleration time, because no
+`MC_Stop` ran; that measurement is part of step 2 below) (before coding, on 0.8.4, optional but recommended for #84)**: scope `fbAzimuth.bStopAxis`,
 `fbAzimuth.fbAxis.StopCommand.Pending/Execute`, `Axis_Stop.Busy/Done/Error`, `MoveCommand.Execute`,
 `_SlewTelescope.nStage` during one `stop=1` 3 s into a slew to el 60 / az 120. This tells whether the stop
 request is never made (latched level, 2.2 re-arm needed) or made and ignored by the NC. That needs the
@@ -392,6 +486,10 @@ Then on 0.8.5:
 2. **#84 stop**: `command azimuth=120,elevation=60,slew=1`; 3 s later `command stop=1`. Expect: axes decelerate
    within a few seconds and stop short of the target, 'STOP completed', no 'timeout during STOP', no axis error.
    Then `command azimuth=150,elevation=50,slew=1`: must reach el 50 / az 150.
+   Scope `fbX.StopAxis` per axis: if it was latched TRUE, it must go low for one scan, then high (fresh edge).
+   **Deceleration-time measurement** (for the provisional STOP timeout in 2.2): repeat the stop at the highest
+   slew speed (long slew, for example az +180 deg, `stop=1` once the axes are at full speed) and record the time
+   from `stop=1` to `bStopped` per axis. Report the maximum; the final timeout is that plus a margin.
 3. **#84 gohome interrupts**: slew to el 60 / az 120, 1.5 s later `command gohome=1`. Expect: 'move interrupted,
    stopping axes', standstill short of the target, then the move home, `bGoHome` FALSE at the end. Watch for
    0x4550 at the reversal (HalfBROT#77). If it appears, stop the test, `reset=1`, and report: this is the NC
@@ -454,6 +552,5 @@ Forces, online changes, writes over ADS (e.g. forcing an axis error) are done ma
 | - | Later, own safety review: #86 auto emergency park | M | high (safety path) |
 
 Recommendation: do 1-2 first and test them on the hardware alone if time is short (they unblock the
-recovery from errors). #84 is the larger change; run step 0 before writing `_StopTelescope`, so the edge
-re-arm is only added if it is really needed. One branch, one 0.8.5 release, about 1-1.5 days including tests,
+recovery from errors). #84 is the larger change; step 0 is done and showed that the edge re-arm is needed. One branch, one 0.8.5 release, about 1-1.5 days including tests,
 plus one hardware session.
