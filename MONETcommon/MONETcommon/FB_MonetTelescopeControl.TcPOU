@@ -100,6 +100,31 @@ VAR
 	bStopIssuedAz		: BOOL;
 	bStopIssuedEl		: BOOL;
 	bStopIssuedDr		: BOOL;
+
+	// #83: command acceptance. Methods and the direct-write gate decide at arrival (F_CommandAcceptance);
+	// a rejection is logged and counted, never queued.
+	bCommandRejected		: BOOL;		// set by _NoteRejected, logged and cleared by the body
+	eLastRejectedCommand	: E_TCSCommand;
+	eLastRejectReason		: E_CommandRejectReason;
+	nCommandRejectCount		: UDINT;	// diagnostics (ADS / scope), optional MQTT field later
+	sRejectMessage			: STRING(120);
+	RejectEvent				: FB_EventLog;
+	tonRejectRepeat			: TON;		// identical rejection within 2 s is logged once (all are counted)
+	eLoggedCommand			: E_TCSCommand;
+	eLoggedReason			: E_CommandRejectReason;
+	// an accepted move replaces the running one (latest wins): drop the other move flags, stop the axes
+	bSupersedeRequest		: BOOL;
+	eSupersedeKeep			: E_TCSCommand;
+	// flag values the direct-write gate has already decided (set by the methods, snapshot at the end of the body)
+	bGoHomeChecked			: BOOL;
+	bGotoChecked			: BOOL;
+	bSlewChecked			: BOOL;
+	bTrackChecked			: BOOL;
+	// #83/#87: a Park() received during a stop; the stop branch would clear bPark, so it is set at standstill
+	bParkAfterStop			: BOOL;
+	// #87: park aborted a running power-on (one scan, logged)
+	bPowerAbortedByPark		: BOOL;
+	PowerAbortEvent			: FB_EventLog;
 END_VAR
 VAR PERSISTENT
 	nInterruptedAutoClearCount	: UDINT;	// how many times auto-clear has fired, ever
@@ -150,6 +175,7 @@ IF bReset THEN
 	bSlew := FALSE;
 	bTrack := FALSE;
 	bMoveAbortPending := FALSE;	// #84
+	bSupersedeRequest := FALSE;	// #83
 
 	// reset the stages of all statemachine methods
 	bInterrupted := TRUE; 
@@ -203,12 +229,36 @@ bError := fbElevation.Error OR
 		 fbDerotator.bError OR
 		 bSoftwareError;
 			
+// #83: flags set directly (ADS write, pendant) instead of through a method are decided once, on their rising edge.
+// Nested IFs on purpose: ST does not short-circuit AND and _AcceptMove must only run on the edge.
+IF bGoHome AND NOT bGoHomeChecked THEN
+	IF NOT _AcceptMove(E_TCSCommand.gohome, E_TCSCommand.gohome) THEN
+		bGoHome := FALSE;
+	END_IF
+END_IF
+IF bGoto AND NOT bGotoChecked THEN
+	IF NOT _AcceptMove(E_TCSCommand.goto, E_TCSCommand.goto) THEN
+		bGoto := FALSE;
+	END_IF
+END_IF
+IF bSlew AND NOT bSlewChecked THEN
+	IF NOT _AcceptMove(E_TCSCommand.slew, E_TCSCommand.slew) THEN
+		bSlew := FALSE;
+	END_IF
+END_IF
+IF bTrack AND NOT bTrackChecked THEN
+	IF NOT _AcceptMove(E_TCSCommand.track, E_TCSCommand.track) THEN
+		bTrack := FALSE;
+	END_IF
+END_IF
+
 IF bError THEN
 	bTrack := 	FALSE;
 	bGoto := 	FALSE;
 	bSlew := 	FALSE;
 	bGoHome := 	FALSE;	// #85 (the horizon guard below sets it again if still needed)
 	bMoveAbortPending := FALSE;	// #84: the drives are disabled below, nothing to wait for
+	bSupersedeRequest := FALSE;	// #83
 	fbElevation.Enable := FALSE;
 	fbAzimuth.Enable := FALSE;
 	fbDerotator.Enable := FALSE;
@@ -359,6 +409,32 @@ InterruptedAutoClearEvent(
 	OnMessage 		:= UDINT_TO_STRING(nInterruptedAutoClearCount),
 	Comm 			:= fbComm);
 
+// #83: the latest move wins. Drop the other move flags, reset their stage machines and stop the axes (#84 path).
+// The kept command is already accepted and its target written; it starts once the axes are at standstill.
+IF bSupersedeRequest THEN
+	IF eSupersedeKeep <> E_TCSCommand.gohome THEN
+		bGoHome := FALSE;
+	END_IF
+	IF eSupersedeKeep <> E_TCSCommand.goto THEN
+		bGoto := FALSE;
+	END_IF
+	IF eSupersedeKeep <> E_TCSCommand.slew THEN
+		bSlew := FALSE;
+	END_IF
+	IF eSupersedeKeep <> E_TCSCommand.track THEN
+		bTrack := FALSE;
+	END_IF
+	bInterrupted := TRUE;
+	_HomeTelescope();
+	_GotoTelescope();
+	_SlewTelescope();
+	bInterrupted := FALSE;	// #26: one-shot, the interrupted state machines have reset their stage
+	IF NOT bError THEN
+		bMoveAbortPending := TRUE;
+	END_IF
+	bSupersedeRequest := FALSE;
+END_IF
+
 // set TCS_command according to state variables ordered by precedence
 // Stop outranks everything, including a running power-on
 IF bStop THEN
@@ -386,6 +462,20 @@ IF bStop THEN
 	bMoveAbortPending := TRUE;
 	TCS_command := E_TCSCommand.stop;
 	
+ELSIF bPark AND (bPower OR fbStartup.Initializing) THEN
+	// #87: park wins over a running power-on. Abort it like the stop branch does (#80), then let the park run.
+	// Homing or the move home may still be running, so stop the axes first (#84 mechanism).
+	fbStartup.MarkAbortedIfStarting(Power := bPower);
+	bPower := FALSE;
+	bInterrupted := TRUE;
+	_PowerOn();				// abort path: bPower FALSE, MarkAborted, stage 0, Move/HomeAxis FALSE
+	bInterrupted := FALSE;	// #26: one-shot
+	IF NOT bError THEN
+		bMoveAbortPending := TRUE;
+	END_IF
+	bPowerAbortedByPark := TRUE;
+	TCS_command := E_TCSCommand.stop;
+
 ELSIF bPower THEN
 	TCS_command := E_TCSCommand.poweron;
 
@@ -415,7 +505,9 @@ ELSIF bPark THEN
 		bMoveAbortPending := TRUE;	// #84
 
 	ELSE
-		IF bReady AND NOT bBusy THEN
+		// #83/#87: also when not ready (parked, after a reset, after an aborted power-on) but at standstill.
+		// It used to wait for bReady, i.e. until after the next power-on.
+		IF NOT bBusy AND (bReady OR bStopped) THEN
 			bInterrupted := FALSE;
 			TCS_command := E_TCSCommand.park;
 		END_IF
@@ -571,6 +663,11 @@ IF bStopped THEN
 	IF TCS_command = E_TCSCommand.stop THEN
 		bMoveAbortPending := FALSE;	// #84: only after STOP was dispatched in this scan
 	END_IF
+	IF bParkAfterStop AND NOT bStop THEN
+		// #83: a park sent during the stop runs now (from the next scan)
+		bPark := TRUE;
+		bParkAfterStop := FALSE;
+	END_IF
 END_IF
 	
 IF NOT bError THEN
@@ -687,12 +784,42 @@ MoveAbortEvent(	Trigger := bMoveAbortPending AND NOT bStop,
 					OnMessage := 'move interrupted, stopping axes',
 					OffMessage := 'axes stopped',
 					Comm := fbComm);
+PowerAbortEvent(	Trigger := bPowerAbortedByPark,
+				Level := ADSLOG_MSGTYPE_WARN,
+				FormatString := '%s',
+				OnMessage := 'power-on aborted: park requested',
+				Comm := fbComm);
+bPowerAbortedByPark := FALSE;
+// #83: every rejection is logged and published (ADS log and MQTT log topic). An identical rejection repeated
+// within 2 s is logged once (a level writer would flood the log); all of them are counted. The event is re-armed
+// with FALSE first so that rejections in consecutive scans each give a rising edge.
+tonRejectRepeat(IN := TRUE, PT := T#2S);
+RejectEvent(Trigger := FALSE, Comm := fbComm);
+IF bCommandRejected THEN
+	IF tonRejectRepeat.Q OR eLastRejectedCommand <> eLoggedCommand OR eLastRejectReason <> eLoggedReason THEN
+		sRejectMessage := CONCAT(CONCAT(F_TCSCommandText(eLastRejectedCommand), ' rejected: '),
+			F_CommandRejectText(eLastRejectReason));
+		RejectEvent(Trigger := TRUE, Level := ADSLOG_MSGTYPE_WARN, FormatString := '%s',
+			OnMessage := sRejectMessage, Comm := fbComm);
+		eLoggedCommand := eLastRejectedCommand;
+		eLoggedReason := eLastRejectReason;
+		tonRejectRepeat(IN := FALSE);
+	END_IF
+	bCommandRejected := FALSE;
+END_IF
 InitRefusedEvent(	Trigger := bInitRefused,
 				Level := nInitRefusedLevel,
 				FormatString := 'power-on ignored: %s',
 				OnMessage := sInitRefusedReason,
 				Comm := fbComm);
-bInitRefused := FALSE;]]></ST>
+bInitRefused := FALSE;
+
+// #83: remember which flags the direct-write gate has seen. Flags set inside this body (horizon guard, auto-track)
+// are set before this point and so never look new to the gate.
+bGoHomeChecked := bGoHome;
+bGotoChecked := bGoto;
+bSlewChecked := bSlew;
+bTrackChecked := bTrack;]]></ST>
     </Implementation>
     <Folder Name="internal methods" Id="{d1e7fbc6-9662-4c16-bf25-8044ef92da3b}" />
     <Method Name="_GotoTelescope" Id="{8976ce61-8856-40e1-8cfb-7b9454a4edbf}" FolderPath="internal methods\">
@@ -876,6 +1003,7 @@ VAR_INPUT
 END_VAR
 VAR
 	ParkEvent	: FB_Eventlog;
+	bAxesCanMove	: BOOL;
 END_VAR
 VAR_INST
 	rtrigError	: R_TRIG;	// M2: reset the stage only on the rising edge of bError, not every scan; VAR_INST, a plain method VAR is re-created on every call (#17)
@@ -908,7 +1036,11 @@ CASE nStage OF
 		bGoto := 	FALSE;
 		bSlew := 	FALSE;
 		fbFocus.Position := telescopeConfig.focusPark;
-		IF bError THEN // emergency park
+		// #87: the axes can only drive to the park position when they are calibrated, enabled and the brake is open.
+		// Otherwise (aborted power-on, after a reset) park in place, like the emergency park: no axis motion.
+		bAxesCanMove := fbElevation.Calibrated AND fbAzimuth.Calibrated AND fbDerotator.Calibrated AND
+			fbElevation.bEnable AND fbAzimuth.bEnable AND fbDerotator.bEnable AND fbBrake.BrakeOpen;
+		IF bError OR NOT bAxesCanMove THEN // emergency park, or park in place
 			fbBrake.CloseBrake();
 			fbElevation.Enable := FALSE;
 			fbAzimuth.Enable := FALSE;
@@ -1584,8 +1716,20 @@ END_VAR
       <Declaration><![CDATA[METHOD Init : BOOL
 ]]></Declaration>
       <Implementation>
-        <ST><![CDATA[// AcceptInit refuses while a startup runs or completed (also across a transient interlock, -2), and while suspended.
-IF fbStartup.AcceptInit() THEN
+        <ST><![CDATA[// #87: park wins in both orders, and a stop is not overridden by a power-on either. This must come before
+// AcceptInit: a pending park clears Initialized, so AcceptInit would accept.
+IF bStop OR bPark OR bParkAfterStop THEN
+    IF NOT bInitRefused THEN
+        bInitRefused := TRUE;
+        nInitRefusedLevel := ADSLOG_MSGTYPE_WARN;
+        IF bStop THEN
+            sInitRefusedReason := 'stop in progress';
+        ELSE
+            sInitRefusedReason := 'park in progress, send stop to cancel it';
+        END_IF
+    END_IF
+// AcceptInit refuses while a startup runs or completed (also across a transient interlock, -2), and while suspended.
+ELSIF fbStartup.AcceptInit() THEN
     // #85: nothing stale after power-on (park is kept, it is the safe direction)
     bGoHome := FALSE;
     bGoto := FALSE;
@@ -1617,9 +1761,15 @@ VAR_INPUT
 END_VAR
 ]]></Declaration>
       <Implementation>
-        <ST><![CDATA[fElevation 	:= AltAz.Altitude;
+        <ST><![CDATA[// #83: decide first. A rejected move writes nothing, not even the target.
+IF NOT _AcceptMove(E_TCSCommand.slew, E_TCSCommand.no_command) THEN
+	RETURN;
+END_IF
+fElevation 	:= AltAz.Altitude;
 fAzimuth 	:= AltAz.Azimuth;
-bSlew		:= TRUE;]]></ST>
+bSlew		:= TRUE;
+bSlewChecked := TRUE;	// decided here, the direct-write gate in the body must not decide it again
+MoveAltAz := TRUE;]]></ST>
       </Implementation>
     </Method>
     <Method Name="MoveRaDec" Id="{86c89766-d350-4f6b-9fea-e302f9b4e7d4}">
@@ -1629,16 +1779,29 @@ VAR_INPUT
 END_VAR
 ]]></Declaration>
       <Implementation>
-        <ST><![CDATA[fRightAscension	:= RaDec.RightAscension;
+        <ST><![CDATA[// #83: decide first, see MoveAltAz
+IF NOT _AcceptMove(E_TCSCommand.goto, E_TCSCommand.no_command) THEN
+	RETURN;
+END_IF
+fRightAscension	:= RaDec.RightAscension;
 fDeclination	:= RaDec.Declination;
-bGoto			:= TRUE;]]></ST>
+bGoto			:= TRUE;
+bGotoChecked	:= TRUE;
+MoveRaDec		:= TRUE;]]></ST>
       </Implementation>
     </Method>
     <Method Name="Park" Id="{21fb237d-ad50-4f82-97cf-a56a9c25b954}">
       <Declaration><![CDATA[METHOD Park : BOOL
 ]]></Declaration>
       <Implementation>
-        <ST><![CDATA[bPark := TRUE;]]></ST>
+        <ST><![CDATA[// #83/#87: park is never rejected. During a stop the stop branch clears bPark every scan, so keep it aside
+// and set it at standstill. During a power-on the arbitration lets the park abort the power-on.
+IF bStop THEN
+	bParkAfterStop := TRUE;
+ELSE
+	bPark := TRUE;
+END_IF
+Park := TRUE;]]></ST>
       </Implementation>
     </Method>
     <Method Name="Reset" Id="{efa0c84e-7359-43c3-a635-1faede103859}">
@@ -1698,9 +1861,15 @@ VAR_INPUT
 END_VAR
 ]]></Declaration>
       <Implementation>
-        <ST><![CDATA[THIS^.fElevation 	:= fAltitude;
+        <ST><![CDATA[// #83: decide first. A rejected slew writes nothing, not even the target, and never stays pending.
+IF NOT _AcceptMove(E_TCSCommand.slew, E_TCSCommand.no_command) THEN
+	RETURN;			// Slew = FALSE: rejected, logged by the body
+END_IF
+THIS^.fElevation 	:= fAltitude;
 THIS^.fAzimuth 	:= fAzimuth;
-THIS^.bSlew		:= TRUE;]]></ST>
+THIS^.bSlew		:= TRUE;
+bSlewChecked	:= TRUE;
+Slew := TRUE;]]></ST>
       </Implementation>
     </Method>
     <Method Name="Stop" Id="{d33b3161-dc8a-45e5-ae2f-544550162c16}">
@@ -1718,10 +1887,16 @@ VAR_INPUT
 END_VAR
 ]]></Declaration>
       <Implementation>
-        <ST><![CDATA[THIS^.fRightAscension	:= fRightAscension;
+        <ST><![CDATA[// #83: decide first, see Slew
+IF NOT _AcceptMove(E_TCSCommand.goto, E_TCSCommand.no_command) THEN
+	RETURN;
+END_IF
+THIS^.fRightAscension	:= fRightAscension;
 THIS^.fDeclination		:= fDeclination;
 //THIS^.bTrack			:= TRUE;
-THIS^.bGoto				:= TRUE;]]></ST>
+THIS^.bGoto				:= TRUE;
+bGotoChecked			:= TRUE;
+Track := TRUE;]]></ST>
       </Implementation>
     </Method>
     <Method Name="TrackRaDec" Id="{f497d99f-36a3-42c8-ae9b-738903f3158c}">
@@ -1731,10 +1906,97 @@ VAR_INPUT
 END_VAR
 ]]></Declaration>
       <Implementation>
-        <ST><![CDATA[fRightAscension	:= RaDec.RightAscension;
+        <ST><![CDATA[// #83: decide first, see Slew
+IF NOT _AcceptMove(E_TCSCommand.goto, E_TCSCommand.no_command) THEN
+	RETURN;
+END_IF
+fRightAscension	:= RaDec.RightAscension;
 fDeclination		:= RaDec.Declination;
 //bTrack			:= TRUE;
-THIS^.bGoto				:= TRUE;]]></ST>
+THIS^.bGoto				:= TRUE;
+bGotoChecked			:= TRUE;
+TrackRaDec := TRUE;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Home" Id="{5b1d2a10-7c3e-4d52-9a61-0e4f8c2b7a11}">
+      <Declaration><![CDATA[// #83: BROTLib's base Home sets bGoHome unconditionally; decide first like the other moves.
+METHOD Home : BOOL
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT _AcceptMove(E_TCSCommand.gohome, E_TCSCommand.no_command) THEN
+	RETURN;
+END_IF
+bGoHome := TRUE;
+bGoHomeChecked := TRUE;
+Home := TRUE;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="_CommandState" Id="{5b1d2a10-7c3e-4d52-9a61-0e4f8c2b7a12}" FolderPath="internal methods\">
+      <Declaration><![CDATA[// #83: the state F_CommandAcceptance decides on. eExcludeOwn leaves the own flag out of bMoveActive: the
+// direct-write gate checks a flag that is already set.
+METHOD PRIVATE _CommandState : ST_CommandState
+VAR_INPUT
+	eExcludeOwn	: E_TCSCommand;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[_CommandState.bEstop		:= bEstopTriggered;
+_CommandState.bError		:= bError;
+_CommandState.bClockValid	:= fbTime.bValid;
+_CommandState.bStop			:= bStop;
+_CommandState.bPowering		:= bPower OR fbStartup.Initializing;
+_CommandState.bParkPending	:= bPark OR bParkAfterStop;
+_CommandState.bIsParked		:= bIsParked;
+_CommandState.bReady		:= bReady;
+_CommandState.bGoHomeActive	:= (bGoHome AND eExcludeOwn <> E_TCSCommand.gohome) OR TCS_command = E_TCSCommand.gohome;
+_CommandState.bMoveActive	:= (bGoto AND eExcludeOwn <> E_TCSCommand.goto) OR
+	(bSlew AND eExcludeOwn <> E_TCSCommand.slew) OR
+	(bTrack AND eExcludeOwn <> E_TCSCommand.track) OR
+	(bGoHome AND eExcludeOwn <> E_TCSCommand.gohome) OR
+	TCS_command = E_TCSCommand.goto OR TCS_command = E_TCSCommand.slew OR TCS_command = E_TCSCommand.track OR
+	bTracking OR bMoveAbortPending;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="_AcceptMove" Id="{5b1d2a10-7c3e-4d52-9a61-0e4f8c2b7a13}" FolderPath="internal methods\">
+      <Declaration><![CDATA[// #83: TRUE if the move may run (accepted, or it replaces the running one), FALSE if it was rejected
+// (logged by the body, nothing written).
+METHOD PRIVATE _AcceptMove : BOOL
+VAR_INPUT
+	eCommand	: E_TCSCommand;
+	eExcludeOwn	: E_TCSCommand;
+END_VAR
+VAR
+	eReason		: E_CommandRejectReason;
+	eDecision	: E_CommandDecision;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[eDecision := F_CommandAcceptance(eCommand := eCommand, stState := _CommandState(eExcludeOwn := eExcludeOwn), eReason => eReason);
+CASE eDecision OF
+	E_CommandDecision.reject:
+		_NoteRejected(eCommand := eCommand, eReason := eReason);
+		_AcceptMove := FALSE;
+	E_CommandDecision.replace:
+		bSupersedeRequest := TRUE;
+		eSupersedeKeep := eCommand;
+		_AcceptMove := TRUE;
+ELSE
+	_AcceptMove := TRUE;
+END_CASE]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="_NoteRejected" Id="{5b1d2a10-7c3e-4d52-9a61-0e4f8c2b7a14}" FolderPath="internal methods\">
+      <Declaration><![CDATA[METHOD PRIVATE _NoteRejected
+VAR_INPUT
+	eCommand	: E_TCSCommand;
+	eReason		: E_CommandRejectReason;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[nCommandRejectCount := nCommandRejectCount + 1;
+eLastRejectedCommand := eCommand;
+eLastRejectReason := eReason;
+bCommandRejected := TRUE;]]></ST>
       </Implementation>
     </Method>
     <LineIds Name="FB_MonetTelescopeControl">

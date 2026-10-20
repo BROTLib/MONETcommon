@@ -7,6 +7,7 @@ VAR
 	fbCoverControlTests	: FB_MonetCoverControl_Tests;
 	fbAzimuthOffsetTests	: F_AzimuthOffsetOnAxis_Tests;
 	fbHomeBelowHorizonTests	: F_HomeBelowHorizon_Tests;
+	fbCommandAcceptanceTests	: F_CommandAcceptance_Tests;
 	fbAxisTurnTests	: F_AxisTurn_Tests;
 	fbTargetBelowHorizonWarningTests	: F_TargetBelowHorizonWarning_Tests;
 	fbTempSensorTests	: FB_MonetTempSensor_Tests;
