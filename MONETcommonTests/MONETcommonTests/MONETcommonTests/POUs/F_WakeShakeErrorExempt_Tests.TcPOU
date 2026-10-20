@@ -1,0 +1,99 @@
+<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="F_WakeShakeErrorExempt_Tests" Id="{30dcd960-e1fe-4d53-9883-c3c7c3374506}" SpecialFunc="None">
+    <Declaration><![CDATA[// Tests for MONETcommon.F_WakeShakeErrorExempt, the Wake&Shake exemption from the emergency park on an axis error (#113).
+// Inputs in call order: bFirstPowerOnPending, bPowering, bAzElError, bOtherHwError.
+FUNCTION_BLOCK F_WakeShakeErrorExempt_Tests EXTENDS TcUnit.FB_TestSuite
+VAR
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[First_Power_On_AzEl_Error_Exempt();
+After_Completed_Power_On_Parks();
+Not_Powering_Parks();
+Focus_Or_Derotator_Error_Parks();
+AzEl_With_Other_Error_Parks();
+No_Error_Not_Exempt();
+]]></ST>
+    </Implementation>
+    <Method Name="First_Power_On_AzEl_Error_Exempt" Id="{456b552e-ff45-4492-804f-fc2b6a631980}">
+      <Declaration><![CDATA[// First power-on after a PLC restart, azimuth/elevation error.
+METHOD PRIVATE First_Power_On_AzEl_Error_Exempt
+VAR
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('First_Power_On_AzEl_Error_Exempt');
+AssertTrue(Condition := MONETcommon.F_WakeShakeErrorExempt(TRUE, TRUE, TRUE, FALSE), Message := 'wake&shake');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="After_Completed_Power_On_Parks" Id="{d2fa1024-ac7b-415a-a86c-2ca901790aaa}">
+      <Declaration><![CDATA[// A power-on has completed since the PLC start.
+METHOD PRIVATE After_Completed_Power_On_Parks
+VAR
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('After_Completed_Power_On_Parks');
+AssertFalse(Condition := MONETcommon.F_WakeShakeErrorExempt(FALSE, TRUE, TRUE, FALSE), Message := 'later power-on');
+AssertFalse(Condition := MONETcommon.F_WakeShakeErrorExempt(FALSE, FALSE, TRUE, FALSE), Message := 'later, idle');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Not_Powering_Parks" Id="{46c99c18-86a8-4db1-834a-c971d6f10d32}">
+      <Declaration><![CDATA[// Error while idle or tracking, first power-on still pending.
+METHOD PRIVATE Not_Powering_Parks
+VAR
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Not_Powering_Parks');
+AssertFalse(Condition := MONETcommon.F_WakeShakeErrorExempt(TRUE, FALSE, TRUE, FALSE), Message := 'not powering');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Focus_Or_Derotator_Error_Parks" Id="{e8af181d-b63d-4bea-beaf-ac74270c33d0}">
+      <Declaration><![CDATA[// Focus or derotator error only.
+METHOD PRIVATE Focus_Or_Derotator_Error_Parks
+VAR
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Focus_Or_Derotator_Error_Parks');
+AssertFalse(Condition := MONETcommon.F_WakeShakeErrorExempt(TRUE, TRUE, FALSE, TRUE), Message := 'other axis only');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="AzEl_With_Other_Error_Parks" Id="{fa4d8d05-097f-49fe-81a9-8d1480f41049}">
+      <Declaration><![CDATA[// Azimuth error together with a derotator error.
+METHOD PRIVATE AzEl_With_Other_Error_Parks
+VAR
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('AzEl_With_Other_Error_Parks');
+AssertFalse(Condition := MONETcommon.F_WakeShakeErrorExempt(TRUE, TRUE, TRUE, TRUE), Message := 'az + derotator');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="No_Error_Not_Exempt" Id="{5bcea024-7eb4-4092-823a-2fee8d554a67}">
+      <Declaration><![CDATA[// No error at all.
+METHOD PRIVATE No_Error_Not_Exempt
+VAR
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('No_Error_Not_Exempt');
+AssertFalse(Condition := MONETcommon.F_WakeShakeErrorExempt(TRUE, TRUE, FALSE, FALSE), Message := 'no error');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

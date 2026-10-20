@@ -44,7 +44,7 @@ TEST_FINISHED();
       </Implementation>
     </Method>
     <Method Name="Parked_Does_Nothing" Id="{dfc267a1-6095-4e2d-8c0f-0f6d52d6130b}">
-      <Declaration><![CDATA[// Bare error on a parked telescope, also the first power-on after a PLC restart.
+      <Declaration><![CDATA[// Bare error on a parked telescope.
 METHOD PRIVATE Parked_Does_Nothing
 VAR
 END_VAR
