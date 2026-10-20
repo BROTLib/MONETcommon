@@ -12,6 +12,7 @@ VAR
 	fbTargetBelowHorizonWarningTests	: F_TargetBelowHorizonWarning_Tests;
 	fbTempSensorTests	: FB_MonetTempSensor_Tests;
 	fbMethodVarProbeTests	: FB_MethodVarProbe_Tests;
+	fbPendantControlTests	: FB_MonetPendantControl_Tests;
 END_VAR
 ]]></Declaration>
     <Implementation>
