@@ -79,6 +79,9 @@
     <Compile Include="F_TargetBelowHorizonWarning.TcPOU">
       <SubType>Code</SubType>
     </Compile>
+    <Compile Include="F_ErrorParkRequest.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
     <Compile Include="F_GotoTargetCheck.TcPOU">
       <SubType>Code</SubType>
     </Compile>

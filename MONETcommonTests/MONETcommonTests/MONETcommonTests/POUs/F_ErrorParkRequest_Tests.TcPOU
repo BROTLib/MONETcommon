@@ -1,0 +1,121 @@
+<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="F_ErrorParkRequest_Tests" Id="{6b2b8293-cda0-4736-8da8-b7ef3ae22e18}" SpecialFunc="None">
+    <Declaration><![CDATA[// Tests for MONETcommon.F_ErrorParkRequest, the request for the emergency park on a new axis error (#86).
+// Inputs in call order: bHwError, bHwErrorLast, bIsParked, bEstop.
+FUNCTION_BLOCK F_ErrorParkRequest_Tests EXTENDS TcUnit.FB_TestSuite
+VAR
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[Rising_Edge_Not_Parked_Requests();
+Error_Persisting_Does_Not_Retrigger();
+Parked_Does_Nothing();
+No_Error_And_Falling_Edge();
+Cleared_And_Reraised();
+After_Emergency_Park_No_Loop();
+Estop_Suppresses();
+]]></ST>
+    </Implementation>
+    <Method Name="Rising_Edge_Not_Parked_Requests" Id="{f32248c8-ace3-4d7a-825e-99f17ec9e7b4}">
+      <Declaration><![CDATA[// Hardware error appears on a telescope that is not parked.
+METHOD PRIVATE Rising_Edge_Not_Parked_Requests
+VAR
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Rising_Edge_Not_Parked_Requests');
+AssertTrue(Condition := MONETcommon.F_ErrorParkRequest(TRUE, FALSE, FALSE, FALSE), Message := 'new error, not parked');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Error_Persisting_Does_Not_Retrigger" Id="{9e220b82-aba6-4b60-bc82-5670ea36930d}">
+      <Declaration><![CDATA[// Error still present (also a second error while the first is active).
+METHOD PRIVATE Error_Persisting_Does_Not_Retrigger
+VAR
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Error_Persisting_Does_Not_Retrigger');
+AssertFalse(Condition := MONETcommon.F_ErrorParkRequest(TRUE, TRUE, FALSE, FALSE), Message := 'error persists');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Parked_Does_Nothing" Id="{dfc267a1-6095-4e2d-8c0f-0f6d52d6130b}">
+      <Declaration><![CDATA[// Bare error on a parked telescope, also the first power-on after a PLC restart.
+METHOD PRIVATE Parked_Does_Nothing
+VAR
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Parked_Does_Nothing');
+AssertFalse(Condition := MONETcommon.F_ErrorParkRequest(TRUE, FALSE, TRUE, FALSE), Message := 'parked');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="No_Error_And_Falling_Edge" Id="{841c8a1c-1439-4b88-9012-6f7811d9122a}">
+      <Declaration><![CDATA[// No error, and an error that just cleared.
+METHOD PRIVATE No_Error_And_Falling_Edge
+VAR
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('No_Error_And_Falling_Edge');
+AssertFalse(Condition := MONETcommon.F_ErrorParkRequest(FALSE, FALSE, FALSE, FALSE), Message := 'no error');
+AssertFalse(Condition := MONETcommon.F_ErrorParkRequest(FALSE, TRUE, FALSE, FALSE), Message := 'falling edge');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="After_Emergency_Park_No_Loop" Id="{ccd1e56f-9f88-4c7f-ab5e-7868b64d1816}">
+      <Declaration><![CDATA[// The emergency park ended with bIsParked TRUE and the error still present.
+METHOD PRIVATE After_Emergency_Park_No_Loop
+VAR
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('After_Emergency_Park_No_Loop');
+AssertFalse(Condition := MONETcommon.F_ErrorParkRequest(TRUE, TRUE, TRUE, FALSE), Message := 'error kept, parked');
+AssertFalse(Condition := MONETcommon.F_ErrorParkRequest(TRUE, FALSE, TRUE, FALSE), Message := 'error new, parked');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Estop_Suppresses" Id="{206babea-0487-4e17-8935-63bdc2df22d2}">
+      <Declaration><![CDATA[// No automatic park during an E-stop.
+METHOD PRIVATE Estop_Suppresses
+VAR
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Estop_Suppresses');
+AssertFalse(Condition := MONETcommon.F_ErrorParkRequest(TRUE, FALSE, FALSE, TRUE), Message := 'e-stop');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Cleared_And_Reraised" Id="{31c766b6-428a-4bee-98c5-2013f7c8e172}">
+      <Declaration><![CDATA[// Error, still there, cleared, new error: the request is made at the first and the last call only.
+METHOD PRIVATE Cleared_And_Reraised
+VAR
+	bLast	: BOOL;
+	arrErr	: ARRAY[1..4] OF BOOL := [TRUE, TRUE, FALSE, TRUE];
+	arrExp	: ARRAY[1..4] OF BOOL := [TRUE, FALSE, FALSE, TRUE];
+	i		: INT;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Cleared_And_Reraised');
+FOR i := 1 TO 4 DO
+	AssertEquals_BOOL(Expected := arrExp[i], Actual := MONETcommon.F_ErrorParkRequest(arrErr[i], bLast, FALSE, FALSE), Message := 'call');
+	bLast := arrErr[i];
+END_FOR
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

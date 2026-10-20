@@ -46,6 +46,9 @@
     <Compile Include="POUs\F_TargetBelowHorizonWarning_Tests.TcPOU">
       <SubType>Code</SubType>
     </Compile>
+    <Compile Include="POUs\F_ErrorParkRequest_Tests.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
     <Compile Include="POUs\F_GotoTargetCheck_Tests.TcPOU">
       <SubType>Code</SubType>
     </Compile>
