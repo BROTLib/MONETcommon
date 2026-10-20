@@ -130,6 +130,10 @@ VAR
 	bHwErrorLast			: BOOL;	// edge memory, updated only where the request is made
 	bErrorParkStarted		: BOOL;	// one scan, logged
 	ErrorParkEvent			: FB_EventLog;
+	// #113: no power-on has completed since the PLC start; its axis error is the expected Wake&Shake fault
+	bFirstPowerOnPending	: BOOL := TRUE;
+	bErrorParkExempt		: BOOL;	// one scan, logged
+	ErrorParkExemptEvent	: FB_EventLog;
 END_VAR
 VAR PERSISTENT
 	nInterruptedAutoClearCount	: UDINT;	// how many times auto-clear has fired, ever
@@ -444,6 +448,10 @@ END_IF
 // the horizon guard, before the arbitration, so the stop branch cannot clear the request in the same scan)
 bErrorParkStarted := F_ErrorParkRequest(bHwError := bHwError, bHwErrorLast := bHwErrorLast,
 	bIsParked := bIsParked, bEstop := bEstopTriggered);
+bErrorParkExempt := bErrorParkStarted AND F_WakeShakeErrorExempt(bFirstPowerOnPending := bFirstPowerOnPending,
+	bPowering := bPower OR fbStartup.Initializing, bAzElError := fbAzimuth.bError OR fbElevation.Error,
+	bOtherHwError := fbFocus.Error OR fbDerotator.bError);
+bErrorParkStarted := bErrorParkStarted AND NOT bErrorParkExempt;
 bHwErrorLast := bHwError;
 IF bErrorParkStarted THEN
 	Park();	// same routing as an external park: deferred to standstill during a stop (#83/#87)
@@ -810,6 +818,12 @@ ErrorParkEvent(	Trigger := bErrorParkStarted,
 				OnMessage := 'emergency park started: axis error',
 				Comm := fbComm);
 bErrorParkStarted := FALSE;
+ErrorParkExemptEvent(	Trigger := bErrorParkExempt,
+				Level := ADSLOG_MSGTYPE_WARN,
+				FormatString := '%s',
+				OnMessage := 'axis error in the first power-on after a PLC restart (Wake&Shake?): no emergency park, covers stay open; reset, Wake&Shake and power=1, or park=1',
+				Comm := fbComm);
+bErrorParkExempt := FALSE;
 // #83: every rejection is logged and published (ADS log and MQTT log topic). An identical rejection repeated
 // within 2 s is logged once (a level writer would flood the log); all of them are counted. The event is re-armed
 // with FALSE first so that rejections in consecutive scans each give a rising edge.
@@ -1040,6 +1054,7 @@ rtrigError(CLK := bError);
 IF rtrigError.Q THEN
 	nStage := 0;
 END_IF
+// parked means: nothing opened since the last park (#113: bIsParked drops with the cover command of a power-on)
 IF bIsParked THEN
 	nStage := 100;
 END_IF
@@ -1189,6 +1204,9 @@ CASE nStage OF
 		_PowerOn := FALSE;
 		// COVER MUST BE OPENED FOR A SUCCESSFUL WAKE & SHAKE COMMAND!
 		// unconditional by design: does not consult bCoverAutoOpen (see CoverAutoOpen.Set)
+		// #113: from the cover command on, a park must close what the power-on opens (with bIsParked TRUE it would only
+		// clear bPark). A power-on that fails before this line (checks above) has opened nothing and stays parked.
+		bIsParked := FALSE;
 		fbCovers.Open();
 		IF bMainReady AND fbCovers.Opened THEN
 			nStage := 10;
@@ -1259,6 +1277,7 @@ CASE nStage OF
         // while bPower is already FALSE and the startup would stay at 0.8. Wait one more scan instead.
         IF bReady AND bMainReady AND bStopped AND NOT bBusy AND NOT bError AND NOT bEstopTriggered THEN
             fbStartup.MarkCompleted();
+            bFirstPowerOnPending := FALSE;	// #113
             bPower := FALSE;
             fElevation := fElevationCurrent;
             fAzimuth := fAzimuthCurrent;

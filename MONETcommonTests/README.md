@@ -15,6 +15,7 @@ results); this one only covers what's specific to MONETcommon.
 | `F_AxisTurn_Tests` | the turn of an azimuth/derotator target inside the axis limits (#2): MONETS/MONETN limits, inclusive endpoints, no valid turn, longest track time with the 4 h cap, nearest turn without velocity, the margin, and that a tracking axis keeps its turn and stops at the margin instead of jumping 360 deg |
 | `F_TargetBelowHorizonWarning_Tests` | the 'Target below safe horizon' condition (#94): only a requested goto/track below `fHorizon` warns, an idle or parked telescope with a stale RA/Dec target does not, the comparison is strict |
 | `F_ErrorParkRequest_Tests` | the request for the emergency park on a new axis error (#86): only a rising edge of a hardware error on a telescope that is not parked and not in E-stop, no repeat while the error persists, no loop after the park |
+| `F_WakeShakeErrorExempt_Tests` | the Wake&Shake exemption from the emergency park (#113): only the first power-on after a PLC restart, only while powering, only for azimuth/elevation errors |
 | `F_GotoTargetCheck_Tests` | the elevation window of a goto/track target (#109): below 2 deg 16#15, above 89.5 deg 16#16, both limits inside, and that with `fHorizon` 1 deg every target that warns is also refused (a warning alone only exists when `fHorizon` is above the floor) |
 
 This is a first, deliberately small slice -- see
