@@ -153,14 +153,34 @@ Decided (Tim, 2026-10-20):
    Whether MONETS runs the affected version cannot be told from the repos (it references `MONETcommon, *`):
    check the installed library version on the engineering PC.
 
+Proposed, to be confirmed (Tim agreed on the turn rule, 2026-10-20; the rest are proposals):
+- `fTrackMargin`: 1 deg on both axes and both sites, as a named per-axis config value, not a literal. 1 deg is
+  today's derotator stop (-69 / 379 inside [-70, 380]); it is a placeholder until the drive behaviour near the
+  endpoints is checked. Reason for a margin: stop tracking cleanly before the measured endpoint, which would
+  probably raise an axis/limit error that needs a reset. No further margin by default (it shrinks range and
+  track time).
+- Turn rule when two fit (Tim): the turn with the longer track time wins. Track time = distance to the limit in
+  the velocity direction / |v|, taking `fTrackMargin` into account. Details to decide:
+  - The velocity at the command is a snapshot; azimuth and derotator velocity change strongly near the zenith.
+    Start with the linear estimate; predicting the target forward a few hours would be more accurate, at more
+    cost.
+  - Proposed cap: track times above a limit (for example 2 h) count as equal, then the turn nearest to the
+    current position wins. Without it a turn 360 deg away can win by a few minutes and the goto must unwind
+    the mount first. Pure "longest wins" also changes MONETN: az 100 with negative velocity would go to 460
+    instead of staying at 100 (see the regression caveat in 5); the cap keeps MONETN close to today.
+  - At v = 0: nearest turn.
+- Azimuth convention: north = 0, east = 90 is consistent with the limits (MONETS [-274, 270] is centred near
+  north, where stars culminate at latitude -32; MONETN [-72, 495] is centred near 210, where they culminate at
+  +30). This is an inference, not read from the conversion code: check the AstroBROT azimuth conversion before
+  implementing, and confirm the cable winding direction on site (not visible in the code).
+
 Still open:
-- `fTrackMargin` per axis and site (0 = up to the measured endpoint).
-- Preferred turn when two fit, including `v = 0`, and whether MONETN keeps its 310 / 80 thresholds
-  (see the regression caveat in 5).
-- Confirm the north-0 convention and cable winding direction on site.
+- Confirm `fTrackMargin` (1 deg) and the cap value, or measure them on site.
+- Whether MONETN keeps its 310 / 80 thresholds or gets the cap rule (see above).
+- Confirm the azimuth convention and cable winding direction on site.
 
 ## 10. Tasks (in order)
-1. Settle the remaining open points in 9 (on site: azimuth convention, `fTrackMargin`, which build MONETS runs).
+1. Settle the remaining open points in 9 (on site: azimuth convention and winding, `fTrackMargin`, cap value, which build MONETS runs); check the AstroBROT azimuth conversion.
 2. Branch `fix/wrap-from-limits-2` from `origin/develop` (after #95 merged).
 3. Add `F_AxisTurn` + `F_AxisTurn_Tests`, run the tests (all cases in 5).
 4. Replace the wrap (lines 236-246) with the function, limits per question 4.
