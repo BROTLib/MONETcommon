@@ -18,6 +18,6 @@ Dated `YYYY-MM-DD-<slug>.md` investigation and work logs, one per unit of work.
   cannot move). Builds on 0.8.5's `bMoveAbortPending`. **implemented in code (PR #95), not compiled or hardware-tested**; policy decisions D1-D7 decided.
 - [2026-10-20-target-horizon-warning-94.md](2026-10-20-target-horizon-warning-94.md): #94, 'Target below safe
   horizon' only for a requested goto/track, evaluated before the dispatch can clear `bGoto`.
-  **Implemented in code, not yet compiled in XAE or tested on hardware.**
+  **Merged to develop (PR #97), not released; XAE compile and on-site check pending.**
 - [2026-10-20-wrap-limits-2.md](2026-10-20-wrap-limits-2.md): #2, azimuth/derotator wrap from the per-site axis
   limits instead of MONETN literals; refuse instead of clamp. **Planned, not started**, four open questions.

@@ -20,6 +20,15 @@ VAR_INPUT
 	// the computed tracking rate), NOT just _HomeTelescope despite the old name.
 	// 5.0 deg/s confirmed correct on-site for MONETS; 10.0 was too fast.
 	fElevationMoveVelocity : LREAL := 5.0;
+
+	// #2: the turn of an azimuth/derotator target is chosen inside the axes' own fMinPosition/fMaxPosition (the
+	// measured endpoints, set per site in MAIN), see F_AxisTurn. Per axis: degrees kept free at the limit the
+	// target moves towards (tracking stops there), and the track time in seconds above which two turns count as
+	// equal (4 h).
+	fAzimuthTrackMargin		: LREAL := 1.0;
+	fDerotatorTrackMargin	: LREAL := 1.0;
+	fAzimuthTrackTimeCap	: LREAL := 14400.0;
+	fDerotatorTrackTimeCap	: LREAL := 14400.0;
 END_VAR
 VAR_OUTPUT
 	fDerotatorSign		: LREAL := 1.0;	// derotator
@@ -51,6 +60,19 @@ VAR
 	sInitRefusedReason	: STRING(80);
 	nInitRefusedLevel	: UDINT;
 	InitRefusedEvent	: FB_EventLog;
+
+	// #2: F_AxisTurn found a turn of the target inside the axis limits. No turn: a goto/track is not started (or a
+	// running track stops) and AzimuthNoTurnEvent / DerotatorNoTurnEvent warn. Taken before the dispatch below can
+	// clear bGoto/bTrack, like bTargetBelowHorizonWarn.
+	bAzimuthTurnOK		: BOOL;
+	bDerotatorTurnOK	: BOOL;
+	bAzimuthNoTurn		: BOOL;
+	bDerotatorNoTurn	: BOOL;
+	AzimuthNoTurnEvent	: FB_EventLog;
+	DerotatorNoTurnEvent: FB_EventLog;
+	// #2: a slew target outside the axis limits was refused (one-scan flag, set by _SlewTelescope).
+	bSlewOutOfLimits	: BOOL;
+	SlewOutOfLimitsEvent: FB_EventLog;
 
 	// #34: home or park position at or below fHorizon + fHorizonMargin. The horizon guard
 	// would send the telescope home, find it still below the horizon, and home it again forever.
@@ -288,17 +310,20 @@ fDerotatorVelocity := F_Derotatorvelocity(fAzimuthCalc, fElevationCalc, telescop
 fElevationVelocity := F_Elevationvelocity(fAzimuthCalc, telescopeConfig.latitude);
 fAzimuthVelocity := F_Azimuthvelocity(fElevationCalc, fAzimuthCalc, telescopeConfig.latitude);
 
-IF (fAzimuthCalc > 310.0 AND fAzimuthVelocity > 0.0) OR (fAzimuthCalc > 440.0) THEN
-	fAzimuthCalc := fAzimuthCalc - 360.0;
-ELSIF (fAzimuthCalc < 80.0 AND fAzimuthVelocity < 0.0) OR (fAzimuthCalc < -50.0) THEN
-	fAzimuthCalc := fAzimuthCalc + 360.0;
-END_IF
-
-IF (fDerotatorCalc > 290.0 AND fDerotatorVelocity > 0.0) OR (fDerotatorCalc > 380.0) THEN
-	fDerotatorCalc := fDerotatorCalc - 360.0;
-ELSIF (fDerotatorCalc < 20.0 AND fDerotatorVelocity < 0.0) OR (fDerotatorCalc < -70.0) THEN
-	fDerotatorCalc := fDerotatorCalc + 360.0;
-END_IF
+// #2: the turn of the target inside the axis limits (the measured endpoints, never a literal of one site). A target
+// is not clamped to another position: without a turn inside the limits the goto/track is refused. While an axis
+// tracks it keeps the turn it is on, except for a new goto, which chooses freely (the axis may be anywhere).
+bAzimuthTurnOK := F_AxisTurn(
+	fTarget := fAzimuthCalc, fVelocity := fAzimuthVelocity, fCurrent := fbAzimuth.fActualPosition,
+	bHold := fbAzimuth.Tracking AND NOT bGoto, fMin := fbAzimuth.fMinPosition, fMax := fbAzimuth.fMaxPosition,
+	fMargin := fAzimuthTrackMargin, fTrackTimeCap := fAzimuthTrackTimeCap, fPosition => fAzimuthCalc);
+bDerotatorTurnOK := F_AxisTurn(
+	fTarget := fDerotatorCalc, fVelocity := fDerotatorVelocity, fCurrent := fbDerotator.fActualPosition,
+	bHold := fbDerotator.Tracking AND NOT bGoto, fMin := fbDerotator.fMinPosition, fMax := fbDerotator.fMaxPosition,
+	fMargin := fDerotatorTrackMargin, fTrackTimeCap := fDerotatorTrackTimeCap, fPosition => fDerotatorCalc);
+// only a requested goto/track makes the target relevant (see #94)
+bAzimuthNoTurn := (bGoto OR bTrack) AND NOT bAzimuthTurnOK;
+bDerotatorNoTurn := (bGoto OR bTrack) AND NOT bDerotatorTurnOK;
 
 // get current coordinates	
 fAzimuthCurrent := fbAzimuth.fActualPosition;
@@ -717,6 +742,25 @@ TCStargetHorizonEvent(	Trigger := bTargetBelowHorizonWarn,
 				OnMessage := 'Target below safe horizon',
 				OffMEssage := '', 
 				Comm := fbComm);
+AzimuthNoTurnEvent(	Trigger := bAzimuthNoTurn,
+				Level := ADSLOG_MSGTYPE_WARN,
+				FormatString := '%s',
+				OnMessage := 'No azimuth position inside the axis limits for the target, goto/track refused',
+				OffMEssage := '',
+				Comm := fbComm);
+DerotatorNoTurnEvent(	Trigger := bDerotatorNoTurn,
+				Level := ADSLOG_MSGTYPE_WARN,
+				FormatString := '%s',
+				OnMessage := 'No derotator position inside the axis limits for the target, goto/track refused',
+				OffMEssage := '',
+				Comm := fbComm);
+SlewOutOfLimitsEvent(	Trigger := bSlewOutOfLimits,
+				Level := ADSLOG_MSGTYPE_WARN,
+				FormatString := '%s',
+				OnMessage := 'Slew target outside the axis limits, slew refused',
+				OffMEssage := '',
+				Comm := fbComm);
+bSlewOutOfLimits := FALSE;
 TCSreadyEvent(	Trigger := bPower AND bReady, 
 				Level := ADSLOG_MSGTYPE_HINT,
 				FormatString := '%s',
@@ -824,6 +868,13 @@ IF fElevationCalc>89.5 THEN
 	nErrorID := 16#16;
 	bSoftwareError := TRUE;
 	nSoftwareErrorID := 16#16;
+	bGoto := FALSE;
+	nStage := 0;
+	RETURN;
+END_IF
+
+// #2: no position inside the axis limits (F_AxisTurn): no move, the body warns. Not an error: nothing is latched.
+IF NOT bAzimuthTurnOK OR NOT bDerotatorTurnOK THEN
 	bGoto := FALSE;
 	nStage := 0;
 	RETURN;
@@ -1372,6 +1423,8 @@ VAR_INPUT
 END_VAR
 VAR
 	SlewEvent:	FB_Eventlog;
+	fSlewAzimuth:	LREAL;
+	fSlewDerotator:	LREAL;
 END_VAR
 VAR_INST
 	nStage:		USINT := 0;
@@ -1413,6 +1466,16 @@ CASE nStage OF
 			fAzimuthOffset		=> fAzimuthPointingOffset,
 			fElevationOffset	=> fElevationPointingOffset
 		);	
+		// #2: the axes would clamp a position outside their limits to another one, so refuse it before any move
+		fSlewAzimuth := fAzimuth + fAzimuthPointingOffset + F_AzimuthOffsetOnAxis(fAzimuthOffset, fElevation);
+		fSlewDerotator := fElevation + fDerotatorOffset;
+		IF fSlewAzimuth < fbAzimuth.fMinPosition - 1.0E-6 OR fSlewAzimuth > fbAzimuth.fMaxPosition + 1.0E-6
+			OR fSlewDerotator < fbDerotator.fMinPosition - 1.0E-6 OR fSlewDerotator > fbDerotator.fMaxPosition + 1.0E-6 THEN
+			bSlewOutOfLimits := TRUE;
+			bSlew := FALSE;
+			nStage := 0;
+			RETURN;
+		END_IF
 		fbElevation.Position := fElevation + fElevationPointingOffset + fElevationOffset;
 		fbElevation.Velocity := fElevationMoveVelocity;
 		fbElevation.MoveAxis := TRUE;
@@ -1525,10 +1588,9 @@ fAzimuthVelocity := F_Azimuthvelocity(fElevationCalc, fAzimuthCalc, telescopeCon
 IF fElevationCurrent < 5.0 OR fElevationCurrent > 89.5 THEN
 	bTrack := FALSE;
 END_IF
-IF fAzimuthCurrent > 440.0 THEN
-	bTrack := FALSE;
-END_IF
-IF (fDerotatorCurrent < -69.0 AND fDerotatorVelocity<0.0) OR (fDerotatorCurrent > 379.0 AND fDerotatorVelocity>0.0) THEN
+// #2: replaces the literal cutoffs (azimuth 440, derotator -69/379) of MONETN: tracking stops fAzimuthTrackMargin /
+// fDerotatorTrackMargin before the limit the target moves towards, or when no turn exists
+IF NOT bAzimuthTurnOK OR NOT bDerotatorTurnOK THEN
 	bTrack := FALSE;
 END_IF
 
