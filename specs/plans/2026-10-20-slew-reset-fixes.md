@@ -1,6 +1,6 @@
 # MONETcommon 0.8.5: interruptible moves and a reset that really resets (#84, #77, #85, #88)
 
-Date: 2026-10-20. Status: plan only, no code changed.
+Date: 2026-10-20. Status: implemented in code on branch fix/slew-interrupt-reset-84-77-85-88 (not compiled or hardware-tested yet; the unit-test extraction of section 5 is NOT done, deferred).
 Repo: BROTLib/MONETcommon. Base: `origin/develop` @ `80b80b1` (0.8.4).
 Note: branch from `origin/develop`, not from `main`.
 

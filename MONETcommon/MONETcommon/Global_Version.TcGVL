@@ -13,7 +13,7 @@ VAR_GLOBAL CONSTANT
 		iBuild := 4,
 		iRevision := 0,
 		nFlags := 1,
-		sVersion := '0.8.4'
+		sVersion := '0.8.5'
 	);
 END_VAR]]></Declaration>
   </GVL>
