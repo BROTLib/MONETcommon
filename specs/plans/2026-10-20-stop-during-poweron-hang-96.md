@@ -1,6 +1,6 @@
 # Stop during a power-on that moves the axes never completes (#96)
 
-Date: 2026-10-20. Status: **planned, not started.** Nothing compiled or run. #96 and the 0.9.0 part of #84 stay open until
+Date: 2026-10-20. Status: **implemented in the PR `fix/stop-during-poweron-96`, CI result in the PR; not run on a PLC or telescope.** Section 4.1 is implemented as written, except that the stop write does not require `bEnabled` (the 0.9.0 code did not either). The scan model used for the tests (`StopLoop_Sim_Tests`) reproduces repeated MC_Stop restarts and a late release with skewed Done times, not an endless hang: with fixed Done times the old rule always reaches a scan where all axes are at rest, so the endless hang of #96 still rests on the code reading and on IAG50cm#108. #96 and the 0.9.0 part of #84 stay open until
 the checks in section 7 pass.
 Repo: BROTLib/MONETcommon. Base: `develop` = `origin/develop` = `b413ef0` (0.9.0 plus #86, #113, oil-level tests).
 Line numbers below are from `b413ef0`. The #84 analysis comment used the `v0.9.0` tag, so its numbers are about 20 lines lower.

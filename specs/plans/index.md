@@ -25,4 +25,4 @@ Dated `YYYY-MM-DD-<slug>.md` investigation and work logs, one per unit of work.
   parked starts the emergency park by itself (`F_ErrorParkRequest`). **Implemented in code, not compiled or hardware-tested.**
 - [2026-10-20-unpark-on-poweron-113.md](2026-10-20-unpark-on-poweron-113.md): #113, `bIsParked` drops with the cover command of
   a power-on so a park during it closes the covers; Wake&Shake exemption from the #86 park. **Implemented in code, not compiled or hardware-tested.**
-- [2026-10-20-stop-during-poweron-hang-96.md](2026-10-20-stop-during-poweron-hang-96.md): #96 (and the 0.9.0 part of #84), stop never completes because `_StopTelescope` restarts `MC_Stop` after every `StopDone`; one stop per axis and transaction (port of IAG50cm#108), 0.9.1. **Planned, not started.**
+- [2026-10-20-stop-during-poweron-hang-96.md](2026-10-20-stop-during-poweron-hang-96.md): #96 (and the 0.9.0 part of #84), stop never completes because `_StopTelescope` restarts `MC_Stop` after every `StopDone`; one stop per axis and transaction (port of IAG50cm#108), 0.9.1. **Implemented in a PR, not run on a PLC or telescope.**

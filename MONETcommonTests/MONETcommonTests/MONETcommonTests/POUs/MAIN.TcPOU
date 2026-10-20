@@ -15,6 +15,8 @@ VAR
 	fbOilLevelValidTests	: F_OilLevelValid_Tests;
 	fbOilSuctionLatchTests	: F_OilSuctionLatch_Tests;
 	fbGotoTargetCheckTests	: F_GotoTargetCheck_Tests;
+	fbStopTransactionTests	: FB_MonetStopTransaction_Tests;
+	fbStopLoopSimTests	: StopLoop_Sim_Tests;
 	fbTempSensorTests	: FB_MonetTempSensor_Tests;
 	fbMethodVarProbeTests	: FB_MethodVarProbe_Tests;
 END_VAR
