@@ -19,9 +19,27 @@
     <Company>IAG</Company>
     <Released>false</Released>
     <Title>MONETcommon</Title>
-    <ProjectVersion>0.8.0</ProjectVersion>
+    <ProjectVersion>0.9.0</ProjectVersion>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="E_CommandDecision.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="E_CommandRejectReason.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="ST_CommandState.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="F_CommandAcceptance.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="F_CommandRejectText.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="F_TCSCommandText.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
     <Compile Include="E_ModeLanguage.TcDUT">
       <SubType>Code</SubType>
     </Compile>
@@ -49,7 +67,16 @@
     <Compile Include="F_AzimuthOffsetOnAxis.TcPOU">
       <SubType>Code</SubType>
     </Compile>
+    <Compile Include="FB_MonetTempSensor.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
     <Compile Include="F_HomeBelowHorizon.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="F_AxisTurn.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="F_TargetBelowHorizonWarning.TcPOU">
       <SubType>Code</SubType>
     </Compile>
     <Compile Include="FB_MonetTelescopeControl.TcPOU">
@@ -77,6 +104,10 @@
     <PlaceholderReference Include="HalfBROT">
       <DefaultResolution>HalfBROT, * (BROT)</DefaultResolution>
       <Namespace>HalfBROT</Namespace>
+    </PlaceholderReference>
+    <PlaceholderReference Include="Tc2_Math">
+      <DefaultResolution>Tc2_Math, * (Beckhoff Automation GmbH)</DefaultResolution>
+      <Namespace>Tc2_Math</Namespace>
     </PlaceholderReference>
     <PlaceholderReference Include="Tc2_MC2">
       <DefaultResolution>Tc2_MC2, * (Beckhoff Automation GmbH)</DefaultResolution>

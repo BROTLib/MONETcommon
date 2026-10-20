@@ -1,0 +1,319 @@
+<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="F_CommandAcceptance_Tests" Id="{5b1d2a10-7c3e-4d52-9a61-0e4f8c2b7a21}" SpecialFunc="None">
+    <Declaration><![CDATA[// Tests for MONETcommon.F_CommandAcceptance and F_CommandRejectText (#83, #87): one test per row of the
+// acceptance table (specs/plans/2026-10-20-command-acceptance-83-87.md, section 2.2).
+FUNCTION_BLOCK F_CommandAcceptance_Tests EXTENDS TcUnit.FB_TestSuite
+VAR
+	eLastReason	: MONETcommon.E_CommandRejectReason;
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[Ready_Idle_Accepts_All();
+Estop_Rejects_Moves_Accepts_Park();
+Error_Rejects_Moves_Accepts_Park();
+Clock_Invalid_Rejects_All_Moves_Except_GoHome();
+Stopping_Rejects_Moves_Defers_Park();
+Powering_Rejects_Moves_Park_Aborts_Power();
+Parking_Rejects_Moves();
+Parked_Rejects_Moves_With_Reason_Parked();
+Parked_Park_Is_Accepted();
+NotReady_Rejects_Moves_Accepts_Park();
+GoHome_Active_Rejects_Slew_Goto_Track();
+Moving_Replaces();
+Reject_Texts();
+]]></ST>
+    </Implementation>
+    <Method Name="Ready_State" Id="{5b1d2a10-7c3e-4d52-9a61-0e4f8c2b7a22}">
+      <Declaration><![CDATA[// A powered-on, idle telescope: nothing pending, nothing wrong.
+METHOD PRIVATE Ready_State : MONETcommon.ST_CommandState
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Ready_State.bClockValid := TRUE;
+Ready_State.bReady := TRUE;
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Decide" Id="{5b1d2a10-7c3e-4d52-9a61-0e4f8c2b7a23}">
+      <Declaration><![CDATA[METHOD PRIVATE Decide : MONETcommon.E_CommandDecision
+VAR_INPUT
+	eCommand	: BROTLib.E_TCSCommand;
+	stState		: MONETcommon.ST_CommandState;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Decide := MONETcommon.F_CommandAcceptance(eCommand := eCommand, stState := stState, eReason => eLastReason);
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Ready_Idle_Accepts_All" Id="{5b1d2a10-7c3e-4d52-9a61-0e4f8c2b7a24}">
+      <Declaration><![CDATA[METHOD PRIVATE Ready_Idle_Accepts_All
+VAR
+	stState	: MONETcommon.ST_CommandState;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Ready_Idle_Accepts_All');
+stState := Ready_State();
+AssertTrue(Condition := Decide(BROTLib.E_TCSCommand.slew, stState) = MONETcommon.E_CommandDecision.accept, Message := 'slew');
+AssertTrue(Condition := Decide(BROTLib.E_TCSCommand.goto, stState) = MONETcommon.E_CommandDecision.accept, Message := 'goto');
+AssertTrue(Condition := Decide(BROTLib.E_TCSCommand.track, stState) = MONETcommon.E_CommandDecision.accept, Message := 'track');
+AssertTrue(Condition := Decide(BROTLib.E_TCSCommand.gohome, stState) = MONETcommon.E_CommandDecision.accept, Message := 'gohome');
+AssertTrue(Condition := Decide(BROTLib.E_TCSCommand.park, stState) = MONETcommon.E_CommandDecision.accept, Message := 'park');
+AssertTrue(Condition := eLastReason = MONETcommon.E_CommandRejectReason.none, Message := 'no reason on accept');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Estop_Rejects_Moves_Accepts_Park" Id="{5b1d2a10-7c3e-4d52-9a61-0e4f8c2b7a25}">
+      <Declaration><![CDATA[METHOD PRIVATE Estop_Rejects_Moves_Accepts_Park
+VAR
+	stState	: MONETcommon.ST_CommandState;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Estop_Rejects_Moves_Accepts_Park');
+stState := Ready_State();
+stState.bEstop := TRUE;
+stState.bError := TRUE;		// the E-stop also raises an error: the E-stop reason wins
+AssertTrue(Condition := Decide(BROTLib.E_TCSCommand.slew, stState) = MONETcommon.E_CommandDecision.reject, Message := 'slew rejected');
+AssertTrue(Condition := eLastReason = MONETcommon.E_CommandRejectReason.estop, Message := 'reason estop');
+AssertTrue(Condition := Decide(BROTLib.E_TCSCommand.gohome, stState) = MONETcommon.E_CommandDecision.reject, Message := 'gohome rejected');
+AssertTrue(Condition := Decide(BROTLib.E_TCSCommand.park, stState) = MONETcommon.E_CommandDecision.accept, Message := 'park accepted');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Error_Rejects_Moves_Accepts_Park" Id="{5b1d2a10-7c3e-4d52-9a61-0e4f8c2b7a26}">
+      <Declaration><![CDATA[// The emergency park (#86 is out of scope) must stay reachable: park is accepted with an error.
+METHOD PRIVATE Error_Rejects_Moves_Accepts_Park
+VAR
+	stState	: MONETcommon.ST_CommandState;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Error_Rejects_Moves_Accepts_Park');
+stState := Ready_State();
+stState.bError := TRUE;
+stState.bReady := FALSE;
+stState.bIsParked := TRUE;		// error beats parked
+AssertTrue(Condition := Decide(BROTLib.E_TCSCommand.goto, stState) = MONETcommon.E_CommandDecision.reject, Message := 'goto rejected');
+AssertTrue(Condition := eLastReason = MONETcommon.E_CommandRejectReason.error, Message := 'reason error');
+AssertTrue(Condition := Decide(BROTLib.E_TCSCommand.park, stState) = MONETcommon.E_CommandDecision.accept, Message := 'park accepted');
+stState.bPowering := TRUE;		// an error during a power-on: no abort branch, the error path handles it
+AssertTrue(Condition := Decide(BROTLib.E_TCSCommand.park, stState) = MONETcommon.E_CommandDecision.accept, Message := 'park accepted while powering with error');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Clock_Invalid_Rejects_All_Moves_Except_GoHome" Id="{5b1d2a10-7c3e-4d52-9a61-0e4f8c2b7a27}">
+      <Declaration><![CDATA[METHOD PRIVATE Clock_Invalid_Rejects_All_Moves_Except_GoHome
+VAR
+	stState	: MONETcommon.ST_CommandState;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Clock_Invalid_Rejects_All_Moves_Except_GoHome');
+stState := Ready_State();
+stState.bClockValid := FALSE;
+AssertTrue(Condition := Decide(BROTLib.E_TCSCommand.slew, stState) = MONETcommon.E_CommandDecision.reject, Message := 'slew rejected');
+AssertTrue(Condition := eLastReason = MONETcommon.E_CommandRejectReason.clock_invalid, Message := 'reason clock');
+AssertTrue(Condition := Decide(BROTLib.E_TCSCommand.goto, stState) = MONETcommon.E_CommandDecision.reject, Message := 'goto rejected');
+AssertTrue(Condition := Decide(BROTLib.E_TCSCommand.track, stState) = MONETcommon.E_CommandDecision.reject, Message := 'track rejected');
+AssertTrue(Condition := Decide(BROTLib.E_TCSCommand.gohome, stState) = MONETcommon.E_CommandDecision.accept, Message := 'gohome needs no time');
+AssertTrue(Condition := Decide(BROTLib.E_TCSCommand.park, stState) = MONETcommon.E_CommandDecision.accept, Message := 'park accepted');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Stopping_Rejects_Moves_Defers_Park" Id="{5b1d2a10-7c3e-4d52-9a61-0e4f8c2b7a28}">
+      <Declaration><![CDATA[METHOD PRIVATE Stopping_Rejects_Moves_Defers_Park
+VAR
+	stState	: MONETcommon.ST_CommandState;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Stopping_Rejects_Moves_Defers_Park');
+stState := Ready_State();
+stState.bStop := TRUE;
+stState.bPowering := TRUE;		// a stop beats a power-on
+AssertTrue(Condition := Decide(BROTLib.E_TCSCommand.slew, stState) = MONETcommon.E_CommandDecision.reject, Message := 'slew rejected');
+AssertTrue(Condition := eLastReason = MONETcommon.E_CommandRejectReason.stopping, Message := 'reason stopping');
+AssertTrue(Condition := Decide(BROTLib.E_TCSCommand.gohome, stState) = MONETcommon.E_CommandDecision.reject, Message := 'gohome rejected');
+AssertTrue(Condition := Decide(BROTLib.E_TCSCommand.park, stState) = MONETcommon.E_CommandDecision.defer, Message := 'park deferred to standstill');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Powering_Rejects_Moves_Park_Aborts_Power" Id="{5b1d2a10-7c3e-4d52-9a61-0e4f8c2b7a29}">
+      <Declaration><![CDATA[METHOD PRIVATE Powering_Rejects_Moves_Park_Aborts_Power
+VAR
+	stState	: MONETcommon.ST_CommandState;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Powering_Rejects_Moves_Park_Aborts_Power');
+stState := Ready_State();
+stState.bPowering := TRUE;
+stState.bReady := FALSE;
+stState.bIsParked := TRUE;		// power-on starts from parked: "power-on in progress" wins over "parked"
+AssertTrue(Condition := Decide(BROTLib.E_TCSCommand.goto, stState) = MONETcommon.E_CommandDecision.reject, Message := 'goto rejected');
+AssertTrue(Condition := eLastReason = MONETcommon.E_CommandRejectReason.powering_on, Message := 'reason powering_on');
+AssertTrue(Condition := Decide(BROTLib.E_TCSCommand.track, stState) = MONETcommon.E_CommandDecision.reject, Message := 'track rejected');
+AssertTrue(Condition := Decide(BROTLib.E_TCSCommand.park, stState) = MONETcommon.E_CommandDecision.abort_power, Message := '#87 park aborts the power-on');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Parking_Rejects_Moves" Id="{5b1d2a10-7c3e-4d52-9a61-0e4f8c2b7a2a}">
+      <Declaration><![CDATA[METHOD PRIVATE Parking_Rejects_Moves
+VAR
+	stState	: MONETcommon.ST_CommandState;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Parking_Rejects_Moves');
+stState := Ready_State();
+stState.bParkPending := TRUE;
+AssertTrue(Condition := Decide(BROTLib.E_TCSCommand.slew, stState) = MONETcommon.E_CommandDecision.reject, Message := 'slew rejected');
+AssertTrue(Condition := eLastReason = MONETcommon.E_CommandRejectReason.parking, Message := 'reason parking');
+AssertTrue(Condition := Decide(BROTLib.E_TCSCommand.gohome, stState) = MONETcommon.E_CommandDecision.reject, Message := 'gohome rejected');
+AssertTrue(Condition := Decide(BROTLib.E_TCSCommand.park, stState) = MONETcommon.E_CommandDecision.accept, Message := 'park again is a no-op accept');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Parked_Rejects_Moves_With_Reason_Parked" Id="{5b1d2a10-7c3e-4d52-9a61-0e4f8c2b7a2b}">
+      <Declaration><![CDATA[// #83: a slew sent to a parked telescope is rejected at once and never stays pending.
+METHOD PRIVATE Parked_Rejects_Moves_With_Reason_Parked
+VAR
+	stState	: MONETcommon.ST_CommandState;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Parked_Rejects_Moves_With_Reason_Parked');
+stState := Ready_State();
+stState.bIsParked := TRUE;
+stState.bReady := FALSE;
+AssertTrue(Condition := Decide(BROTLib.E_TCSCommand.slew, stState) = MONETcommon.E_CommandDecision.reject, Message := 'slew rejected');
+AssertTrue(Condition := eLastReason = MONETcommon.E_CommandRejectReason.parked, Message := 'slew reason parked');
+AssertTrue(Condition := Decide(BROTLib.E_TCSCommand.goto, stState) = MONETcommon.E_CommandDecision.reject, Message := 'goto rejected');
+AssertTrue(Condition := Decide(BROTLib.E_TCSCommand.track, stState) = MONETcommon.E_CommandDecision.reject, Message := 'track rejected');
+AssertTrue(Condition := Decide(BROTLib.E_TCSCommand.gohome, stState) = MONETcommon.E_CommandDecision.reject, Message := 'gohome rejected');
+AssertTrue(Condition := eLastReason = MONETcommon.E_CommandRejectReason.parked, Message := 'gohome reason parked');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Parked_Park_Is_Accepted" Id="{5b1d2a10-7c3e-4d52-9a61-0e4f8c2b7a2c}">
+      <Declaration><![CDATA[METHOD PRIVATE Parked_Park_Is_Accepted
+VAR
+	stState	: MONETcommon.ST_CommandState;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Parked_Park_Is_Accepted');
+stState := Ready_State();
+stState.bIsParked := TRUE;
+stState.bReady := FALSE;
+AssertTrue(Condition := Decide(BROTLib.E_TCSCommand.park, stState) = MONETcommon.E_CommandDecision.accept, Message := 'park accepted');
+AssertTrue(Condition := eLastReason = MONETcommon.E_CommandRejectReason.none, Message := 'no reason');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="NotReady_Rejects_Moves_Accepts_Park" Id="{5b1d2a10-7c3e-4d52-9a61-0e4f8c2b7a2d}">
+      <Declaration><![CDATA[METHOD PRIVATE NotReady_Rejects_Moves_Accepts_Park
+VAR
+	stState	: MONETcommon.ST_CommandState;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('NotReady_Rejects_Moves_Accepts_Park');
+stState := Ready_State();
+stState.bReady := FALSE;
+AssertTrue(Condition := Decide(BROTLib.E_TCSCommand.slew, stState) = MONETcommon.E_CommandDecision.reject, Message := 'slew rejected');
+AssertTrue(Condition := eLastReason = MONETcommon.E_CommandRejectReason.not_ready, Message := 'reason not_ready');
+AssertTrue(Condition := Decide(BROTLib.E_TCSCommand.gohome, stState) = MONETcommon.E_CommandDecision.reject, Message := 'gohome rejected');
+AssertTrue(Condition := Decide(BROTLib.E_TCSCommand.park, stState) = MONETcommon.E_CommandDecision.accept, Message := 'park accepted');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="GoHome_Active_Rejects_Slew_Goto_Track" Id="{5b1d2a10-7c3e-4d52-9a61-0e4f8c2b7a2e}">
+      <Declaration><![CDATA[METHOD PRIVATE GoHome_Active_Rejects_Slew_Goto_Track
+VAR
+	stState	: MONETcommon.ST_CommandState;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('GoHome_Active_Rejects_Slew_Goto_Track');
+stState := Ready_State();
+stState.bGoHomeActive := TRUE;
+stState.bMoveActive := TRUE;
+AssertTrue(Condition := Decide(BROTLib.E_TCSCommand.slew, stState) = MONETcommon.E_CommandDecision.reject, Message := 'slew rejected');
+AssertTrue(Condition := eLastReason = MONETcommon.E_CommandRejectReason.gohome_active, Message := 'reason gohome_active');
+AssertTrue(Condition := Decide(BROTLib.E_TCSCommand.goto, stState) = MONETcommon.E_CommandDecision.reject, Message := 'goto rejected');
+AssertTrue(Condition := Decide(BROTLib.E_TCSCommand.track, stState) = MONETcommon.E_CommandDecision.reject, Message := 'track rejected');
+AssertTrue(Condition := Decide(BROTLib.E_TCSCommand.gohome, stState) = MONETcommon.E_CommandDecision.replace, Message := 'gohome over gohome replaces');
+AssertTrue(Condition := Decide(BROTLib.E_TCSCommand.park, stState) = MONETcommon.E_CommandDecision.accept, Message := 'park accepted');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Moving_Replaces" Id="{5b1d2a10-7c3e-4d52-9a61-0e4f8c2b7a2f}">
+      <Declaration><![CDATA[// Latest move wins: slew over goto, goto over slew, goto over tracking, gohome over a move.
+METHOD PRIVATE Moving_Replaces
+VAR
+	stState	: MONETcommon.ST_CommandState;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Moving_Replaces');
+stState := Ready_State();
+stState.bMoveActive := TRUE;
+AssertTrue(Condition := Decide(BROTLib.E_TCSCommand.slew, stState) = MONETcommon.E_CommandDecision.replace, Message := 'slew replaces');
+AssertTrue(Condition := Decide(BROTLib.E_TCSCommand.goto, stState) = MONETcommon.E_CommandDecision.replace, Message := 'goto replaces');
+AssertTrue(Condition := Decide(BROTLib.E_TCSCommand.track, stState) = MONETcommon.E_CommandDecision.replace, Message := 'track replaces');
+AssertTrue(Condition := Decide(BROTLib.E_TCSCommand.gohome, stState) = MONETcommon.E_CommandDecision.replace, Message := 'gohome replaces');
+AssertTrue(Condition := eLastReason = MONETcommon.E_CommandRejectReason.none, Message := 'no reason on replace');
+AssertTrue(Condition := Decide(BROTLib.E_TCSCommand.park, stState) = MONETcommon.E_CommandDecision.accept, Message := 'park is not a replace');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Reject_Texts" Id="{5b1d2a10-7c3e-4d52-9a61-0e4f8c2b7a30}">
+      <Declaration><![CDATA[// every reason except none has a log text
+METHOD PRIVATE Reject_Texts
+VAR
+	eReason	: MONETcommon.E_CommandRejectReason;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Reject_Texts');
+AssertEquals_STRING(Expected := '', Actual := MONETcommon.F_CommandRejectText(MONETcommon.E_CommandRejectReason.none), Message := 'none has no text');
+eReason := MONETcommon.E_CommandRejectReason.estop;
+AssertTrue(Condition := LEN(MONETcommon.F_CommandRejectText(eReason)) > 0, Message := 'estop');
+eReason := MONETcommon.E_CommandRejectReason.error;
+AssertTrue(Condition := LEN(MONETcommon.F_CommandRejectText(eReason)) > 0, Message := 'error');
+eReason := MONETcommon.E_CommandRejectReason.clock_invalid;
+AssertTrue(Condition := LEN(MONETcommon.F_CommandRejectText(eReason)) > 0, Message := 'clock_invalid');
+eReason := MONETcommon.E_CommandRejectReason.stopping;
+AssertTrue(Condition := LEN(MONETcommon.F_CommandRejectText(eReason)) > 0, Message := 'stopping');
+eReason := MONETcommon.E_CommandRejectReason.powering_on;
+AssertTrue(Condition := LEN(MONETcommon.F_CommandRejectText(eReason)) > 0, Message := 'powering_on');
+eReason := MONETcommon.E_CommandRejectReason.parking;
+AssertTrue(Condition := LEN(MONETcommon.F_CommandRejectText(eReason)) > 0, Message := 'parking');
+eReason := MONETcommon.E_CommandRejectReason.parked;
+AssertTrue(Condition := LEN(MONETcommon.F_CommandRejectText(eReason)) > 0, Message := 'parked');
+eReason := MONETcommon.E_CommandRejectReason.not_ready;
+AssertTrue(Condition := LEN(MONETcommon.F_CommandRejectText(eReason)) > 0, Message := 'not_ready');
+eReason := MONETcommon.E_CommandRejectReason.gohome_active;
+AssertTrue(Condition := LEN(MONETcommon.F_CommandRejectText(eReason)) > 0, Message := 'gohome_active');
+AssertEquals_STRING(Expected := 'telescope parked, send power=1 first', Actual := MONETcommon.F_CommandRejectText(MONETcommon.E_CommandRejectReason.parked), Message := 'parked text (#83)');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

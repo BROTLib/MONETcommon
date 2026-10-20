@@ -1,0 +1,199 @@
+<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="F_AxisTurn_Tests" Id="{6cff4d78-8be6-449c-b836-63b1f5df27f9}" SpecialFunc="None">
+    <Declaration><![CDATA[// Tests for MONETcommon.F_AxisTurn, the turn of an azimuth/derotator target inside the axis limits (#2).
+FUNCTION_BLOCK F_AxisTurn_Tests EXTENDS TcUnit.FB_TestSuite
+VAR
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[Site_Limits_Are_Respected();
+Endpoints_Are_Inclusive();
+No_Valid_Turn_Gives_FALSE_And_The_Nearest_Turn();
+Longest_Track_Time_Wins();
+No_Velocity_Takes_The_Nearest_Turn();
+Margin_Shortens_The_Track_Time();
+Hold_Keeps_The_Turn_And_Stops_At_The_Margin();
+]]></ST>
+    </Implementation>
+    <Method Name="Site_Limits_Are_Respected" Id="{edd1381d-aa53-4055-8b95-4c2117652a2c}">
+      <Declaration><![CDATA[// The limits are the measured endpoints of each site, never a literal in the library.
+METHOD PRIVATE Site_Limits_Are_Respected
+VAR
+	fPos	: LREAL;
+	bOk		: BOOL;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Site_Limits_Are_Respected');
+// MONETS azimuth: 50 deg with negative velocity used to map to 410 and be clamped to 270 (#2)
+bOk := MONETcommon.F_AxisTurn(fTarget := 50.0, fVelocity := -0.01, fCurrent := 50.0, bHold := FALSE, fMin := -274.0, fMax := 270.0, fMargin := 1.0, fTrackTimeCap := 14400.0, fPosition => fPos);
+AssertTrue(Condition := bOk, Message := 'MONETS az 50');
+AssertEquals_LREAL(Expected := 50.0, Actual := fPos, Delta := 1.0E-9, Message := 'MONETS az 50, position');
+bOk := MONETcommon.F_AxisTurn(fTarget := 300.0, fVelocity := -0.01, fCurrent := -60.0, bHold := FALSE, fMin := -274.0, fMax := 270.0, fMargin := 1.0, fTrackTimeCap := 14400.0, fPosition => fPos);
+AssertTrue(Condition := bOk, Message := 'MONETS az 300 only fits as -60');
+AssertEquals_LREAL(Expected := -60.0, Actual := fPos, Delta := 1.0E-9, Message := 'MONETS az 300 only fits as -60, position');
+// MONETS derotator: 370 does not fit below 360
+bOk := MONETcommon.F_AxisTurn(fTarget := 370.0, fVelocity := 0.01, fCurrent := 10.0, bHold := FALSE, fMin := -90.0, fMax := 360.0, fMargin := 1.0, fTrackTimeCap := 14400.0, fPosition => fPos);
+AssertTrue(Condition := bOk, Message := 'MONETS derotator 370');
+AssertEquals_LREAL(Expected := 10.0, Actual := fPos, Delta := 1.0E-9, Message := 'MONETS derotator 370, position');
+// MONETN derotator: 330 does not fit below 300
+bOk := MONETcommon.F_AxisTurn(fTarget := 330.0, fVelocity := 0.01, fCurrent := -30.0, bHold := FALSE, fMin := -170.0, fMax := 300.0, fMargin := 1.0, fTrackTimeCap := 14400.0, fPosition => fPos);
+AssertTrue(Condition := bOk, Message := 'MONETN derotator 330');
+AssertEquals_LREAL(Expected := -30.0, Actual := fPos, Delta := 1.0E-9, Message := 'MONETN derotator 330, position');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Endpoints_Are_Inclusive" Id="{6349fddd-f404-4d53-bc63-d26d10284475}">
+      <Declaration><![CDATA[// A window narrower than two turns, so a target has at most one position.
+METHOD PRIVATE Endpoints_Are_Inclusive
+VAR
+	fPos	: LREAL;
+	bOk		: BOOL;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Endpoints_Are_Inclusive');
+bOk := MONETcommon.F_AxisTurn(fTarget := 300.0, fVelocity := 0.0, fCurrent := 100.0, bHold := FALSE, fMin := 0.0, fMax := 300.0, fMargin := 1.0, fTrackTimeCap := 14400.0, fPosition => fPos);
+AssertTrue(Condition := bOk, Message := 'exactly fMax');
+AssertEquals_LREAL(Expected := 300.0, Actual := fPos, Delta := 1.0E-9, Message := 'exactly fMax, position');
+bOk := MONETcommon.F_AxisTurn(fTarget := 0.0, fVelocity := 0.0, fCurrent := 100.0, bHold := FALSE, fMin := 0.0, fMax := 300.0, fMargin := 1.0, fTrackTimeCap := 14400.0, fPosition => fPos);
+AssertTrue(Condition := bOk, Message := 'exactly fMin');
+AssertEquals_LREAL(Expected := 0.0, Actual := fPos, Delta := 1.0E-9, Message := 'exactly fMin, position');
+bOk := MONETcommon.F_AxisTurn(fTarget := 301.0, fVelocity := 0.0, fCurrent := 100.0, bHold := FALSE, fMin := 0.0, fMax := 300.0, fMargin := 1.0, fTrackTimeCap := 14400.0, fPosition => fPos);
+AssertFalse(Condition := bOk, Message := '1 deg above fMax');
+bOk := MONETcommon.F_AxisTurn(fTarget := -1.0, fVelocity := 0.0, fCurrent := 100.0, bHold := FALSE, fMin := 0.0, fMax := 300.0, fMargin := 1.0, fTrackTimeCap := 14400.0, fPosition => fPos);
+AssertFalse(Condition := bOk, Message := '1 deg below fMin');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="No_Valid_Turn_Gives_FALSE_And_The_Nearest_Turn" Id="{0cea74a2-56ad-43ed-ad38-cbf4f58fad34}">
+      <Declaration><![CDATA[// The result is not to be used for a move; it is the turn nearest to the axis.
+METHOD PRIVATE No_Valid_Turn_Gives_FALSE_And_The_Nearest_Turn
+VAR
+	fPos	: LREAL;
+	bOk		: BOOL;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('No_Valid_Turn_Gives_FALSE_And_The_Nearest_Turn');
+bOk := MONETcommon.F_AxisTurn(fTarget := 330.0, fVelocity := 0.0, fCurrent := 100.0, bHold := FALSE, fMin := 0.0, fMax := 300.0, fMargin := 1.0, fTrackTimeCap := 14400.0, fPosition => fPos);
+AssertFalse(Condition := bOk, Message := '330 in [0, 300], axis at 100');
+AssertEquals_LREAL(Expected := -30.0, Actual := fPos, Delta := 1.0E-9, Message := '330 in [0, 300], axis at 100, position');
+bOk := MONETcommon.F_AxisTurn(fTarget := 330.0, fVelocity := 0.0, fCurrent := 290.0, bHold := FALSE, fMin := 0.0, fMax := 300.0, fMargin := 1.0, fTrackTimeCap := 14400.0, fPosition => fPos);
+AssertFalse(Condition := bOk, Message := '330 in [0, 300], axis at 290');
+AssertEquals_LREAL(Expected := 330.0, Actual := fPos, Delta := 1.0E-9, Message := '330 in [0, 300], axis at 290, position');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Longest_Track_Time_Wins" Id="{c3a57a23-db25-41d4-b637-e851b3b9365c}">
+      <Declaration><![CDATA[// MONETN azimuth [-72, 495]: 300 and -60 both fit. 1 deg margin, 4 h cap.
+METHOD PRIVATE Longest_Track_Time_Wins
+VAR
+	fPos	: LREAL;
+	bOk		: BOOL;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Longest_Track_Time_Wins');
+// room 193 deg against 553 deg at 0.1 deg/s: 1930 s against 5530 s, both under the cap
+bOk := MONETcommon.F_AxisTurn(fTarget := 300.0, fVelocity := 0.1, fCurrent := 300.0, bHold := FALSE, fMin := -72.0, fMax := 495.0, fMargin := 1.0, fTrackTimeCap := 14400.0, fPosition => fPos);
+AssertTrue(Condition := bOk, Message := 'positive velocity, -60 has more room');
+AssertEquals_LREAL(Expected := -60.0, Actual := fPos, Delta := 1.0E-9, Message := 'positive velocity, -60 has more room, position');
+bOk := MONETcommon.F_AxisTurn(fTarget := 100.0, fVelocity := -0.1, fCurrent := 100.0, bHold := FALSE, fMin := -72.0, fMax := 495.0, fMargin := 1.0, fTrackTimeCap := 14400.0, fPosition => fPos);
+AssertTrue(Condition := bOk, Message := 'negative velocity, 460 has more room');
+AssertEquals_LREAL(Expected := 460.0, Actual := fPos, Delta := 1.0E-9, Message := 'negative velocity, 460 has more room, position');
+// slow target: both reach the 4 h cap, the turn nearest to the axis wins (no 360 deg unwind for nothing)
+bOk := MONETcommon.F_AxisTurn(fTarget := 100.0, fVelocity := -0.01, fCurrent := 100.0, bHold := FALSE, fMin := -72.0, fMax := 495.0, fMargin := 1.0, fTrackTimeCap := 14400.0, fPosition => fPos);
+AssertTrue(Condition := bOk, Message := 'cap tie, axis at 100');
+AssertEquals_LREAL(Expected := 100.0, Actual := fPos, Delta := 1.0E-9, Message := 'cap tie, axis at 100, position');
+bOk := MONETcommon.F_AxisTurn(fTarget := 100.0, fVelocity := -0.01, fCurrent := 460.0, bHold := FALSE, fMin := -72.0, fMax := 495.0, fMargin := 1.0, fTrackTimeCap := 14400.0, fPosition => fPos);
+AssertTrue(Condition := bOk, Message := 'cap tie, axis at 460');
+AssertEquals_LREAL(Expected := 460.0, Actual := fPos, Delta := 1.0E-9, Message := 'cap tie, axis at 460, position');
+bOk := MONETcommon.F_AxisTurn(fTarget := 300.0, fVelocity := 0.01, fCurrent := 300.0, bHold := FALSE, fMin := -72.0, fMax := 495.0, fMargin := 1.0, fTrackTimeCap := 14400.0, fPosition => fPos);
+AssertTrue(Condition := bOk, Message := 'cap tie, positive velocity');
+AssertEquals_LREAL(Expected := 300.0, Actual := fPos, Delta := 1.0E-9, Message := 'cap tie, positive velocity, position');
+// without a cap the longest track time wins
+bOk := MONETcommon.F_AxisTurn(fTarget := 100.0, fVelocity := -0.01, fCurrent := 100.0, bHold := FALSE, fMin := -72.0, fMax := 495.0, fMargin := 1.0, fTrackTimeCap := 1.0E9, fPosition => fPos);
+AssertTrue(Condition := bOk, Message := 'no cap');
+AssertEquals_LREAL(Expected := 460.0, Actual := fPos, Delta := 1.0E-9, Message := 'no cap, position');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="No_Velocity_Takes_The_Nearest_Turn" Id="{61de08ef-e0c3-4a88-976c-94ac3c1ce7a0}">
+      <Declaration><![CDATA[METHOD PRIVATE No_Velocity_Takes_The_Nearest_Turn
+VAR
+	fPos	: LREAL;
+	bOk		: BOOL;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('No_Velocity_Takes_The_Nearest_Turn');
+bOk := MONETcommon.F_AxisTurn(fTarget := 100.0, fVelocity := 0.0, fCurrent := 460.0, bHold := FALSE, fMin := -72.0, fMax := 495.0, fMargin := 1.0, fTrackTimeCap := 14400.0, fPosition => fPos);
+AssertTrue(Condition := bOk, Message := 'axis at 460');
+AssertEquals_LREAL(Expected := 460.0, Actual := fPos, Delta := 1.0E-9, Message := 'axis at 460, position');
+bOk := MONETcommon.F_AxisTurn(fTarget := 100.0, fVelocity := 0.0, fCurrent := 100.0, bHold := FALSE, fMin := -72.0, fMax := 495.0, fMargin := 1.0, fTrackTimeCap := 14400.0, fPosition => fPos);
+AssertTrue(Condition := bOk, Message := 'axis at 100');
+AssertEquals_LREAL(Expected := 100.0, Actual := fPos, Delta := 1.0E-9, Message := 'axis at 100, position');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Margin_Shortens_The_Track_Time" Id="{5d08f88f-4064-41cd-a630-bdffe4dedb34}">
+      <Declaration><![CDATA[// MONETS azimuth [-274, 270]: 269.5 is inside the 1 deg margin at the upper end.
+METHOD PRIVATE Margin_Shortens_The_Track_Time
+VAR
+	fPos	: LREAL;
+	bOk		: BOOL;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Margin_Shortens_The_Track_Time');
+bOk := MONETcommon.F_AxisTurn(fTarget := 269.5, fVelocity := 0.1, fCurrent := 269.5, bHold := FALSE, fMin := -274.0, fMax := 270.0, fMargin := 1.0, fTrackTimeCap := 14400.0, fPosition => fPos);
+AssertTrue(Condition := bOk, Message := '269.5 moving up: the other turn has more room');
+AssertEquals_LREAL(Expected := -90.5, Actual := fPos, Delta := 1.0E-9, Message := '269.5 moving up: the other turn has more room, position');
+bOk := MONETcommon.F_AxisTurn(fTarget := 269.5, fVelocity := -0.1, fCurrent := 269.5, bHold := FALSE, fMin := -274.0, fMax := 270.0, fMargin := 1.0, fTrackTimeCap := 14400.0, fPosition => fPos);
+AssertTrue(Condition := bOk, Message := '269.5 moving down: this turn has more room');
+AssertEquals_LREAL(Expected := 269.5, Actual := fPos, Delta := 1.0E-9, Message := '269.5 moving down: this turn has more room, position');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Hold_Keeps_The_Turn_And_Stops_At_The_Margin" Id="{6b460c25-f83d-4de3-a448-d37ba4122452}">
+      <Declaration><![CDATA[// Tracking: never re-choose, never jump 360 deg; stop 1 deg before the limit.
+METHOD PRIVATE Hold_Keeps_The_Turn_And_Stops_At_The_Margin
+VAR
+	fPos	: LREAL;
+	bOk		: BOOL;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Hold_Keeps_The_Turn_And_Stops_At_The_Margin');
+bOk := MONETcommon.F_AxisTurn(fTarget := 100.0, fVelocity := -0.01, fCurrent := 460.0, bHold := TRUE, fMin := -72.0, fMax := 495.0, fMargin := 1.0, fTrackTimeCap := 14400.0, fPosition => fPos);
+AssertTrue(Condition := bOk, Message := 'axis at 460, target 100: stays on 460');
+AssertEquals_LREAL(Expected := 460.0, Actual := fPos, Delta := 1.0E-9, Message := 'axis at 460, target 100: stays on 460, position');
+bOk := MONETcommon.F_AxisTurn(fTarget := 134.5, fVelocity := 0.01, fCurrent := 494.5, bHold := TRUE, fMin := -72.0, fMax := 495.0, fMargin := 1.0, fTrackTimeCap := 14400.0, fPosition => fPos);
+AssertFalse(Condition := bOk, Message := '0.5 deg below fMax moving up: inside the margin');
+AssertEquals_LREAL(Expected := 494.5, Actual := fPos, Delta := 1.0E-9, Message := '0.5 deg below fMax moving up: inside the margin, position');
+bOk := MONETcommon.F_AxisTurn(fTarget := 133.9, fVelocity := 0.01, fCurrent := 493.9, bHold := TRUE, fMin := -72.0, fMax := 495.0, fMargin := 1.0, fTrackTimeCap := 14400.0, fPosition => fPos);
+AssertTrue(Condition := bOk, Message := '1.1 deg below fMax moving up');
+AssertEquals_LREAL(Expected := 493.9, Actual := fPos, Delta := 1.0E-9, Message := '1.1 deg below fMax moving up, position');
+bOk := MONETcommon.F_AxisTurn(fTarget := 135.2, fVelocity := 0.01, fCurrent := 494.9, bHold := TRUE, fMin := -72.0, fMax := 495.0, fMargin := 1.0, fTrackTimeCap := 14400.0, fPosition => fPos);
+AssertFalse(Condition := bOk, Message := 'target past fMax: stop, do not jump back to 135.2');
+AssertEquals_LREAL(Expected := 495.2, Actual := fPos, Delta := 1.0E-9, Message := 'target past fMax: stop, do not jump back to 135.2, position');
+bOk := MONETcommon.F_AxisTurn(fTarget := 269.5, fVelocity := -0.01, fCurrent := 269.5, bHold := TRUE, fMin := -274.0, fMax := 270.0, fMargin := 1.0, fTrackTimeCap := 14400.0, fPosition => fPos);
+AssertTrue(Condition := bOk, Message := 'near fMax but moving away');
+AssertEquals_LREAL(Expected := 269.5, Actual := fPos, Delta := 1.0E-9, Message := 'near fMax but moving away, position');
+bOk := MONETcommon.F_AxisTurn(fTarget := 270.4, fVelocity := -0.01, fCurrent := -89.5, bHold := TRUE, fMin := -90.0, fMax := 360.0, fMargin := 1.0, fTrackTimeCap := 14400.0, fPosition => fPos);
+AssertFalse(Condition := bOk, Message := 'derotator 0.5 deg above fMin moving down');
+AssertEquals_LREAL(Expected := -89.6, Actual := fPos, Delta := 1.0E-9, Message := 'derotator 0.5 deg above fMin moving down, position');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>
