@@ -828,6 +828,7 @@ VAR_INPUT
 END_VAR
 VAR
 	GoToEvent		: FB_Eventlog;
+	nTargetError	: UINT;
 END_VAR
 VAR_INST
 	nStage			: USINT := 0;
@@ -850,24 +851,17 @@ IF tonGotoTimeout.Q THEN	// #17: fed every scan in the body, a method-local TON 
 	RETURN;
 END_IF
 
-IF fElevationCalc<2.0 THEN
-	bError := TRUE;
-	nErrorID := 16#15;
-	bSoftwareError := TRUE;
-	nSoftwareErrorID := 16#15;
-	bGoto := FALSE;
-	nStage := 0;
-	RETURN;
-END_IF
 
 // M7: near zenith COS(elevation) -> 0, so any nonzero fAzimuthOffset blows up into a
 // huge azimuth (see the offset divisions elsewhere in this FB). 89.5 matches the
 // existing tracking cutoff (_TrackTelescope: fElevationCurrent > 89.5).
-IF fElevationCalc>89.5 THEN
+// #109: the elevation window is F_GotoTargetCheck (tested): below 2 deg 16#15, above 89.5 deg 16#16
+nTargetError := F_GotoTargetCheck(fElevationCalc, 2.0, 89.5);
+IF nTargetError <> 0 THEN
 	bError := TRUE;
-	nErrorID := 16#16;
+	nErrorID := nTargetError;
 	bSoftwareError := TRUE;
-	nSoftwareErrorID := 16#16;
+	nSoftwareErrorID := nTargetError;
 	bGoto := FALSE;
 	nStage := 0;
 	RETURN;
