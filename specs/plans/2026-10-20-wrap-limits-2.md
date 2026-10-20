@@ -142,7 +142,7 @@ Decided (Tim, 2026-10-20):
    since every site window spans more than 360 deg (MONETS azimuth 544, derotator 450); the stop is the
    defensive fallback, and it can only trigger if a `fTrackMargin` or an offset shrinks the usable range.
 2. The same hard-limit rules apply to MONETS azimuth: the measured limits are never exceeded or clamped.
-3. Azimuth convention: north is 0 (to be confirmed on site together with the cable winding direction).
+3. Azimuth convention: north is 0 (confirmed, see below).
 4. Limits are read from the axis blocks, not duplicated: `FB_AzimuthControl` / `FB_DerotatorControl`
    (HalfBROT, `FB_AxisControl`) have `fMinPosition` / `fMaxPosition` as inputs, set once per site in
    `MAIN.TcPOU` (MONETS: azimuth -274 / 270, derotator -90 / 360). `FB_MonetTelescopeControl` already holds
@@ -163,24 +163,33 @@ Decided (Tim, 2026-10-20, later):
   (azimuth east of north); pyobs-brot passes `az` through unchanged (`brottelescope.py`: `move(alt, az)`,
   `POSITION.HORIZONTAL.AZ`); the PLC computes it in AstroBROT `FB_HADEC2ALTAZ` (IDL hadec2altaz, default
   `WS = FALSE` = east from north), and nothing in MONETcommon / BROTLib sets `WS`. The cable winding direction
-  is not visible in the code: confirm on site.
+  is not an issue: the cables hang loose in a hollow pier.
 
 Turn rule when two fit (Tim: the turn with the longer track time wins). Track time = distance to the limit in the
-velocity direction / |v|, taking `fTrackMargin` into account. Proposals still to confirm:
-- The velocity at the command is a snapshot; azimuth and derotator velocity change strongly near the zenith.
-  Start with the linear estimate; predicting the target forward a few hours would be more accurate, at more
-  cost.
-- Cap: track times above a limit (for example 2 h) count as equal, then the turn nearest to the current
-  position wins. Without it a turn 360 deg away can win by a few minutes and the goto must unwind the mount
-  first (az 100 with negative velocity on MONETN would go to 460).
+velocity direction / |v|, taking `fTrackMargin` into account.
+- Cap (decided, Tim 2026-10-20): effective track time = `min(track time, cap)`; the longer one wins, and when
+  both reach the cap the turn nearest to the current position wins. The cap is a named config value per axis
+  (azimuth and derotator can differ: derotator rates near the zenith are much higher), default 4 h on both.
+  Example (MONETN, 0.01 deg/s): az 100 has about 4.8 h, az 460 about 10.8 h; with a 4 h cap both tie and 100
+  wins, without a cap 460 would win and the mount would slew 360 deg for nothing.
+- Why 4 h and not lower: the MONETs slew fast (about 10 deg/s, Tim, not checked against the configured
+  velocities), so a far turn costs about 36 s and the cap does not protect against slow unwinding. Its main job
+  is to stop the rule from trusting long extrapolations: the velocity at the command is a snapshot and changes
+  strongly near the zenith, so estimates beyond a few hours are unreliable.
+- The velocity at the command is used (linear estimate). Predicting the target forward a few hours would be
+  more accurate, at more cost; not planned.
 - At v = 0: nearest turn.
 
+Facts (Tim, 2026-10-20): no cable winding, the cables hang loose in a hollow pier, so only the hard limits
+matter and the turn rule is not about unwinding. MONETS runs the latest MONETcommon, so the clamp bug (for
+example az 50 deg with negative velocity sent to 270 deg) should be reproducible there; check on site before
+and after the fix.
+
 Still open:
-- Cap value (or no cap).
-- Confirm the cable winding direction on site.
+- None of the design points. The on-site items in 6 remain (measure/confirm limits, reproduce the clamp).
 
 ## 10. Tasks (in order)
-1. Settle the remaining open points in 9 (cap value; on site: cable winding direction, which build MONETS runs).
+1. Settle the remaining open points in 9 (on site: reproduce the clamp on MONETS, confirm the limits).
 2. Branch `fix/wrap-from-limits-2` from `origin/develop` (after #95 merged).
 3. Add `F_AxisTurn` + `F_AxisTurn_Tests`, run the tests (all cases in 5).
 4. Replace the wrap (lines 236-246) with the function, limits per question 4.
