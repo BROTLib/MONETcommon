@@ -1,0 +1,112 @@
+<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="F_SuspendStop_Tests" Id="{4c9a2e71-d6b3-4a58-8f10-72e5b0a3c9d5}" SpecialFunc="None">
+    <Declaration><![CDATA[// Tests for MONETcommon.F_SuspendStop, the stop at the switch to manual under motion (#118).
+// Inputs in call order: bError, bStopRunning, bAzMoving, bElMoving, bDrMoving.
+FUNCTION_BLOCK F_SuspendStop_Tests EXTENDS TcUnit.FB_TestSuite
+VAR
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[Moving_Axis_Stops();
+Homing_Axis_Stops();
+Park_Is_Stopped();
+Running_Stop_Continues();
+At_Rest_No_Stop();
+Error_No_Stop();
+Error_Running_Stop_No_Stop();
+]]></ST>
+    </Implementation>
+    <Method Name="Moving_Axis_Stops" Id="{c3d4e5f6-0118-4a56-8a01-000000000001}">
+      <Declaration><![CDATA[// The derotator is moving.
+METHOD PRIVATE Moving_Axis_Stops
+VAR
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Moving_Axis_Stops');
+AssertTrue(Condition := MONETcommon.F_SuspendStop(FALSE, FALSE, FALSE, FALSE, TRUE), Message := 'moving: stop it');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Homing_Axis_Stops" Id="{c3d4e5f6-0118-4a56-8a01-000000000002}">
+      <Declaration><![CDATA[// The elevation is homing (power-on stage 10, counted as moving by the caller).
+METHOD PRIVATE Homing_Axis_Stops
+VAR
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Homing_Axis_Stops');
+AssertTrue(Condition := MONETcommon.F_SuspendStop(FALSE, FALSE, FALSE, TRUE, FALSE), Message := 'homing: stop it');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Park_Is_Stopped" Id="{c3d4e5f6-0118-4a56-8a01-000000000003}">
+      <Declaration><![CDATA[// A park moves the azimuth: stopped too, nothing drives it in manual (differs from F_ResetMoveAbort).
+METHOD PRIVATE Park_Is_Stopped
+VAR
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Park_Is_Stopped');
+AssertTrue(Condition := MONETcommon.F_SuspendStop(FALSE, FALSE, TRUE, FALSE, FALSE), Message := 'park is stopped');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Running_Stop_Continues" Id="{c3d4e5f6-0118-4a56-8a01-000000000004}">
+      <Declaration><![CDATA[// No axis reports motion but a stop is running (the axes brake in Stopping).
+METHOD PRIVATE Running_Stop_Continues
+VAR
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Running_Stop_Continues');
+AssertTrue(Condition := MONETcommon.F_SuspendStop(FALSE, TRUE, FALSE, FALSE, FALSE), Message := 'running stop goes on');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="At_Rest_No_Stop" Id="{c3d4e5f6-0118-4a56-8a01-000000000005}">
+      <Declaration><![CDATA[// Nothing moves, no stop running.
+METHOD PRIVATE At_Rest_No_Stop
+VAR
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('At_Rest_No_Stop');
+AssertFalse(Condition := MONETcommon.F_SuspendStop(FALSE, FALSE, FALSE, FALSE, FALSE), Message := 'at rest');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Error_No_Stop" Id="{c3d4e5f6-0118-4a56-8a01-000000000006}">
+      <Declaration><![CDATA[// An error: the drives are off, nothing to wait for.
+METHOD PRIVATE Error_No_Stop
+VAR
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Error_No_Stop');
+AssertFalse(Condition := MONETcommon.F_SuspendStop(TRUE, FALSE, TRUE, TRUE, TRUE), Message := 'error');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Error_Running_Stop_No_Stop" Id="{c3d4e5f6-0118-4a56-8a01-000000000007}">
+      <Declaration><![CDATA[// An error while a stop was running: the drives are off.
+METHOD PRIVATE Error_Running_Stop_No_Stop
+VAR
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Error_Running_Stop_No_Stop');
+AssertFalse(Condition := MONETcommon.F_SuspendStop(TRUE, TRUE, FALSE, FALSE, FALSE), Message := 'error with stop');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

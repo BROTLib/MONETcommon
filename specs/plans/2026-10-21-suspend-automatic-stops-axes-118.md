@@ -1,6 +1,6 @@
 # The switch to manual does not stop moving axes (#118)
 
-Date: 2026-10-21. Status: **plan, not started. Open questions in section 10. Nothing compiled, run on a PLC or run on a telescope.**
+Date: 2026-10-21. Status: **plan agreed (section 11), implemented in a PR (0.9.3 after the release). Nothing compiled locally, run on a PLC or run on a telescope.**
 Repo: BROTLib/MONETcommon. Base: `develop` = `origin/develop` = `0103577` (0.9.2: #56 reset under motion, #66 part 1, command
 timeout per command). Line numbers below are from `0103577`.
 
@@ -382,3 +382,9 @@ Comment the results on #118 (and B7/B3 on #3). Close #118 when B1-B4 and B6 pass
    normal, file a separate issue to keep the brake open (drives powered) until the suspend stop has settled.
 7. **Homing at the switch (stage 10):** stop it, as decided for the reset in #56 (recommended), accepting the BROTLib#92 risk?
 8. **MONET/N:** run B1 there too before closing (recommended, #72 asks not to infer N from S), or rely on MONET/S?
+
+## 11. Answers of the user
+
+All eight questions: as recommended (1 block the jog until the stop has settled, 2 stop a running park and keep `bPark`, 3 moves arriving during manual go to #72, 4 release on the 15 s timeout and keep the abort stop, 5 one-scan HINT, 6 step A0 decides, 7 stop a homing, 8 B1 on MONET/N too).
+
+Implementation notes: the stop is driven by `SuspendAutomatic` through `bSuspendStop`; the four shared blocks are the private methods `_StopTxInputs`, `_StopTxMonitor`, `_StopTxRelease` and `_StopEvents` (the event calls moved together to the place of `TCSstopEvent`, so their order in the log within a scan can differ). `bStopRunning` of `F_SuspendStop` is `TCS_command = stop AND (bStop OR bMoveAbortPending)`. The simulation test `Sim_Transaction_Continues_After_Driver_Change` documents the rule only; the rig has a single call path, so it does not exercise the hand-over between `SuspendAutomatic` and the body.

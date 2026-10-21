@@ -85,6 +85,9 @@
     <Compile Include="F_ResetMoveAbort.TcPOU">
       <SubType>Code</SubType>
     </Compile>
+    <Compile Include="F_SuspendStop.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
     <Compile Include="F_WakeShakeErrorExempt.TcPOU">
       <SubType>Code</SubType>
     </Compile>

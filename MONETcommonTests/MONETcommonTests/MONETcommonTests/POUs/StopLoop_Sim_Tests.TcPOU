@@ -17,6 +17,7 @@ Sim_v090_Rule_Settles_With_Equal_Done();
 Sim_Transaction_One_Edge_Per_Axis();
 Sim_Transaction_Latched_StopAxis();
 Sim_Transaction_Done_Skew_10_Scans();
+Sim_Transaction_Continues_After_Driver_Change();
 ]]></ST>
     </Implementation>
     <Method Name="Sim_v090_Rule_Restarts_With_Skewed_Done" Id="{e967bb6a-b5a4-4282-b92d-f46bf3133a7d}">
@@ -128,6 +129,33 @@ AssertTrue(Condition := rig.nSettledScan >= 13, Message := 'not before the eleva
 AssertTrue(Condition := rig.nSettledScan <= 19, Message := 'and soon after');
 AssertEquals_UINT(Expected := 1, Actual := rig.Az.nExecuteEdges, Message := 'azimuth: one MC_Stop');
 AssertEquals_UINT(Expected := 1, Actual := rig.El.nExecuteEdges, Message := 'elevation: one MC_Stop');
+AssertTrue(Condition := rig.bStoppedAfterSettle, Message := 'the axes stay at rest');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Sim_Transaction_Continues_After_Driver_Change" Id="{c3d4e5f6-0118-4a56-8a01-000000000008}">
+      <Declaration><![CDATA[// #118: the switch to manual (SuspendAutomatic) and the return to automatic (the body) drive the same transaction. The rig has
+// one call path, so this documents the rule at the transaction level: after the first scans nothing begins again.
+METHOD PRIVATE Sim_Transaction_Continues_After_Driver_Change
+VAR
+	rig	: FB_StopRig;
+	n	: UINT;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Sim_Transaction_Continues_After_Driver_Change');
+rig.Setup(nAzDoneScans := 4, nElDoneScans := 6);
+FOR n := 1 TO 3 DO
+	rig.ScanNew();
+END_FOR
+AssertFalse(Condition := rig.bSettled, Message := 'still stopping after 3 scans');
+FOR n := 1 TO 100 DO
+	rig.ScanNew();
+END_FOR
+AssertTrue(Condition := rig.bSettled, Message := 'settled');
+AssertEquals_UINT(Expected := 1, Actual := rig.Az.nExecuteEdges, Message := 'azimuth: one MC_Stop in total');
+AssertEquals_UINT(Expected := 1, Actual := rig.El.nExecuteEdges, Message := 'elevation: one MC_Stop in total');
 AssertTrue(Condition := rig.bStoppedAfterSettle, Message := 'the axes stay at rest');
 TEST_FINISHED();
 ]]></ST>
