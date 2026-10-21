@@ -23,6 +23,7 @@ VAR
 	fbStopLoopSimTests	: StopLoop_Sim_Tests;
 	fbTempSensorTests	: FB_MonetTempSensor_Tests;
 	fbMethodVarProbeTests	: FB_MethodVarProbe_Tests;
+	fbMonetRigTests	: FB_MonetRig_Tests;
 END_VAR
 ]]></Declaration>
     <Implementation>

@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="FB_ElevationMock" Id="{8684ac8a-6a54-46c8-91cc-b8ddfc7c562d}" SpecialFunc="None">
+    <Declaration><![CDATA[// Mock of FB_ElevationControl for the telescope state machine tests (MONETcommon#36, BROTLib plan 2026-10-21-telescope-state-machine-unification D1).
+FUNCTION_BLOCK FB_ElevationMock EXTENDS HalfBROT.FB_ElevationControl
+VAR
+	fbCore	: FB_AxisMockCore;
+	pBool	: POINTER TO BOOL;
+	pLreal	: POINTER TO LREAL;
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[// No SUPER^(): the real body (MC_* blocks, AXIS_REF) does not run. The real property setters (MoveAxis -> fbAxis.MoveTo(),
+// StopAxis -> fbAxis.Stop(), HomeAxis -> _StartHoming) stay, so the telescope sees the real command interface. The model
+// is driven by the levels the telescope writes and writes what the telescope reads: the base outputs and the nested
+// fbAxis outputs.
+fbCore(bEnable := bEnable, bHome := bHomeAxis, bMove := bMoveAxis, fTarget := fPosition);
+
+// outputs of FB_Axis cannot be written from outside (C: 'is no input of'), a pointer sidesteps that (as FB_Axis_Tests.SetActPos)
+pBool := ADR(fbAxis.Ready);			pBool^ := fbCore.bReady;
+pBool := ADR(fbAxis.Calibrated);	pBool^ := fbCore.bCalibrated;
+pBool := ADR(fbAxis.HomeDone);		pBool^ := fbCore.bCalibrated;
+pBool := ADR(fbAxis.HomeActive);	pBool^ := fbCore.bHoming;
+pBool := ADR(fbAxis.Homing);		pBool^ := fbCore.bHoming;
+pBool := ADR(fbAxis.InMotion);		pBool^ := fbCore.bInMotion;
+pBool := ADR(fbAxis.StandStill);	pBool^ := fbCore.bStandStill;
+pBool := ADR(fbAxis.MoveDone);		pBool^ := fbCore.bMoveDone;
+pBool := ADR(fbAxis.Busy);			pBool^ := fbCore.bInMotion OR fbCore.bHoming;
+pLreal := ADR(fbAxis.ActualPosition);	pLreal^ := fbCore.fPosition;
+
+bReady := fbCore.bReady AND fbCore.bStandStill;
+bCalibrated := fbCore.bCalibrated;
+fActualPosition := fbCore.fPosition;
+
+// the real control body clears the level on MoveDone
+IF fbCore.bMoveDone THEN
+	bMoveAxis := FALSE;
+END_IF
+]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>
