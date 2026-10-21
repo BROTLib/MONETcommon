@@ -26,6 +26,7 @@ results); this one only covers what's specific to MONETcommon.
 | `StopLoop_Sim_Tests` | scan-level simulation of the stop (#96): three mock axes with the real `BROTLib.FB_AxisCommand` and an MC_Stop model; the 0.9.0 rule restarts MC_Stop with skewed Done times, the transaction sends one stop per axis and settles |
 | `F_GotoTargetCheck_Tests` | the elevation window of a goto/track target (#109): below 2 deg 16#15, above 89.5 deg 16#16, both limits inside, and that with `fHorizon` 1 deg every target that warns is also refused (a warning alone only exists when `fHorizon` is above the floor) |
 | `FB_MonetRig_Tests` | the mock rig for the telescope state machine tests (MONETcommon#36, BROTLib plan 2026-10-21-telescope-state-machine-unification): `FB_ElevationMock`/`FB_AzimuthMock`/`FB_DerotatorMock`/`FB_FocusMock` subclass the HalfBROT blocks with the body replaced by a motion model (`FB_AxisMockCore`); a mock axis homes and reports `MoveDone`, and the real `FB_MonetTelescopeControl` runs on the mocks (`FB_CoversMock`, `FB_BrakeHydraulicsMock`) without an error. The nested `fbAxis` outputs are written through pointers, they are not writable from outside |
+| `MonetStopDuringSlew_Tests` | `FB_MonetTelescopeControl` | step 1 of the unification plan, characterization of a stop during a slew on the mock rig (`FB_MonetRig`: mock axes with a stop model and a homing that ends at the calibration cam, the elevation mock opens the brake, scanned in the MONETS MAIN order; each test owns a rig and runs over many PLC cycles, the first ones wait for the astronomical clock): one MC_Stop for each of the three axes a slew moves (#96), the moves are dropped in the first scan and every axis has its stop request by the second (`_StopTelescope`), the stop drops `bSlew`, keeps `bMoveAbortPending` until the stop has settled (#84) and leaves the telescope online. They pin what the code does today, they are not a specification |
 
 This is a first, deliberately small slice -- see
 [MONETcommon/specs/plans/2026-09-22-add-tcunit-tests.md](../specs/plans/2026-09-22-add-tcunit-tests.md)
@@ -62,3 +63,7 @@ cd C:\TwinCAT\3.1\Runtimes\UmRT_Default; .\Start.bat
 Same as `BROTLibTests` (CI runs these tests through `tcbuild.yml`) -- TcUnit sized to 32 suites / 32 tests / 256 asserts, every test method
 runs every PLC cycle (multi-cycle tests must guard their own state), `.tmc`/`_Boot`/`_CompileInfo`/
 `_Libraries` are generated and git-ignored.
+
+## Failed checks in CI
+
+TcUnit writes the text of a failed assertion only to the ADS log, which CI cannot see. The scenario tests therefore also call `F_Note` next to every assertion, which appends `test: message;` to `GVL_Diag.sFailures`; `tools/Run-Tests.ps1` prints it as `Failed checks: ...` when a test case failed. A failure without a note comes from a test that does not use `F_Note` (the older suites).
