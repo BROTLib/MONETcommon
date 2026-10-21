@@ -163,7 +163,8 @@ Everything is in **MONETcommon** (FBMTC plus one pure function). MONETS/MONETN `
    (#72: do not infer MONET/N from MONET/S).
 4. IAG50cm: not affected (no MONETcommon, no manual mode).
 
-**Order:** step A (0.9.2, section 7) first. It confirms the gap and shows the brake behaviour of the clear-brakes key before any
+**Order:** step A (0.9.2, section 7) first, **before 0.9.3 is installed on a telescope** (MONETS/MONETN pin PRs may be
+merged, but not activated, until A has run). It confirms the gap and shows the brake behaviour of the clear-brakes key before any
 code changes.
 
 ## 4. Options and recommendation
@@ -301,6 +302,12 @@ switch. Use the distances of step 0 of the #56 plan; if that has not run, do it 
   `ErrorID`.
 - MQTT READY_STATE and the log topic.
 
+**Gate:** step A must be done and its results commented on #118 before any step B, and before 0.9.3 is activated on MONET/S or
+MONET/N. A0 decides question 6 (clear-brakes key): if "off" is the normal position when switching to local, do not run B1-B6 with
+the key on (that is not how the operators work); first decide the brake issue. A1 and A2 decide whether the gap is real and whether a
+tracking axis reports motion (2.6). If A shows that the axes do not run on, or that nothing moves under the pendant key, stop and
+revise the plan before B.
+
 **Step A, on 0.9.2 (confirms the gap):**
 1. **A0 brake key, no motion.** At rest, automatic, then key to local with clear-brakes ON, then OFF, then back. Note
    `bBrakeOpen`, `ObBrakeAzEl`, Az/El `fbAxis.Ready`. Ask the operators which position is normal when they switch to local.
@@ -340,7 +347,26 @@ switch. Use the distances of step 0 of the #56 plan; if that has not run, do it 
 8. **B8, only on request: manual during the stage 10 homing** (uncalibrated axes, Wake&Shake context). Expect the homing axes to stop;
    watch `HomeActive` (BROTLib#92) and report there.
 
-Comment the results on #118 (and B7/B3 on #3). Close #118 when B1-B4 and B6 pass.
+9. **B9 switch at rest.** Telescope parked or standing still, then tracking on a star for 1 min, key to local and back.
+   - Expect no stop (`bSuspendStop` FALSE, no `StopAxis` edge, no 'switch to manual' line), `Tracking` FALSE after the switch,
+     queued flags FALSE, the pendant jogs normally, no axis error. A0 covers parked and rest without tracking.
+10. **B10 operator stop running.** Slew, `stop=1`, key to local 1 s later (while the axes brake).
+    - Expect `bSuspendStop` TRUE, the same transaction goes on (no second edge per axis), 'axes stopped' once, `bStop` FALSE
+      after the settle (`STOP completed`), the pendant free afterwards.
+11. **B11 `off` mode.** Hydraulics off, key to local during a slew (as B1).
+    - Expect the same stop logic. Az/El are unpowered by the closing brake; note what `fbStopTx` does with the disabled axes
+      (counted done) and that it still settles (no 15 s timeout).
+12. **B12 error at the switch.** Provoke an axis error (e.g. a pendant limit switch test the operators already use), then key to local.
+    - Expect no stop, no `StopAxis` edge, no extra axis error; the reset on the return behaves as before.
+13. **B13 pendant reset during the stop.** As B3, with the pendant reset button pressed while the stop runs.
+    - Expect either a normal settle or 'STOP completed without StopDone from every axis' (forced); report which (2.4).
+14. **B14 15 s timeout path** is not provoked on purpose. If it happens in any run (`StopStuckEvent`), report it with the recording:
+    the axes must be free for the pendant and `bMoveAbortPending` must stay TRUE; key back to automatic must stop again.
+
+Offline, the only tests are `F_SuspendStop_Tests` and the transaction simulation (6); the steps above are the test of
+`SuspendAutomatic` itself (#36).
+
+Comment the results on #118 (and B7/B3 on #3). Close #118 when A, B1-B4, B6, B9 and B10 pass.
 
 ## 8. Not verified
 
