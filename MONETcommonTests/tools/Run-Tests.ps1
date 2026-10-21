@@ -133,12 +133,21 @@ try {
         $cases  = [int]$client.ReadSymbol("$res.NumberOfTestCases", [uint16], $false)
         $ok     = [int]$client.ReadSymbol("$res.NumberOfSuccessfulTestCases", [uint16], $false)
         $failed = [int]$client.ReadSymbol("$res.NumberOfFailedTestCases", [uint16], $false)
+        # the scenario tests note their failed checks in GVL_Diag.sFailures (TcUnit writes the text only to the ADS log)
+        $notes = ""
+        if ($failed -gt 0) {
+            try {
+                $h = $client.CreateVariableHandle("GVL_Diag.sFailures")
+                try { $notes = [string]$client.ReadAny($h, [string], @(1001)) } finally { $client.DeleteVariableHandle($h) }
+            } catch { $notes = "(GVL_Diag.sFailures could not be read: $($_.Exception.Message))" }
+        }
     }
     finally { $client.Dispose() }
 
     Write-Host ("TcUnit: {0} test suites, {1} test cases, {2} passed, {3} failed" -f $suites, $cases, $ok, $failed)
     if ($failed -gt 0) {
         Write-Host 'Failure details are in the TwinCAT ADS log (XAE error list / event logger).'
+        Write-Host "Failed checks: $notes"
         exit 1
     }
     exit 0
