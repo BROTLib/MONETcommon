@@ -1,0 +1,162 @@
+<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="FB_BrakeHydraulicsMock" Id="{d6fd3765-198f-4172-b62a-9673b69f0003}" SpecialFunc="None">
+    <Declaration><![CDATA[// Mock of the hydraulics unit, which is both the brake (I_Brake) and the hydraulics (I_Hydraulics) on MONETS/MONETN.
+FUNCTION_BLOCK FB_BrakeHydraulicsMock IMPLEMENTS BROTLib.I_Brake, BROTLib.I_Hydraulics
+VAR
+	bBrakeIsOpen	: BOOL;
+	bEnabled		: BOOL;
+	bFailed			: BOOL;
+	bStartSuction	: BOOL;
+	bStopPump		: BOOL;
+	nOpenCalls		: UINT;
+	nCloseCalls		: UINT;
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[
+]]></ST>
+    </Implementation>
+    <Method Name="OpenBrake" Id="{bc28f56f-a6a2-4f79-8d67-99432a4b3986}">
+      <Declaration><![CDATA[METHOD OpenBrake : BOOL
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[bBrakeIsOpen := TRUE;
+nOpenCalls := nOpenCalls + 1;
+OpenBrake := TRUE;
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="CloseBrake" Id="{7f9962d8-9c80-4060-8248-ea1733687993}">
+      <Declaration><![CDATA[METHOD CloseBrake : BOOL
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[bBrakeIsOpen := FALSE;
+nCloseCalls := nCloseCalls + 1;
+CloseBrake := TRUE;
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Reset" Id="{3eb8020a-1b75-4938-a3a0-da58381b5d1f}">
+      <Declaration><![CDATA[METHOD Reset : BOOL
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[bFailed := FALSE;
+Reset := TRUE;
+]]></ST>
+      </Implementation>
+    </Method>
+    <Property Name="BrakeOpen" Id="{30b73c5a-ffa0-456f-a6e7-3d70b3404ecf}">
+      <Declaration><![CDATA[PROPERTY BrakeOpen : BOOL]]></Declaration>
+      <Get Name="Get" Id="{c7aec1d0-65fb-45ae-b093-9c4129b6f4f0}">
+        <Declaration><![CDATA[VAR
+END_VAR
+]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[BrakeOpen := bBrakeIsOpen;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Property Name="Enable" Id="{a0345438-323d-4998-98a8-aaa46c6eaf40}">
+      <Declaration><![CDATA[PROPERTY Enable : BOOL]]></Declaration>
+      <Get Name="Get" Id="{d529a584-e1d9-4370-b1cb-4cd875525b5e}">
+        <Declaration><![CDATA[VAR
+END_VAR
+]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[Enable := bEnabled;]]></ST>
+        </Implementation>
+      </Get>
+      <Set Name="Set" Id="{741d70d6-95ea-4706-b021-41c39c44abf7}">
+        <Declaration><![CDATA[VAR
+END_VAR
+]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[bEnabled := Enable;]]></ST>
+        </Implementation>
+      </Set>
+    </Property>
+    <Property Name="Error" Id="{a4145293-424c-4b1a-8329-23ac7162fa1c}">
+      <Declaration><![CDATA[PROPERTY Error : BOOL]]></Declaration>
+      <Get Name="Get" Id="{8d0f17dc-a656-413b-a5ce-35a06f9d881e}">
+        <Declaration><![CDATA[VAR
+END_VAR
+]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[Error := bFailed;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Property Name="ManualStartSuction" Id="{9e63dd7d-16f6-4f61-bff1-110169ed43e5}">
+      <Declaration><![CDATA[PROPERTY ManualStartSuction : BOOL]]></Declaration>
+      <Get Name="Get" Id="{05a028ae-2e0e-4dc2-bd12-85fc27570152}">
+        <Declaration><![CDATA[VAR
+END_VAR
+]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[ManualStartSuction := bStartSuction;]]></ST>
+        </Implementation>
+      </Get>
+      <Set Name="Set" Id="{c9dbf88e-d696-4ef1-8f34-63376a26390b}">
+        <Declaration><![CDATA[VAR
+END_VAR
+]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[bStartSuction := ManualStartSuction;]]></ST>
+        </Implementation>
+      </Set>
+    </Property>
+    <Property Name="ManualStopPump" Id="{75e0c99b-35f5-474e-80e0-15bd4f52b4f8}">
+      <Declaration><![CDATA[PROPERTY ManualStopPump : BOOL]]></Declaration>
+      <Get Name="Get" Id="{629ea5fa-7dfd-467a-84ca-fecc503854ef}">
+        <Declaration><![CDATA[VAR
+END_VAR
+]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[ManualStopPump := bStopPump;]]></ST>
+        </Implementation>
+      </Get>
+      <Set Name="Set" Id="{82b596e1-aa63-4514-9e53-36abde502518}">
+        <Declaration><![CDATA[VAR
+END_VAR
+]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[bStopPump := ManualStopPump;]]></ST>
+        </Implementation>
+      </Set>
+    </Property>
+    <Property Name="OilPressureOK" Id="{09fdb69a-5268-48da-a0a4-c1b03ef289f7}">
+      <Declaration><![CDATA[PROPERTY OilPressureOK : BOOL]]></Declaration>
+      <Get Name="Get" Id="{0d18d62a-e712-4446-8afe-b9e6b0852e7e}">
+        <Declaration><![CDATA[VAR
+END_VAR
+]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[OilPressureOK := TRUE;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Property Name="PumpRunning" Id="{97a59890-358e-446f-99de-e71da0dcb519}">
+      <Declaration><![CDATA[PROPERTY PumpRunning : BOOL]]></Declaration>
+      <Get Name="Get" Id="{2ecfa1be-29f7-491d-a01f-980c43f47ff1}">
+        <Declaration><![CDATA[VAR
+END_VAR
+]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[PumpRunning := bEnabled;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Property Name="SuctionRunning" Id="{b5347075-c94c-479f-be93-0981117ab59e}">
+      <Declaration><![CDATA[PROPERTY SuctionRunning : BOOL]]></Declaration>
+      <Get Name="Get" Id="{c475b1be-8524-409f-b661-3f719963d0ed}">
+        <Declaration><![CDATA[VAR
+END_VAR
+]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[SuctionRunning := FALSE;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+  </POU>
+</TcPlcObject>
