@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
-  <POU Name="FB_MonetRig_Spike_Tests" Id="{be818641-2609-4e5f-a704-c629572920cd}" SpecialFunc="None">
+  <POU Name="FB_MonetRig_Spike_Tests" Id="{3ed949b3-7d66-48e5-bdad-edf8be04d763}" SpecialFunc="None">
     <Declaration><![CDATA[// Spike S0 of the telescope state machine plan (BROTLib specs/plans/2026-10-21-telescope-state-machine-unification.md, step 0.2):
 // can the real FB_MonetTelescopeControl run on axis mocks that subclass the HalfBROT axis blocks? Answers D1 (a) writing the
 // nested fbAxis outputs from the derived block, (b) a body override without SUPER^(), (c) AT%I* of FB_AxisControl on the target.
@@ -13,7 +13,7 @@ VAR
 	fbFocus			: FB_FocusMock(comm := fbComm);
 	fbCovers		: FB_CoversMock;
 	fbBrakeHyd		: FB_BrakeHydraulicsMock;
-	fbPointing		: FB_PointingModelForward;
+	fbPointing		: FB_PointingModelForward(AOFF := 0.0, BNP := 0.0, AN_A := 0.0, AE_A := 0.0, NPAE := 0.0, EOFF := 0.0, AN_E := 0.0, AE_E := 0.0, TF := 0.0);	// zero coefficients
 	fbPointingInv	: FB_PointingModelInversion(fbPointing := fbPointing);
 	fbTel			: FB_MonetTelescopeControl(comm := fbComm);
 END_VAR
@@ -30,7 +30,7 @@ END_VAR
 Rig_Instantiates_Telescope_With_Mock_Axes();
 ]]></ST>
     </Implementation>
-    <Method Name="Mock_Axis_Move_Reports_MoveDone" Id="{2cd264fa-1a58-4323-b1fd-aef98efdaeff}">
+    <Method Name="Mock_Axis_Move_Reports_MoveDone" Id="{4aeb9af3-2d82-44f2-87fd-050f1d95d90d}">
       <Declaration><![CDATA[METHOD PRIVATE Mock_Axis_Move_Reports_MoveDone
 VAR
 	i			: INT;
@@ -66,7 +66,7 @@ TEST_FINISHED();
 ]]></ST>
       </Implementation>
     </Method>
-    <Method Name="Rig_Instantiates_Telescope_With_Mock_Axes" Id="{2ced8031-a2ea-4c36-9593-11dae514ef1d}">
+    <Method Name="Rig_Instantiates_Telescope_With_Mock_Axes" Id="{d179b82d-b465-4c72-9f8b-293425632a43}">
       <Declaration><![CDATA[METHOD PRIVATE Rig_Instantiates_Telescope_With_Mock_Axes
 VAR
 	i	: INT;
