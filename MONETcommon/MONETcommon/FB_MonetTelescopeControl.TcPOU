@@ -95,11 +95,12 @@ VAR
 	// before the new command may start. Cleared at standstill, on reset and on an error.
 	bMoveAbortPending	: BOOL;
 	MoveAbortEvent		: FB_EventLog;
-	// #84: this stop request has written its own FALSE->TRUE edge on StopAxis (per axis).
-	// Cleared at standstill and whenever no STOP is dispatched.
-	bStopIssuedAz		: BOOL;
-	bStopIssuedEl		: BOOL;
-	bStopIssuedDr		: BOOL;
+	// #96: one MC_Stop per axis and stop transaction; the stop is over when every axis that was sent one has
+	// reported StopDone and the telescope has been at rest for 3 scans. Replaces bStopIssuedAz/El/Dr (#84).
+	fbStopTx			: FB_MonetStopTransaction;
+	bStopTxBegun		: BOOL;	// the transaction of the running stop command has been begun
+	StopForcedEvent		: FB_EventLog;
+	StopStuckEvent		: FB_EventLog;
 
 	// #83: command acceptance. Methods and the direct-write gate decide at arrival (F_CommandAcceptance);
 	// a rejection is logged and counted, never queued.
@@ -125,9 +126,19 @@ VAR
 	// #87: park aborted a running power-on (one scan, logged)
 	bPowerAbortedByPark		: BOOL;
 	PowerAbortEvent			: FB_EventLog;
+	// #86: a new axis/focus error on a telescope that is not parked starts the emergency park
+	bHwError				: BOOL;
+	bHwErrorLast			: BOOL;	// edge memory, updated only where the request is made
+	bErrorParkStarted		: BOOL;	// one scan, logged
+	ErrorParkEvent			: FB_EventLog;
+	// #113: no power-on has completed since the PLC start; its axis error is the expected Wake&Shake fault
+	bFirstPowerOnPending	: BOOL := TRUE;
+	bErrorParkExempt		: BOOL;	// one scan, logged
+	ErrorParkExemptEvent	: FB_EventLog;
 END_VAR
 VAR PERSISTENT
 	nInterruptedAutoClearCount	: UDINT;	// how many times auto-clear has fired, ever
+	nStopForcedCount			: UDINT;	// #96: stops that settled on the timeout without StopDone from every axis, should stay 0
 END_VAR
 VAR CONSTANT
 	fHorizonMargin	: LREAL := 0.2;	// deg above fHorizon below which the horizon guard stops and homes
@@ -161,6 +172,44 @@ END_IF
 
 // set reset state either by hardware (key pressed) or by software (set by e.g. tcs)
 rtrigReset(CLK := bReset);
+
+// #96: axis state for the stop transaction (the state of the last axis cycle, like bStopped below)
+fbStopTx.abEnabled[1] := fbAzimuth.bEnable;
+fbStopTx.abEnabled[2] := fbElevation.bEnable;
+fbStopTx.abEnabled[3] := fbDerotator.bEnable;
+fbStopTx.abStandStill[1] := fbAzimuth.fbAxis.StandStill;
+fbStopTx.abStandStill[2] := fbElevation.fbAxis.StandStill;
+fbStopTx.abStandStill[3] := fbDerotator.fbAxis.StandStill;
+fbStopTx.abStopAxis[1] := fbAzimuth.StopAxis;
+fbStopTx.abStopAxis[2] := fbElevation.StopAxis;
+fbStopTx.abStopAxis[3] := fbDerotator.StopAxis;
+fbStopTx.abStopDone[1] := fbAzimuth.fbAxis.StopDone;
+fbStopTx.abStopDone[2] := fbElevation.fbAxis.StopDone;
+fbStopTx.abStopDone[3] := fbDerotator.fbAxis.StopDone;
+fbStopTx.abMoving[1] := fbAzimuth.fbAxis.InMotion OR fbAzimuth.fbAxis.InRamp;
+fbStopTx.abMoving[2] := fbElevation.fbAxis.InMotion OR fbElevation.fbAxis.InRamp;
+fbStopTx.abMoving[3] := fbDerotator.fbAxis.InMotion OR fbDerotator.fbAxis.InRamp;
+fbStopTx.abStopping[1] := fbAzimuth.fbAxis.Stopping;
+fbStopTx.abStopping[2] := fbElevation.fbAxis.Stopping;
+fbStopTx.abStopping[3] := fbDerotator.fbAxis.Stopping;
+
+// #96 (D3): a reset recovers a stop that is stuck in Stopping without writing over ADS. Only axes that stand still
+// are reset (a reset under motion was followed by 0x4260, #84); a moving enabled axis keeps the stop going.
+IF rtrigReset.Q AND bStop
+	AND NOT (fbStopTx.abEnabled[1] AND fbStopTx.abMoving[1])
+	AND NOT (fbStopTx.abEnabled[2] AND fbStopTx.abMoving[2])
+	AND NOT (fbStopTx.abEnabled[3] AND fbStopTx.abMoving[3]) THEN
+	IF fbStopTx.abStopping[1] THEN
+		fbAzimuth.Reset();
+	END_IF
+	IF fbStopTx.abStopping[2] THEN
+		fbElevation.Reset();
+	END_IF
+	IF fbStopTx.abStopping[3] THEN
+		fbDerotator.Reset();
+	END_IF
+	fbStopTx.Cancel();	// bStop then clears at standstill
+END_IF
 
 IF bReset THEN
     fbStartup.MarkAborted();
@@ -223,11 +272,11 @@ END_IF
 // fSlewTime
 fSlewTime :=  MAX(MAX(fbElevation.fSlewTime, fbAzimuth.fSlewTime), fbDerotator.fSlewTime);
 
-bError := fbElevation.Error OR
+bHwError := fbElevation.Error OR
 		 fbAzimuth.bError OR
 		 fbFocus.Error OR
-		 fbDerotator.bError OR
-		 bSoftwareError;
+		 fbDerotator.bError;
+bError := bHwError OR bSoftwareError;
 			
 // #83: flags set directly (ADS write, pendant) instead of through a method are decided once, on their rising edge.
 // Nested IFs on purpose: ST does not short-circuit AND and _AcceptMove must only run on the edge.
@@ -435,6 +484,19 @@ IF bSupersedeRequest THEN
 	bSupersedeRequest := FALSE;
 END_IF
 
+// #86: a new axis/focus error while not parked starts the emergency park by itself (after the supersede block and
+// the horizon guard, before the arbitration, so the stop branch cannot clear the request in the same scan)
+bErrorParkStarted := F_ErrorParkRequest(bHwError := bHwError, bHwErrorLast := bHwErrorLast,
+	bIsParked := bIsParked, bEstop := bEstopTriggered);
+bErrorParkExempt := bErrorParkStarted AND F_WakeShakeErrorExempt(bFirstPowerOnPending := bFirstPowerOnPending,
+	bPowering := bPower OR fbStartup.Initializing, bAzElError := fbAzimuth.bError OR fbElevation.Error,
+	bOtherHwError := fbFocus.Error OR fbDerotator.bError);
+bErrorParkStarted := bErrorParkStarted AND NOT bErrorParkExempt;
+bHwErrorLast := bHwError;
+IF bErrorParkStarted THEN
+	Park();	// same routing as an external park: deferred to standstill during a stop (#83/#87)
+END_IF
+
 // set TCS_command according to state variables ordered by precedence
 // Stop outranks everything, including a running power-on
 IF bStop THEN
@@ -604,10 +666,9 @@ ELSE
 	TCSCTOEvent.OnMessage := 'NOCOMMAND';
 END_IF
 IF TCS_command <> E_TCSCommand.stop THEN
-	// #84: re-arm for the next stop (a cut-off stop must not leave the edge flags set)
-	bStopIssuedAz := FALSE;
-	bStopIssuedEl := FALSE;
-	bStopIssuedDr := FALSE;
+	// #96: the transaction ends with the stop command (settled, or another command took over); the next stop begins a new one
+	fbStopTx.Cancel();
+	bStopTxBegun := FALSE;
 END_IF
  
 bSlewing := NOT bTracking AND (fbElevation.fbAxis.InMotion OR fbElevation.fbAxis.InRamp OR
@@ -622,6 +683,14 @@ tonTrackingDelay(in := fbElevation.fbAxis.isTracking AND
 bStopped :=  (NOT fbElevation.bEnable OR fbElevation.fbAxis.StandStill) AND 
 			(NOT fbAzimuth.bEnable OR fbAzimuth.fbAxis.StandStill) AND
 			(NOT fbDerotator.bEnable OR fbDerotator.fbAxis.StandStill);
+
+// #96: settles the stop (every issued axis reported StopDone, at rest for 3 scans) or raises the timeout cases
+fbStopTx.bStopped := bStopped;
+fbStopTx.bTimeout := tonCommandTimeout.Q AND TCS_command = E_TCSCommand.stop;
+fbStopTx.Monitor();
+IF fbStopTx.bForced THEN
+	nStopForcedCount := nStopForcedCount + 1;
+END_IF
 			
 bHomed := fbElevation.Calibrated AND
 			fbAzimuth.Calibrated AND
@@ -657,11 +726,14 @@ ELSIF bTracking THEN
 	nMotionState := 8;
 END_IF
 
-// unset the STOP command if telescope is already stopped
-IF bStopped THEN
+// unset the STOP command if the telescope is stopped (#96: and the stop transaction has settled)
+IF fbStopTx.bSettled THEN
 	bStop := FALSE;
 	IF TCS_command = E_TCSCommand.stop THEN
 		bMoveAbortPending := FALSE;	// #84: only after STOP was dispatched in this scan
+		fbAzimuth.StopAxis := FALSE;
+		fbElevation.StopAxis := FALSE;
+		fbDerotator.StopAxis := FALSE;
 	END_IF
 	IF bParkAfterStop AND NOT bStop THEN
 		// #83: a park sent during the stop runs now (from the next scan)
@@ -769,7 +841,6 @@ TCSreadyEvent(	Trigger := bPower AND bReady,
 TCSCTOEvent(	Trigger := tonCommandTimeout.Q,
 				Level := ADSLOG_MSGTYPE_WARN,
 				FormatString := 'A timeout occurred during %s command!',
-				OnMessage := 'NOCOMMAND',
 				Comm := fbComm);
 SoftwareErrorEvent(	Trigger := bSoftwareError,
 				Level := ADSLOG_MSGTYPE_ERROR,
@@ -784,12 +855,34 @@ MoveAbortEvent(	Trigger := bMoveAbortPending AND NOT bStop,
 					OnMessage := 'move interrupted, stopping axes',
 					OffMessage := 'axes stopped',
 					Comm := fbComm);
+StopForcedEvent(	Trigger := fbStopTx.bForced,
+				Level := ADSLOG_MSGTYPE_WARN,
+				FormatString := '%s',
+				OnMessage := 'STOP completed without StopDone from every axis',
+				Comm := fbComm);
+StopStuckEvent(	Trigger := fbStopTx.bStuck,
+				Level := ADSLOG_MSGTYPE_ERROR,
+				FormatString := '%s',
+				OnMessage := 'STOP timeout: an axis is not at standstill',
+				Comm := fbComm);
 PowerAbortEvent(	Trigger := bPowerAbortedByPark,
 				Level := ADSLOG_MSGTYPE_WARN,
 				FormatString := '%s',
 				OnMessage := 'power-on aborted: park requested',
 				Comm := fbComm);
 bPowerAbortedByPark := FALSE;
+ErrorParkEvent(	Trigger := bErrorParkStarted,
+				Level := ADSLOG_MSGTYPE_WARN,
+				FormatString := '%s',
+				OnMessage := 'emergency park started: axis error',
+				Comm := fbComm);
+bErrorParkStarted := FALSE;
+ErrorParkExemptEvent(	Trigger := bErrorParkExempt,
+				Level := ADSLOG_MSGTYPE_WARN,
+				FormatString := '%s',
+				OnMessage := 'axis error in the first power-on after a PLC restart (Wake&Shake?): no emergency park, covers stay open; reset, Wake&Shake and power=1, or park=1',
+				Comm := fbComm);
+bErrorParkExempt := FALSE;
 // #83: every rejection is logged and published (ADS log and MQTT log topic). An identical rejection repeated
 // within 2 s is logged once (a level writer would flood the log); all of them are counted. The event is re-armed
 // with FALSE first so that rejections in consecutive scans each give a rising edge.
@@ -828,6 +921,7 @@ VAR_INPUT
 END_VAR
 VAR
 	GoToEvent		: FB_Eventlog;
+	nTargetError	: UINT;
 END_VAR
 VAR_INST
 	nStage			: USINT := 0;
@@ -850,24 +944,17 @@ IF tonGotoTimeout.Q THEN	// #17: fed every scan in the body, a method-local TON 
 	RETURN;
 END_IF
 
-IF fElevationCalc<2.0 THEN
-	bError := TRUE;
-	nErrorID := 16#15;
-	bSoftwareError := TRUE;
-	nSoftwareErrorID := 16#15;
-	bGoto := FALSE;
-	nStage := 0;
-	RETURN;
-END_IF
 
 // M7: near zenith COS(elevation) -> 0, so any nonzero fAzimuthOffset blows up into a
 // huge azimuth (see the offset divisions elsewhere in this FB). 89.5 matches the
 // existing tracking cutoff (_TrackTelescope: fElevationCurrent > 89.5).
-IF fElevationCalc>89.5 THEN
+// #109: the elevation window is F_GotoTargetCheck (tested): below 2 deg 16#15, above 89.5 deg 16#16
+nTargetError := F_GotoTargetCheck(fElevationCalc, 2.0, 89.5);
+IF nTargetError <> 0 THEN
 	bError := TRUE;
-	nErrorID := 16#16;
+	nErrorID := nTargetError;
 	bSoftwareError := TRUE;
-	nSoftwareErrorID := 16#16;
+	nSoftwareErrorID := nTargetError;
 	bGoto := FALSE;
 	nStage := 0;
 	RETURN;
@@ -1026,6 +1113,7 @@ rtrigError(CLK := bError);
 IF rtrigError.Q THEN
 	nStage := 0;
 END_IF
+// parked means: nothing opened since the last park (#113: bIsParked drops with the cover command of a power-on)
 IF bIsParked THEN
 	nStage := 100;
 END_IF
@@ -1175,6 +1263,9 @@ CASE nStage OF
 		_PowerOn := FALSE;
 		// COVER MUST BE OPENED FOR A SUCCESSFUL WAKE & SHAKE COMMAND!
 		// unconditional by design: does not consult bCoverAutoOpen (see CoverAutoOpen.Set)
+		// #113: from the cover command on, a park must close what the power-on opens (with bIsParked TRUE it would only
+		// clear bPark). A power-on that fails before this line (checks above) has opened nothing and stays parked.
+		bIsParked := FALSE;
 		fbCovers.Open();
 		IF bMainReady AND fbCovers.Opened THEN
 			nStage := 10;
@@ -1245,6 +1336,7 @@ CASE nStage OF
         // while bPower is already FALSE and the startup would stay at 0.8. Wait one more scan instead.
         IF bReady AND bMainReady AND bStopped AND NOT bBusy AND NOT bError AND NOT bEstopTriggered THEN
             fbStartup.MarkCompleted();
+            bFirstPowerOnPending := FALSE;	// #113
             bPower := FALSE;
             fElevation := fElevationCurrent;
             fAzimuth := fAzimuthCurrent;
@@ -1261,6 +1353,7 @@ END_CASE]]></ST>
 METHOD SuspendAutomatic
 ]]></Declaration>
       <Implementation><ST><![CDATA[IF fbStartup.EnterSuspend() THEN
+    bHwErrorLast := TRUE;	// #86: an error already present when switching back to automatic does not park
     IF fbStartup.Initializing OR bPower THEN
         bPower := FALSE;
         bInterrupted := TRUE;
@@ -1534,44 +1627,33 @@ fbAzimuth.MoveAxis := FALSE;
 fbElevation.MoveAxis := FALSE;
 fbDerotator.MoveAxis := FALSE;
 
-IF bStopped THEN
-	fbAzimuth.StopAxis := FALSE;
-	fbElevation.StopAxis := FALSE;
-	fbDerotator.StopAxis := FALSE;
-	bStopIssuedAz := FALSE;
-	bStopIssuedEl := FALSE;
-	bStopIssuedDr := FALSE;
-	_StopTelescope := FALSE;
-ELSE
-	// Re-arm: a StopAxis level still latched from an earlier stop is dropped for one scan, so that the
-	// next TRUE is a fresh FALSE->TRUE edge and the setter really calls fbAxis.Stop().
-	IF NOT fbAzimuth.fbAxis.StandStill THEN
-		IF fbAzimuth.StopAxis AND NOT bStopIssuedAz THEN
-			fbAzimuth.StopAxis := FALSE;	// latched from before -> one scan low
-		ELSE
-			fbAzimuth.StopAxis := TRUE;
-			bStopIssuedAz := TRUE;
-		END_IF
-	END_IF
-
-	IF NOT fbElevation.fbAxis.StandStill THEN
-		IF fbElevation.StopAxis AND NOT bStopIssuedEl THEN
-			fbElevation.StopAxis := FALSE;	// latched from before -> one scan low
-		ELSE
-			fbElevation.StopAxis := TRUE;
-			bStopIssuedEl := TRUE;
-		END_IF
-	END_IF
-
-	IF NOT fbDerotator.fbAxis.StandStill THEN
-		IF fbDerotator.StopAxis AND NOT bStopIssuedDr THEN
-			fbDerotator.StopAxis := FALSE;	// latched from before -> one scan low
-		ELSE
-			fbDerotator.StopAxis := TRUE;
-			bStopIssuedDr := TRUE;
-		END_IF
-	END_IF
+// #96: one MC_Stop per axis and stop transaction. The release (StopAxis := FALSE, bStop) happens in the body when
+// the transaction has settled, not here: StopDone clears StopAxis by itself, and writing it again while the axis is
+// still Stopping was the restart loop.
+IF NOT bStopTxBegun THEN
+	fbStopTx.Begin();
+	bStopTxBegun := TRUE;
 END_IF
+fbStopTx();
+
+// a StopAxis level still latched from an earlier stop is dropped for one scan (abWriteLow), so that the next TRUE
+// is a fresh FALSE->TRUE edge and the setter really calls fbAxis.Stop()
+IF fbStopTx.abWriteLow[1] THEN
+	fbAzimuth.StopAxis := FALSE;
+ELSIF fbStopTx.abWriteHigh[1] THEN
+	fbAzimuth.StopAxis := TRUE;
+END_IF
+IF fbStopTx.abWriteLow[2] THEN
+	fbElevation.StopAxis := FALSE;
+ELSIF fbStopTx.abWriteHigh[2] THEN
+	fbElevation.StopAxis := TRUE;
+END_IF
+IF fbStopTx.abWriteLow[3] THEN
+	fbDerotator.StopAxis := FALSE;
+ELSIF fbStopTx.abWriteHigh[3] THEN
+	fbDerotator.StopAxis := TRUE;
+END_IF
+_StopTelescope := FALSE;
 ]]></ST>
       </Implementation>
     </Method>
@@ -1876,7 +1958,11 @@ Slew := TRUE;]]></ST>
       <Declaration><![CDATA[METHOD Stop : BOOL
 ]]></Declaration>
       <Implementation>
-        <ST><![CDATA[bStop := TRUE;]]></ST>
+        <ST><![CDATA[// #96 (D2): a repeated stop while a stop is running re-sends a stop only to axes that are moving again
+IF bStop THEN
+	fbStopTx.Restart();
+END_IF
+bStop := TRUE;]]></ST>
       </Implementation>
     </Method>
     <Method Name="Track" Id="{36f6a798-1a7b-442f-88f7-fc8d7dfa3dc0}">

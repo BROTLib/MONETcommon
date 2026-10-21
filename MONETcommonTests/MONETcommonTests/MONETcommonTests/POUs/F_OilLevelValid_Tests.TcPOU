@@ -1,0 +1,110 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="F_OilLevelValid_Tests" Id="{49c4eda2-e57e-475d-a2e7-93fc1f76020b}" SpecialFunc="None">
+    <Declaration><![CDATA[// Tests for HalfBROT.F_OilLevelValid, the plausibility range of the raw oil level (MONETS#32). Limits 600..12000 as planned for MONET/S.
+FUNCTION_BLOCK F_OilLevelValid_Tests EXTENDS TcUnit.FB_TestSuite
+VAR
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[Wire_Break_And_Sensor_Error_Invalid();
+Lower_Limit_Is_Valid();
+Measured_Healthy_Range_Valid();
+Upper_Limit_Is_Valid_Above_Is_Not();
+Over_Range_Invalid();
+Defaults_Accept_Every_Value();
+]]></ST>
+    </Implementation>
+    <Method Name="Wire_Break_And_Sensor_Error_Invalid" Id="{0afea5be-7d8c-4b34-8585-ac7b02b5af23}">
+      <Declaration><![CDATA[// Raw 0 (cut wire, MS-02), 330 (the sensor error output of 0.1 V) and 599 (just below the limit).
+METHOD PRIVATE Wire_Break_And_Sensor_Error_Invalid
+VAR
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Wire_Break_And_Sensor_Error_Invalid');
+AssertFalse(Condition := HalfBROT.F_OilLevelValid(nRaw := 0, nMinValid := 600, nMaxValid := 12000), Message := 'wire break');
+AssertFalse(Condition := HalfBROT.F_OilLevelValid(nRaw := 330, nMinValid := 600, nMaxValid := 12000), Message := 'sensor error output');
+AssertFalse(Condition := HalfBROT.F_OilLevelValid(nRaw := 599, nMinValid := 600, nMaxValid := 12000), Message := 'below the limit');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Lower_Limit_Is_Valid" Id="{26356fdf-cc83-441b-881f-77831a176446}">
+      <Declaration><![CDATA[// The limit itself is valid (both limits inclusive).
+METHOD PRIVATE Lower_Limit_Is_Valid
+VAR
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Lower_Limit_Is_Valid');
+AssertTrue(Condition := HalfBROT.F_OilLevelValid(nRaw := 600, nMinValid := 600, nMaxValid := 12000), Message := 'lower limit');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Measured_Healthy_Range_Valid" Id="{4852f5eb-529f-4faf-ae7f-0476ffb65e88}">
+      <Declaration><![CDATA[// MONET/S 2026-10-20: empty pan 883..1330, suction start 6887, float switch 9416.
+METHOD PRIVATE Measured_Healthy_Range_Valid
+VAR
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Measured_Healthy_Range_Valid');
+AssertTrue(Condition := HalfBROT.F_OilLevelValid(nRaw := 883, nMinValid := 600, nMaxValid := 12000), Message := 'empty pan low');
+AssertTrue(Condition := HalfBROT.F_OilLevelValid(nRaw := 1330, nMinValid := 600, nMaxValid := 12000), Message := 'empty pan high');
+AssertTrue(Condition := HalfBROT.F_OilLevelValid(nRaw := 2302, nMinValid := 600, nMaxValid := 12000), Message := 'suction stop');
+AssertTrue(Condition := HalfBROT.F_OilLevelValid(nRaw := 6887, nMinValid := 600, nMaxValid := 12000), Message := 'suction start');
+AssertTrue(Condition := HalfBROT.F_OilLevelValid(nRaw := 9416, nMinValid := 600, nMaxValid := 12000), Message := 'float switch');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Upper_Limit_Is_Valid_Above_Is_Not" Id="{fa472eb8-be62-459a-ac2f-f3119125db39}">
+      <Declaration><![CDATA[// 12000 is valid, 12001 is not.
+METHOD PRIVATE Upper_Limit_Is_Valid_Above_Is_Not
+VAR
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Upper_Limit_Is_Valid_Above_Is_Not');
+AssertTrue(Condition := HalfBROT.F_OilLevelValid(nRaw := 12000, nMinValid := 600, nMaxValid := 12000), Message := 'upper limit');
+AssertFalse(Condition := HalfBROT.F_OilLevelValid(nRaw := 12001, nMinValid := 600, nMaxValid := 12000), Message := 'above the limit');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Over_Range_Invalid" Id="{c64ceec1-9ac7-4c34-9562-a0e672bc8080}">
+      <Declaration><![CDATA[// 4.75 V (15563), 5 V, the highest the sensor can output (16383) and the full scale of the terminal (32767).
+METHOD PRIVATE Over_Range_Invalid
+VAR
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Over_Range_Invalid');
+AssertFalse(Condition := HalfBROT.F_OilLevelValid(nRaw := 15563, nMinValid := 600, nMaxValid := 12000), Message := '4.75 V');
+AssertFalse(Condition := HalfBROT.F_OilLevelValid(nRaw := 16383, nMinValid := 600, nMaxValid := 12000), Message := '5 V');
+AssertFalse(Condition := HalfBROT.F_OilLevelValid(nRaw := 32767, nMinValid := 600, nMaxValid := 12000), Message := 'full scale');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Defaults_Accept_Every_Value" Id="{981bbc5c-4c3f-4887-a884-a4998f214c37}">
+      <Declaration><![CDATA[// With the block defaults (-32768..32767) nothing is invalid: the old behaviour for callers that set no limits.
+METHOD PRIVATE Defaults_Accept_Every_Value
+VAR
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Defaults_Accept_Every_Value');
+AssertTrue(Condition := HalfBROT.F_OilLevelValid(nRaw := -32768, nMinValid := -32768, nMaxValid := 32767), Message := 'default -32768');
+AssertTrue(Condition := HalfBROT.F_OilLevelValid(nRaw := 0, nMinValid := -32768, nMaxValid := 32767), Message := 'default 0');
+AssertTrue(Condition := HalfBROT.F_OilLevelValid(nRaw := 330, nMinValid := -32768, nMaxValid := 32767), Message := 'default 330');
+AssertTrue(Condition := HalfBROT.F_OilLevelValid(nRaw := 16383, nMinValid := -32768, nMaxValid := 32767), Message := 'default 16383');
+AssertTrue(Condition := HalfBROT.F_OilLevelValid(nRaw := 32767, nMinValid := -32768, nMaxValid := 32767), Message := 'default 32767');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

@@ -14,6 +14,13 @@ results); this one only covers what's specific to MONETcommon.
 | `F_CommandAcceptance_Tests` | `F_CommandAcceptance` / `F_CommandRejectText` (#83, #87): one test per row of the command-acceptance table (reject reasons, park wins over power-on, park deferred during a stop, latest move replaces) |
 | `F_AxisTurn_Tests` | the turn of an azimuth/derotator target inside the axis limits (#2): MONETS/MONETN limits, inclusive endpoints, no valid turn, longest track time with the 4 h cap, nearest turn without velocity, the margin, and that a tracking axis keeps its turn and stops at the margin instead of jumping 360 deg |
 | `F_TargetBelowHorizonWarning_Tests` | the 'Target below safe horizon' condition (#94): only a requested goto/track below `fHorizon` warns, an idle or parked telescope with a stale RA/Dec target does not, the comparison is strict |
+| `F_ErrorParkRequest_Tests` | the request for the emergency park on a new axis error (#86): only a rising edge of a hardware error on a telescope that is not parked and not in E-stop, no repeat while the error persists, no loop after the park |
+| `F_WakeShakeErrorExempt_Tests` | the Wake&Shake exemption from the emergency park (#113): only the first power-on after a PLC restart, only while powering, only for azimuth/elevation errors |
+| `F_OilLevelValid_Tests` | HalfBROT `F_OilLevelValid` (MONETS#32): the raw oil level range, with the values measured on MONET/S (wire break 0, sensor error 330, empty 883..1330, float switch 9416, over-range 16383/32767) and the no-guard defaults |
+| `F_OilSuctionLatch_Tests` | HalfBROT `F_OilSuctionLatch` (MONETS#32): equal to the old suction SR while the level is valid; invalid: no start by level, a running suction kept while the main pump is enabled, float switch still starts |
+| `FB_MonetStopTransaction_Tests` | `FB_MonetStopTransaction` (#96): one MC_Stop per axis and stop, a latched StopAxis level written low first, no second stop while an axis is Stopping after StopDone (the #96 guard), no settling on a bare standstill sample, three scans at rest after the last StopDone, disabled axes, repeated stop (D2) and the timeout cases (D1) |
+| `StopLoop_Sim_Tests` | scan-level simulation of the stop (#96): three mock axes with the real `BROTLib.FB_AxisCommand` and an MC_Stop model; the 0.9.0 rule restarts MC_Stop with skewed Done times, the transaction sends one stop per axis and settles |
+| `F_GotoTargetCheck_Tests` | the elevation window of a goto/track target (#109): below 2 deg 16#15, above 89.5 deg 16#16, both limits inside, and that with `fHorizon` 1 deg every target that warns is also refused (a warning alone only exists when `fHorizon` is above the floor) |
 
 This is a first, deliberately small slice -- see
 [MONETcommon/specs/plans/2026-09-22-add-tcunit-tests.md](../specs/plans/2026-09-22-add-tcunit-tests.md)
@@ -47,6 +54,6 @@ cd C:\TwinCAT\3.1\Runtimes\UmRT_Default; .\Start.bat
 
 ## Things to know
 
-Same as `BROTLibTests` (CI runs these tests through `tests.yml`) -- TcUnit sized to 32 suites / 32 tests / 256 asserts, every test method
+Same as `BROTLibTests` (CI runs these tests through `tcbuild.yml`) -- TcUnit sized to 32 suites / 32 tests / 256 asserts, every test method
 runs every PLC cycle (multi-cycle tests must guard their own state), `.tmc`/`_Boot`/`_CompileInfo`/
 `_Libraries` are generated and git-ignored.

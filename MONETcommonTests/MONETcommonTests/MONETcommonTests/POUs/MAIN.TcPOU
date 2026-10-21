@@ -10,6 +10,13 @@ VAR
 	fbCommandAcceptanceTests	: F_CommandAcceptance_Tests;
 	fbAxisTurnTests	: F_AxisTurn_Tests;
 	fbTargetBelowHorizonWarningTests	: F_TargetBelowHorizonWarning_Tests;
+	fbErrorParkRequestTests	: F_ErrorParkRequest_Tests;
+	fbWakeShakeErrorExemptTests	: F_WakeShakeErrorExempt_Tests;
+	fbOilLevelValidTests	: F_OilLevelValid_Tests;
+	fbOilSuctionLatchTests	: F_OilSuctionLatch_Tests;
+	fbGotoTargetCheckTests	: F_GotoTargetCheck_Tests;
+	fbStopTransactionTests	: FB_MonetStopTransaction_Tests;
+	fbStopLoopSimTests	: StopLoop_Sim_Tests;
 	fbTempSensorTests	: FB_MonetTempSensor_Tests;
 	fbMethodVarProbeTests	: FB_MethodVarProbe_Tests;
 END_VAR
