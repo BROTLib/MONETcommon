@@ -267,10 +267,9 @@ Add the suite to `MONETcommonTests` `MAIN` and the README table. CI (`tcbuild.ym
 Rules as in the earlier plans: never open the roof, and someone watches the covers. Choose coordinates within the MONET/S axis
 limits, with elevation >= 30 deg.
 
-For the preemption steps, the first target must lie **farther away than the stopping distance plus a margin**. On IAG50cm the
-T9.4 run on 2026-10-13 was not discriminating because of this. The MONET/S stopping distance at 10 deg/s azimuth / 5 deg/s
-elevation is not measured. Use at least 60 deg of azimuth travel left at the moment of the preemption, or measure it with
-one explicit `stop` first.
+For the preemption steps, the first target must lie **farther away than the braking distance plus a margin**. On IAG50cm the
+T9.4 run on 2026-10-13 was not discriminating because of this. The MONET/S braking distance at 10 deg/s azimuth / 5 deg/s
+elevation is not measured: do step 0 first. The coordinates for steps A and B are chosen on site from that measurement.
 
 **Record** with an ADS on-change logger at cycle resolution, as for #96. If that is not available, use a sum-read at 20 Hz.
 - **`MAIN.TelescopeControl`:** `TCS_command`, `bMoveAbortPending`, `bSupersedeRequest`, `bStop`, `bStopped`, `bReset`,
@@ -286,6 +285,18 @@ one explicit `stop` first.
 - the position at the preemption, the position at rest, and the old target
 - the number of `StopCommand.Execute` edges per axis
 - the log lines and any axis error
+
+**Step 0, before step A: measure the braking distance (answers question 7).** Without it, A1-A3 and B1 can pass for the wrong
+reason: a first target that lies within the braking distance is reached anyway, even if the preemption does nothing.
+1. Choose a long slew with elevation >= 30 deg all the way, and at least 60 deg of azimuth travel (for example az 100 -> 175 at
+   el 45).
+2. About 3 s into the slew (the axes at full speed) send one plain `stop`.
+3. Note, per axis, the position at the `stop` command, the position at rest, and the time until `StandStill`. The braking distance
+   is the difference. Repeat once in the other direction.
+4. Fix the first target of every preemption step so that it lies at least **2 x the measured braking distance** (and not less than
+   10 deg) beyond the position where the preempting command is sent. Elevation >= 30 deg, within the axis limits, roof closed.
+5. Write the measured distances and the chosen coordinates into the run notes of the steps below. If a step shows the axes
+   stopping short of the target, check against this distance that the step discriminated.
 
 **Step A, on 0.9.1 (before this change; it also gives the #56 baseline):**
 1. **A1 goto over slew.** Slew to a far target, then 3 s later `goto` (RA/Dec) to a target in another direction.
