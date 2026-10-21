@@ -115,7 +115,7 @@
     <Compile Include="POUs\FB_BrakeHydraulicsMock.TcPOU">
       <SubType>Code</SubType>
     </Compile>
-    <Compile Include="POUs\FB_MonetRig_Spike_Tests.TcPOU">
+    <Compile Include="POUs\FB_MonetRig_Tests.TcPOU">
       <SubType>Code</SubType>
     </Compile>
     <Compile Include="POUs\MAIN.TcPOU">

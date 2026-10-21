@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
   <POU Name="FB_MonetRig_Tests" Id="{3ed949b3-7d66-48e5-bdad-edf8be04d763}" SpecialFunc="None">
-    <Declaration><![CDATA[// Spike S0 of the telescope state machine plan (BROTLib specs/plans/2026-10-21-telescope-state-machine-unification.md, step 0.2):
+    <Declaration><![CDATA[// Smoke test of the mock rig (spike S0 of the telescope state machine plan (BROTLib specs/plans/2026-10-21-telescope-state-machine-unification.md, step 0.2):
 // can the real FB_MonetTelescopeControl run on axis mocks that subclass the HalfBROT axis blocks? Answers D1 (a) writing the
 // nested fbAxis outputs from the derived block, (b) a body override without SUPER^(), (c) AT%I* of FB_AxisControl on the target.
 FUNCTION_BLOCK FB_MonetRig_Tests EXTENDS TcUnit.FB_TestSuite
