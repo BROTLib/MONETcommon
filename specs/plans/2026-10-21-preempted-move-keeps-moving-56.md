@@ -1,6 +1,6 @@
 # A preempted move keeps moving to its old target (#56, and part 1 of #66)
 
-Date: 2026-10-21. Status: **plan agreed (section 11), implementation in a PR. Nothing run on a PLC or telescope.**
+Date: 2026-10-21. Status: **plan agreed (section 11), implemented in the PR (0.9.2 after the release). Nothing run on a PLC or telescope.**
 Repo: BROTLib/MONETcommon. Base: `develop` = `origin/develop` = `2ce22ef` (0.9.1: #96 stop transaction, #86, #113).
 Line numbers below are from `2ce22ef`.
 

@@ -1,0 +1,112 @@
+<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="F_ResetMoveAbort_Tests" Id="{8b6f3a52-1c0e-4d7a-9a35-5e2d41c7f0ba}" SpecialFunc="None">
+    <Declaration><![CDATA[// Tests for MONETcommon.F_ResetMoveAbort, the abort stop after a reset under motion (#56, #66 part 1).
+// Inputs in call order: bError, bParkRunning, bAzMoving, bElMoving, bDrMoving.
+FUNCTION_BLOCK F_ResetMoveAbort_Tests EXTENDS TcUnit.FB_TestSuite
+VAR
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[Moving_Azimuth_Keeps_Abort();
+Moving_Elevation_Keeps_Abort();
+Moving_Derotator_Keeps_Abort();
+All_At_Rest_Clears();
+Error_Clears();
+Park_Running_Clears();
+Several_Axes_Moving();
+]]></ST>
+    </Implementation>
+    <Method Name="Moving_Azimuth_Keeps_Abort" Id="{a1b2c3d4-0001-4a56-8a01-000000000001}">
+      <Declaration><![CDATA[// An azimuth move is running.
+METHOD PRIVATE Moving_Azimuth_Keeps_Abort
+VAR
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Moving_Azimuth_Keeps_Abort');
+AssertTrue(Condition := MONETcommon.F_ResetMoveAbort(FALSE, FALSE, TRUE, FALSE, FALSE), Message := 'moving: stop it');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Moving_Elevation_Keeps_Abort" Id="{a1b2c3d4-0001-4a56-8a01-000000000002}">
+      <Declaration><![CDATA[// An elevation move is running.
+METHOD PRIVATE Moving_Elevation_Keeps_Abort
+VAR
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Moving_Elevation_Keeps_Abort');
+AssertTrue(Condition := MONETcommon.F_ResetMoveAbort(FALSE, FALSE, FALSE, TRUE, FALSE), Message := 'moving: stop it');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Moving_Derotator_Keeps_Abort" Id="{a1b2c3d4-0001-4a56-8a01-000000000003}">
+      <Declaration><![CDATA[// The derotator is moving or homing.
+METHOD PRIVATE Moving_Derotator_Keeps_Abort
+VAR
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Moving_Derotator_Keeps_Abort');
+AssertTrue(Condition := MONETcommon.F_ResetMoveAbort(FALSE, FALSE, FALSE, FALSE, TRUE), Message := 'moving: stop it');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="All_At_Rest_Clears" Id="{a1b2c3d4-0001-4a56-8a01-000000000004}">
+      <Declaration><![CDATA[// Nothing moves (also an axis stuck in Stopping without motion): the reset clears the abort.
+METHOD PRIVATE All_At_Rest_Clears
+VAR
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('All_At_Rest_Clears');
+AssertFalse(Condition := MONETcommon.F_ResetMoveAbort(FALSE, FALSE, FALSE, FALSE, FALSE), Message := 'at rest');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Error_Clears" Id="{a1b2c3d4-0001-4a56-8a01-000000000005}">
+      <Declaration><![CDATA[// An error: the drives are off, nothing to wait for.
+METHOD PRIVATE Error_Clears
+VAR
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Error_Clears');
+AssertFalse(Condition := MONETcommon.F_ResetMoveAbort(TRUE, FALSE, TRUE, TRUE, TRUE), Message := 'error');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Park_Running_Clears" Id="{a1b2c3d4-0001-4a56-8a01-000000000006}">
+      <Declaration><![CDATA[// A park is running: its motion is wanted.
+METHOD PRIVATE Park_Running_Clears
+VAR
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Park_Running_Clears');
+AssertFalse(Condition := MONETcommon.F_ResetMoveAbort(FALSE, TRUE, TRUE, TRUE, FALSE), Message := 'park running');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Several_Axes_Moving" Id="{a1b2c3d4-0001-4a56-8a01-000000000007}">
+      <Declaration><![CDATA[// All axes moving.
+METHOD PRIVATE Several_Axes_Moving
+VAR
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Several_Axes_Moving');
+AssertTrue(Condition := MONETcommon.F_ResetMoveAbort(FALSE, FALSE, TRUE, TRUE, TRUE), Message := 'moving');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

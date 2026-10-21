@@ -49,6 +49,9 @@
     <Compile Include="POUs\F_ErrorParkRequest_Tests.TcPOU">
       <SubType>Code</SubType>
     </Compile>
+    <Compile Include="POUs\F_ResetMoveAbort_Tests.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
     <Compile Include="POUs\F_WakeShakeErrorExempt_Tests.TcPOU">
       <SubType>Code</SubType>
     </Compile>

@@ -92,8 +92,10 @@ VAR
 	InterruptedAutoClearEvent	: FB_EventLog;
 
 	// #84: a running move was interrupted (gohome/goto/park/track over a slew or goto): stop the axes
-	// before the new command may start. Cleared at standstill, on reset and on an error.
+	// before the new command may start. Cleared at standstill and on an error. A reset (#56) clears it only
+	// if no enabled axis is moving (F_ResetMoveAbort), otherwise the abort stop goes on.
 	bMoveAbortPending	: BOOL;
+	eTimeoutCommand		: E_TCSCommand;	// #56: the command tonCommandTimeout is counting for
 	MoveAbortEvent		: FB_EventLog;
 	// #96: one MC_Stop per axis and stop transaction; the stop is over when every axis that was sent one has
 	// reported StopDone and the telescope has been at rest for 3 scans. Replaces bStopIssuedAz/El/Dr (#84).
@@ -186,16 +188,17 @@ fbStopTx.abStopAxis[3] := fbDerotator.StopAxis;
 fbStopTx.abStopDone[1] := fbAzimuth.fbAxis.StopDone;
 fbStopTx.abStopDone[2] := fbElevation.fbAxis.StopDone;
 fbStopTx.abStopDone[3] := fbDerotator.fbAxis.StopDone;
-fbStopTx.abMoving[1] := fbAzimuth.fbAxis.InMotion OR fbAzimuth.fbAxis.InRamp;
-fbStopTx.abMoving[2] := fbElevation.fbAxis.InMotion OR fbElevation.fbAxis.InRamp;
-fbStopTx.abMoving[3] := fbDerotator.fbAxis.InMotion OR fbDerotator.fbAxis.InRamp;
+fbStopTx.abMoving[1] := fbAzimuth.fbAxis.InMotion OR fbAzimuth.fbAxis.InRamp OR fbAzimuth.fbAxis.Homing;
+fbStopTx.abMoving[2] := fbElevation.fbAxis.InMotion OR fbElevation.fbAxis.InRamp OR fbElevation.fbAxis.Homing;
+fbStopTx.abMoving[3] := fbDerotator.fbAxis.InMotion OR fbDerotator.fbAxis.InRamp OR fbDerotator.fbAxis.Homing;
 fbStopTx.abStopping[1] := fbAzimuth.fbAxis.Stopping;
 fbStopTx.abStopping[2] := fbElevation.fbAxis.Stopping;
 fbStopTx.abStopping[3] := fbDerotator.fbAxis.Stopping;
 
 // #96 (D3): a reset recovers a stop that is stuck in Stopping without writing over ADS. Only axes that stand still
 // are reset (a reset under motion was followed by 0x4260, #84); a moving enabled axis keeps the stop going.
-IF rtrigReset.Q AND bStop
+// #56: also for an abort stop (bMoveAbortPending), not only for an operator stop.
+IF rtrigReset.Q AND (bStop OR bMoveAbortPending)
 	AND NOT (fbStopTx.abEnabled[1] AND fbStopTx.abMoving[1])
 	AND NOT (fbStopTx.abEnabled[2] AND fbStopTx.abMoving[2])
 	AND NOT (fbStopTx.abEnabled[3] AND fbStopTx.abMoving[3]) THEN
@@ -223,7 +226,14 @@ IF bReset THEN
 	bGoto := FALSE;
 	bSlew := FALSE;
 	bTrack := FALSE;
-	bMoveAbortPending := FALSE;	// #84
+	// #56: a move that is still running is stopped (the abort stop of #84 goes on), not left to run to its old target.
+	// Not during an error (the drives are off) and not during a park (its motion is wanted, bPark is kept).
+	bMoveAbortPending := F_ResetMoveAbort(
+		bError := bError,
+		bParkRunning := TCS_command = E_TCSCommand.park,
+		bAzMoving := fbStopTx.abEnabled[1] AND fbStopTx.abMoving[1],
+		bElMoving := fbStopTx.abEnabled[2] AND fbStopTx.abMoving[2],
+		bDrMoving := fbStopTx.abEnabled[3] AND fbStopTx.abMoving[3]);
 	bSupersedeRequest := FALSE;	// #83
 
 	// reset the stages of all statemachine methods
@@ -478,6 +488,12 @@ IF bSupersedeRequest THEN
 	_GotoTelescope();
 	_SlewTelescope();
 	bInterrupted := FALSE;	// #26: one-shot, the interrupted state machines have reset their stage
+	// #56: the replacement gets its own 600 s, the timer must not go on counting from the first request
+	CASE eSupersedeKeep OF
+		E_TCSCommand.gohome:	tonHomeTimeout(IN := FALSE);
+		E_TCSCommand.goto:		tonGotoTimeout(IN := FALSE);
+		E_TCSCommand.slew:		tonSlewTimeout(IN := FALSE);
+	END_CASE
 	IF NOT bError THEN
 		bMoveAbortPending := TRUE;
 	END_IF
@@ -630,6 +646,13 @@ ELSE
 	fbElevation.bTracking := FALSE;
 	fbAzimuth.bTracking := FALSE;
 	fbDerotator.bTracking := FALSE;
+END_IF
+
+// #56: each command counts its timeout from its own dispatch. A preemption never has a scan without command, so
+// the timer used to go on from the previous command (a stop after a long track timed out in its first scan).
+IF TCS_command <> eTimeoutCommand THEN
+	tonCommandTimeout(IN := FALSE);
+	eTimeoutCommand := TCS_command;
 END_IF
 
 IF TCS_command = E_TCSCommand.poweron THEN
