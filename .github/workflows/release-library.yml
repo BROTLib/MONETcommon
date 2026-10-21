@@ -33,18 +33,23 @@ jobs:
         with:
           ref: ${{ inputs.tag }}
 
+      - name: Get tctool
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ secrets.TCTOOL_TOKEN }}
+        run: .\tools\Get-TcTool.ps1
+
       - name: Save library
         shell: powershell
         env:
           TAG: ${{ inputs.tag }}
         run: |
           $file = Join-Path $env:RUNNER_TEMP "MONETcommon_$($env:TAG).library"
-          # tools/Invoke-XaeBuild.ps1 drives XAE through its automation interface and replaces TcBuild.exe, which
-          # gave up after about 17 s on a cold XAE start (exit 3). It must be in the tagged tree, so a tag from
-          # before it was added cannot be re-released with this workflow. Exit 1 = built with compile warnings.
-          & "$env:GITHUB_WORKSPACE\tools\Invoke-XaeBuild.ps1" install MONETcommon.sln -XaeProject MONETcommon -PlcProject MONETcommon -LibraryFile $file
-          if ($LASTEXITCODE -gt 1) { throw "Invoke-XaeBuild.ps1 failed with exit code $LASTEXITCODE" }
-          if (-not (Test-Path $file)) { throw "Invoke-XaeBuild.ps1 did not write $file" }
+          # tctool is pinned in .github/tctool-version (and tools/Get-TcTool.ps1 reads it from the tagged tree, so a tag
+          # from before this change cannot be re-released with this workflow). Exit 1 = built with compile warnings.
+          tctool MONETcommon.sln library --xae MONETcommon --plc MONETcommon --out $file --install
+          if ($LASTEXITCODE -gt 1) { throw "tctool failed with exit code $LASTEXITCODE" }
+          if (-not (Test-Path $file)) { throw "tctool did not write $file" }
           "LIBRARY_FILE=$file" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
       - name: Attach to GitHub Release
