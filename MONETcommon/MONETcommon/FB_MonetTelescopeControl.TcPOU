@@ -1801,6 +1801,9 @@ fbDerotator.MoveAxis := FALSE;
 // still Stopping was the restart loop.
 IF NOT bStopTxBegun THEN
 	fbStopTx.Begin();
+	// MONETcommon#122: the focus has no StopAxis level and is not part of the transaction (it settles on its own
+	// StopDone): one Stop() per stop command stops a running focus move and holds the position reached
+	fbFocus.Stop();
 	bStopTxBegun := TRUE;
 END_IF
 fbStopTx();
@@ -2130,6 +2133,7 @@ Slew := TRUE;]]></ST>
         <ST><![CDATA[// #96 (D2): a repeated stop while a stop is running re-sends a stop only to axes that are moving again
 IF bStop THEN
 	fbStopTx.Restart();
+	fbFocus.Stop();	// MONETcommon#122: a focus that was sent to a new target meanwhile is stopped again
 END_IF
 bStop := TRUE;]]></ST>
       </Implementation>

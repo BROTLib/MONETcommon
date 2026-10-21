@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="FB_AxisMockCore" Id="{7268b1bc-a85f-46c9-bcb5-8b5f63d401a5}" SpecialFunc="None">
+    <Declaration><![CDATA[// Motion model of one mocked axis (MONETcommon#36 mock rig). One call = one PLC scan of the axis part. Enable -> Ready after
+// nReadyScans, homing -> calibrated after nHomeScans, a rising bMove -> InMotion for nMoveScans, then MoveDone for one
+// scan and the position is the target. Only the levels the telescope writes are inputs; nothing here touches an MC_* block.
+FUNCTION_BLOCK FB_AxisMockCore
+VAR_INPUT
+	bEnable			: BOOL;
+	bHome			: BOOL;
+	bMove			: BOOL;
+	fTarget			: LREAL;
+	nReadyScans		: UINT := 2;
+	nHomeScans		: UINT := 3;
+	nMoveScans		: UINT := 4;
+END_VAR
+VAR_OUTPUT
+	bReady			: BOOL;
+	bCalibrated		: BOOL;
+	bHoming			: BOOL;
+	bInMotion		: BOOL;
+	bStandStill		: BOOL := TRUE;
+	bMoveDone		: BOOL;		// one scan
+	fPosition		: LREAL;
+END_VAR
+VAR
+	nReadyCount		: UINT;
+	nHomeCount		: UINT;
+	nMoveCount		: UINT;
+	rtMove			: R_TRIG;
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[bMoveDone := FALSE;
+
+IF bEnable THEN
+	IF nReadyCount >= nReadyScans THEN
+		bReady := TRUE;
+	ELSE
+		nReadyCount := nReadyCount + 1;
+	END_IF
+ELSE
+	nReadyCount := 0;
+	bReady := FALSE;
+END_IF
+
+IF bHome AND bReady AND NOT bCalibrated THEN
+	bHoming := TRUE;
+	nHomeCount := nHomeCount + 1;
+	IF nHomeCount >= nHomeScans THEN
+		bCalibrated := TRUE;
+		bHoming := FALSE;
+		nHomeCount := 0;
+	END_IF
+ELSE
+	bHoming := FALSE;
+END_IF
+
+rtMove(CLK := bMove);
+IF rtMove.Q AND bReady AND bCalibrated THEN
+	bInMotion := TRUE;
+	nMoveCount := 0;
+END_IF
+IF bInMotion THEN
+	nMoveCount := nMoveCount + 1;
+	IF nMoveCount >= nMoveScans THEN
+		fPosition := fTarget;
+		bInMotion := FALSE;
+		bMoveDone := TRUE;
+	END_IF
+END_IF
+
+bStandStill := NOT bInMotion AND NOT bHoming;
+]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

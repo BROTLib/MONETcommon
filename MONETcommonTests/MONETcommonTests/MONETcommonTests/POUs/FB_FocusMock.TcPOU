@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="FB_FocusMock" Id="{a35603b3-030a-4de3-a67d-dbbefdf04315}" SpecialFunc="None">
+    <Declaration><![CDATA[// Mock of FB_FocusControl (an I_Focus) for the telescope state machine tests (MONETcommon#36). Status only: the real focus
+// block positions itself in automatic mode, the mock follows fPosition when the telescope asks for a move.
+FUNCTION_BLOCK FB_FocusMock EXTENDS HalfBROT.FB_FocusControl
+VAR
+	fbCore	: FB_AxisMockCore;
+	pBool	: POINTER TO BOOL;
+	pLreal	: POINTER TO LREAL;
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[// No SUPER^(): the real body (MC_* blocks, AXIS_REF) does not run. The real property setters (MoveAxis -> fbAxis.MoveTo(),
+// StopAxis -> fbAxis.Stop(), HomeAxis -> _StartHoming) stay, so the telescope sees the real command interface. The model
+// is driven by the levels the telescope writes and writes what the telescope reads: the base outputs and the nested
+// fbAxis outputs.
+// HalfBROT 0.6.0: the real focus starts its moves with FB_MoveFollower, there is no bMoveAxis level any more. The body
+// that does that does not run here, and nothing in the rig wrote the old level, so the mock never moved: unchanged.
+fbCore(bEnable := bEnable, bHome := bHomeAxis, bMove := FALSE, fTarget := fPosition);
+
+// outputs of FB_Axis cannot be written from outside (C: 'is no input of'), a pointer sidesteps that (as FB_Axis_Tests.SetActPos)
+pBool := ADR(fbAxis.Ready);			pBool^ := fbCore.bReady;
+pBool := ADR(fbAxis.Calibrated);	pBool^ := fbCore.bCalibrated;
+pBool := ADR(fbAxis.HomeDone);		pBool^ := fbCore.bCalibrated;
+pBool := ADR(fbAxis.HomeActive);	pBool^ := fbCore.bHoming;
+pBool := ADR(fbAxis.Homing);		pBool^ := fbCore.bHoming;
+pBool := ADR(fbAxis.InMotion);		pBool^ := fbCore.bInMotion;
+pBool := ADR(fbAxis.StandStill);	pBool^ := fbCore.bStandStill;
+pBool := ADR(fbAxis.MoveDone);		pBool^ := fbCore.bMoveDone;
+pBool := ADR(fbAxis.Busy);			pBool^ := fbCore.bInMotion OR fbCore.bHoming;
+pLreal := ADR(fbAxis.ActualPosition);	pLreal^ := fbCore.fPosition;
+
+bReady := fbCore.bReady AND fbCore.bStandStill;
+bCalibrated := fbCore.bCalibrated;
+fActualPosition := fbCore.fPosition;
+]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>
