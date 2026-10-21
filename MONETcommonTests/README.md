@@ -15,6 +15,8 @@ results); this one only covers what's specific to MONETcommon.
 | `F_AxisTurn_Tests` | the turn of an azimuth/derotator target inside the axis limits (#2): MONETS/MONETN limits, inclusive endpoints, no valid turn, longest track time with the 4 h cap, nearest turn without velocity, the margin, and that a tracking axis keeps its turn and stops at the margin instead of jumping 360 deg |
 | `F_TargetBelowHorizonWarning_Tests` | the 'Target below safe horizon' condition (#94): only a requested goto/track below `fHorizon` warns, an idle or parked telescope with a stale RA/Dec target does not, the comparison is strict |
 | `F_ErrorParkRequest_Tests` | the request for the emergency park on a new axis error (#86): only a rising edge of a hardware error on a telescope that is not parked and not in E-stop, no repeat while the error persists, no loop after the park |
+| `F_BrakeMustClose_Tests` | the brake close while the elevation is disabled (#121): TRUE when disabled, FALSE when enabled |
+| `F_ParkAxesCanMove_Tests` | the park decision (#87, #121): drive only with all three axes calibrated and enabled and the brake open, otherwise park in place |
 | `F_ResetMoveAbort_Tests` | the abort stop after a reset (#56, #66): kept while an enabled axis moves or homes, cleared at rest, on an error and while a park runs |
 | `F_WakeShakeErrorExempt_Tests` | the Wake&Shake exemption from the emergency park (#113): only the first power-on after a PLC restart, only while powering, only for azimuth/elevation errors |
 | `F_OilLevelValid_Tests` | HalfBROT `F_OilLevelValid` (MONETS#32): the raw oil level range, with the values measured on MONET/S (wire break 0, sensor error 330, empty 883..1330, float switch 9416, over-range 16383/32767) and the no-guard defaults |

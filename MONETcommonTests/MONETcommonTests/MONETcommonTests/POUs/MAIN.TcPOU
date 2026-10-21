@@ -11,6 +11,8 @@ VAR
 	fbAxisTurnTests	: F_AxisTurn_Tests;
 	fbTargetBelowHorizonWarningTests	: F_TargetBelowHorizonWarning_Tests;
 	fbErrorParkRequestTests	: F_ErrorParkRequest_Tests;
+	fbBrakeMustCloseTests	: F_BrakeMustClose_Tests;
+	fbParkAxesCanMoveTests	: F_ParkAxesCanMove_Tests;
 	fbResetMoveAbortTests	: F_ResetMoveAbort_Tests;
 	fbWakeShakeErrorExemptTests	: F_WakeShakeErrorExempt_Tests;
 	fbOilLevelValidTests	: F_OilLevelValid_Tests;

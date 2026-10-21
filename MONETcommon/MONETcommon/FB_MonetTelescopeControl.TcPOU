@@ -693,6 +693,13 @@ IF TCS_command <> E_TCSCommand.stop THEN
 	fbStopTx.Cancel();
 	bStopTxBegun := FALSE;
 END_IF
+
+// #121: the shared Az/El brake is closed whenever the elevation is disabled. HalfBROT closes it only on the falling
+// edge of the elevation enable and bOpenBrake of the hydraulics is a latch, so a brake that opened later stayed open.
+// After the dispatch, so the power-on that enables the axes in this scan is not seen as disabled.
+IF F_BrakeMustClose(bElevationEnabled := fbElevation.bEnable) THEN
+	fbBrake.CloseBrake();
+END_IF
  
 bSlewing := NOT bTracking AND (fbElevation.fbAxis.InMotion OR fbElevation.fbAxis.InRamp OR
 			fbAzimuth.fbAxis.InMotion OR fbAzimuth.fbAxis.InRamp OR
@@ -1149,8 +1156,10 @@ CASE nStage OF
 		fbFocus.Position := telescopeConfig.focusPark;
 		// #87: the axes can only drive to the park position when they are calibrated, enabled and the brake is open.
 		// Otherwise (aborted power-on, after a reset) park in place, like the emergency park: no axis motion.
-		bAxesCanMove := fbElevation.Calibrated AND fbAzimuth.Calibrated AND fbDerotator.Calibrated AND
-			fbElevation.bEnable AND fbAzimuth.bEnable AND fbDerotator.bEnable AND fbBrake.BrakeOpen;
+		bAxesCanMove := F_ParkAxesCanMove(
+			bElCalibrated := fbElevation.Calibrated, bAzCalibrated := fbAzimuth.Calibrated, bDrCalibrated := fbDerotator.Calibrated,
+			bElEnabled := fbElevation.bEnable, bAzEnabled := fbAzimuth.bEnable, bDrEnabled := fbDerotator.bEnable,
+			bBrakeOpen := fbBrake.BrakeOpen);
 		IF bError OR NOT bAxesCanMove THEN // emergency park, or park in place
 			fbBrake.CloseBrake();
 			fbElevation.Enable := FALSE;
