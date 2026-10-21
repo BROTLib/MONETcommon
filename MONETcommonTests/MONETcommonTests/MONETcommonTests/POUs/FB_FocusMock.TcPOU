@@ -15,7 +15,9 @@ END_VAR
 // StopAxis -> fbAxis.Stop(), HomeAxis -> _StartHoming) stay, so the telescope sees the real command interface. The model
 // is driven by the levels the telescope writes and writes what the telescope reads: the base outputs and the nested
 // fbAxis outputs.
-fbCore(bEnable := bEnable, bHome := bHomeAxis, bMove := bMoveAxis, fTarget := fPosition);
+// HalfBROT 0.6.0: the real focus starts its moves with FB_MoveFollower, there is no bMoveAxis level any more. The body
+// that does that does not run here, and nothing in the rig wrote the old level, so the mock never moved: unchanged.
+fbCore(bEnable := bEnable, bHome := bHomeAxis, bMove := FALSE, fTarget := fPosition);
 
 // outputs of FB_Axis cannot be written from outside (C: 'is no input of'), a pointer sidesteps that (as FB_Axis_Tests.SetActPos)
 pBool := ADR(fbAxis.Ready);			pBool^ := fbCore.bReady;
@@ -32,11 +34,6 @@ pLreal := ADR(fbAxis.ActualPosition);	pLreal^ := fbCore.fPosition;
 bReady := fbCore.bReady AND fbCore.bStandStill;
 bCalibrated := fbCore.bCalibrated;
 fActualPosition := fbCore.fPosition;
-
-// the real control body clears the level on MoveDone
-IF fbCore.bMoveDone THEN
-	bMoveAxis := FALSE;
-END_IF
 ]]></ST>
     </Implementation>
   </POU>
