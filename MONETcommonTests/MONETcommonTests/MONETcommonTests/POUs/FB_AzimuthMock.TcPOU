@@ -16,6 +16,8 @@ VAR
 	fbCore	: FB_AxisMockCore;
 	pBool	: POINTER TO BOOL;
 	pLreal	: POINTER TO LREAL;
+	bInjected	: BOOL;
+	nInjectedId	: UDINT;
 END_VAR
 ]]></Declaration>
     <Implementation>
@@ -58,8 +60,24 @@ END_IF
 IF bReset THEN
 	nResetEdges := nResetEdges + 1;
 	bReset := FALSE;	// ResetDone at once
+	bInjected := FALSE;
 END_IF
+bError := bInjected;
+nErrorID := nInjectedId;
 ]]></ST>
     </Implementation>
+    <Method Name="InjectError" Id="{15ab52cd-e3f6-45c9-9382-610dfdf8ff67}">
+      <Declaration><![CDATA[// the axis reports an error with this id until the telescope resets it (bError/nErrorID are what the telescope reads)
+METHOD InjectError
+VAR_INPUT
+	nId	: UDINT;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[bInjected := TRUE;
+nInjectedId := nId;
+]]></ST>
+      </Implementation>
+    </Method>
   </POU>
 </TcPlcObject>

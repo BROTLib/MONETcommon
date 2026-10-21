@@ -19,6 +19,8 @@ VAR
 	fbPointingInv	: FB_PointingModelInversion(fbPointing := fbPointing);
 	fbTel			: FB_MonetTelescopeControl(comm := fbComm);
 	nScans			: UDINT;
+	bManual			: BOOL;	// MAIN calls SuspendAutomatic instead of the body while the cabinet selector is on manual
+	bEstopIn		: BOOL;	// SafetyHandling.estop
 END_VAR
 VAR CONSTANT
 	telescopeConfig	: ST_TelescopeConfig := (longitude := 20.810808, latitude := -32.375823, altitude := 1798.0,
@@ -50,17 +52,22 @@ fbDero.nMockHomeScans := nScans;
       <Declaration><![CDATA[METHOD Scan
 ]]></Declaration>
       <Implementation>
-        <ST><![CDATA[fbTel(
-	telescopeConfig := telescopeConfig,
-	fbCovers := fbCovers,
-	fbBrake := fbBrakeHyd,
-	fbHydraulics := fbBrakeHyd,
-	fbFocus := fbFocus,
-	fbElevation := fbElev,
-	fbAzimuth := fbAzim,
-	fbDerotator := fbDero,
-	fbPointing := fbPointing,
-	fbPointingInverse := fbPointingInv);
+        <ST><![CDATA[IF bManual THEN
+	fbTel.SuspendAutomatic();
+ELSE
+	fbTel(
+		telescopeConfig := telescopeConfig,
+		fbCovers := fbCovers,
+		fbBrake := fbBrakeHyd,
+		fbHydraulics := fbBrakeHyd,
+		fbFocus := fbFocus,
+		fbElevation := fbElev,
+		fbAzimuth := fbAzim,
+		fbDerotator := fbDero,
+		fbPointing := fbPointing,
+		fbPointingInverse := fbPointingInv,
+		bEstopTriggered := bEstopIn);
+END_IF
 fbElev(fbCovers := fbCovers, fbBrake := fbBrakeHyd);
 fbAzim();
 fbDero();
@@ -91,5 +98,74 @@ END_VAR
         </Implementation>
       </Get>
     </Property>
+    <Method Name="SetManual" Id="{7367e2f8-5967-47be-afd4-0d6ea17370fa}">
+      <Declaration><![CDATA[// the cabinet selector: TRUE = manual (the telescope body is not called, SuspendAutomatic is)
+METHOD SetManual
+VAR_INPUT
+	bValue	: BOOL;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[bManual := bValue;
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="SetEstop" Id="{f76d3ba5-df1c-4f8b-afcc-6f56a0d9547e}">
+      <Declaration><![CDATA[// the E-stop input of the telescope
+METHOD SetEstop
+VAR_INPUT
+	bValue	: BOOL;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[bEstopIn := bValue;
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="JogElevation" Id="{99a17950-974a-44cd-b2a3-f86293f3314d}">
+      <Declaration><![CDATA[// the pendant jog button for the elevation (up)
+METHOD JogElevation
+VAR_INPUT
+	bValue	: BOOL;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[fbElev.MovePos := bValue;
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="InjectElevationError" Id="{4c2738fe-bd1d-4e40-8884-048309dc8e4b}">
+      <Declaration><![CDATA[METHOD InjectElevationError
+VAR_INPUT
+	nId	: UDINT;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[fbElev.InjectError(nId);
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="InjectAzimuthError" Id="{5857afe2-6b7e-47e4-849f-b3e7bfb14aca}">
+      <Declaration><![CDATA[METHOD InjectAzimuthError
+VAR_INPUT
+	nId	: UDINT;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[fbAzim.InjectError(nId);
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="InjectFocusError" Id="{f0de967d-0d68-41a5-ad3e-328e6c9af1d2}">
+      <Declaration><![CDATA[METHOD InjectFocusError
+VAR_INPUT
+	nId	: UDINT;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[fbFocus.InjectError(nId);
+]]></ST>
+      </Implementation>
+    </Method>
   </POU>
 </TcPlcObject>
