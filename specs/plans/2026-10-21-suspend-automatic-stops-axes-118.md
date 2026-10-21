@@ -363,7 +363,7 @@ revise the plan before B.
 14. **B14 15 s timeout path** is not provoked on purpose. If it happens in any run (`StopStuckEvent`), report it with the recording:
     the axes must be free for the pendant and `bMoveAbortPending` must stay TRUE; key back to automatic must stop again.
 
-Offline, the only tests are `F_SuspendStop_Tests` and the transaction simulation (6); the steps above are the test of
+Offline, the only tests are `F_SuspendStop_Tests` (7) and one transaction simulation test; the steps above are the test of
 `SuspendAutomatic` itself (#36).
 
 Comment the results on #118 (and B7/B3 on #3). Close #118 when A, B1-B4, B6, B9 and B10 pass.
