@@ -12,6 +12,7 @@ VAR_INPUT
 	bMove			: BOOL;
 	bStop			: BOOL;		// the StopAxis level: a rising edge is a stop request (MC_Stop)
 	fTarget			: LREAL;
+	fHomePosition	: LREAL;		// the position a homing ends at (the calibration cam, fCalibPosition of the axis block)
 	nReadyScans		: UINT := 2;
 	nHomeScans		: UINT := 3;
 	nMoveScans		: UINT := 4;
@@ -75,6 +76,7 @@ IF bHome AND bReady AND NOT bCalibrated THEN
 	nHomeCount := nHomeCount + 1;
 	IF nHomeCount >= nHomeScans THEN
 		bCalibrated := TRUE;
+		fPosition := fHomePosition;
 		bHoming := FALSE;
 		nHomeCount := 0;
 	END_IF
