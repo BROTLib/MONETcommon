@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="F_BrakeMustClose" Id="{c15d8543-9f0c-4859-861e-c979b4be4202}" SpecialFunc="None">
+    <Declaration><![CDATA[// TRUE while the shared Az/El brake must be commanded closed (MONETcommon#121): the elevation axis is disabled.
+// With the elevation disabled and the brake open nothing holds the telescope, which swings if it is unbalanced.
+// The brake close in HalfBROT FB_ElevationControl is edge-only (falling edge of bEnable) and bOpenBrake of the
+// hydraulics is a latch, so a brake that opens later (manual-mode latch, ADS write, pendant) stayed open.
+// Only called in automatic: in manual the azimuth needs the brake open with the elevation disabled.
+FUNCTION F_BrakeMustClose : BOOL
+VAR_INPUT
+	bElevationEnabled	: BOOL;		// fbElevation.bEnable
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[F_BrakeMustClose := NOT bElevationEnabled;
+]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

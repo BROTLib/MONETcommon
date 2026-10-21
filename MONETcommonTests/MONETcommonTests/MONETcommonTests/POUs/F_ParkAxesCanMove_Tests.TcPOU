@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="F_ParkAxesCanMove_Tests" Id="{17c9db1f-64d1-479a-ba4d-d3111485ec50}" SpecialFunc="None">
+    <Declaration><![CDATA[// Tests for MONETcommon.F_ParkAxesCanMove, the park decision: drive to the park position or park in place (#87, #121).
+// Inputs in call order: calibrated El/Az/Dr, enabled El/Az/Dr, brake open.
+FUNCTION_BLOCK F_ParkAxesCanMove_Tests EXTENDS TcUnit.FB_TestSuite
+VAR
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[All_Ready_Moves();
+El_Disabled_Brake_Open_Parks_In_Place();
+Brake_Closed_Parks_In_Place();
+Axis_Not_Calibrated_Parks_In_Place();
+Az_Or_Dr_Disabled_Parks_In_Place();
+]]></ST>
+    </Implementation>
+    <Method Name="All_Ready_Moves" Id="{d5cb2487-dd2d-4b23-a482-9f15e0769d1a}">
+      <Declaration><![CDATA[// All calibrated and enabled, brake open.
+METHOD PRIVATE All_Ready_Moves
+VAR
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('All_Ready_Moves');
+AssertTrue(Condition := MONETcommon.F_ParkAxesCanMove(TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE), Message := 'all ready');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="El_Disabled_Brake_Open_Parks_In_Place" Id="{9a016f68-51ce-48fc-9fc8-6814312ccdb3}">
+      <Declaration><![CDATA[// The #121 case: elevation disabled with the brake open must not drive.
+METHOD PRIVATE El_Disabled_Brake_Open_Parks_In_Place
+VAR
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('El_Disabled_Brake_Open_Parks_In_Place');
+AssertFalse(Condition := MONETcommon.F_ParkAxesCanMove(TRUE, TRUE, TRUE, FALSE, TRUE, TRUE, TRUE), Message := 'el disabled, brake open');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Brake_Closed_Parks_In_Place" Id="{d38e789f-9734-40d4-b6ce-59fbbff0769e}">
+      <Declaration><![CDATA[// Brake closed.
+METHOD PRIVATE Brake_Closed_Parks_In_Place
+VAR
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Brake_Closed_Parks_In_Place');
+AssertFalse(Condition := MONETcommon.F_ParkAxesCanMove(TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, FALSE), Message := 'brake closed');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Axis_Not_Calibrated_Parks_In_Place" Id="{fb188bc5-e458-4fa4-a754-c68132ff6ad8}">
+      <Declaration><![CDATA[// One axis not calibrated.
+METHOD PRIVATE Axis_Not_Calibrated_Parks_In_Place
+VAR
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Axis_Not_Calibrated_Parks_In_Place');
+AssertFalse(Condition := MONETcommon.F_ParkAxesCanMove(FALSE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE), Message := 'el not calibrated');
+AssertFalse(Condition := MONETcommon.F_ParkAxesCanMove(TRUE, FALSE, TRUE, TRUE, TRUE, TRUE, TRUE), Message := 'az not calibrated');
+AssertFalse(Condition := MONETcommon.F_ParkAxesCanMove(TRUE, TRUE, FALSE, TRUE, TRUE, TRUE, TRUE), Message := 'dr not calibrated');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Az_Or_Dr_Disabled_Parks_In_Place" Id="{bce454d6-2fea-451a-9378-ae40560e7f7f}">
+      <Declaration><![CDATA[// Azimuth or derotator disabled.
+METHOD PRIVATE Az_Or_Dr_Disabled_Parks_In_Place
+VAR
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Az_Or_Dr_Disabled_Parks_In_Place');
+AssertFalse(Condition := MONETcommon.F_ParkAxesCanMove(TRUE, TRUE, TRUE, TRUE, FALSE, TRUE, TRUE), Message := 'az disabled');
+AssertFalse(Condition := MONETcommon.F_ParkAxesCanMove(TRUE, TRUE, TRUE, TRUE, TRUE, FALSE, TRUE), Message := 'dr disabled');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>
