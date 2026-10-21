@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <GVL Name="GVL_Diag" Id="{4d89b9b6-be35-4817-9161-1a959e3c14b4}">
+    <Declaration><![CDATA[{attribute 'qualified_only'}
+VAR_GLOBAL
+	// the failed checks of the scenario tests (F_Note), one "test: message;" each. Run-Tests.ps1 prints it when a test failed:
+	// TcUnit itself only writes the failure text to the ADS log, which CI cannot see.
+	sFailures	: STRING(1000);
+END_VAR]]></Declaration>
+  </GVL>
+</TcPlcObject>

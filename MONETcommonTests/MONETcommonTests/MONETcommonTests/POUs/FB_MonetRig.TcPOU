@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="FB_MonetRig" Id="{60e92a7a-02cd-4e48-8d20-abdb7dc0369f}" SpecialFunc="None">
+    <Declaration><![CDATA[// The MONET telescope (FB_MonetTelescopeControl) on mock axes, scanned in the MONETS MAIN order (telescope first, then
+// the axes). One Scan() is one PLC scan. The scenario tests own one rig each (VAR_INST of the test method) and call Scan()
+// once per PLC cycle: the astronomical clock needs a real NT_GetTime round trip (up to about 5 s) before the telescope
+// accepts a goto/slew/track, so a rig is not usable before ClockValid. Everything else counts scans, not time.
+// Plan: BROTLib specs/plans/2026-10-21-telescope-state-machine-unification.md (D1, step 1).
+FUNCTION_BLOCK FB_MonetRig
+VAR
+	fbComm			: FB_NullComm;
+	fbElev			: FB_ElevationMock(comm := fbComm);
+	fbAzim			: FB_AzimuthMock(comm := fbComm);
+	fbDero			: FB_DerotatorMock(comm := fbComm);
+	fbFocus			: FB_FocusMock(comm := fbComm);
+	fbCovers		: FB_CoversMock;
+	fbBrakeHyd		: FB_BrakeHydraulicsMock;
+	fbPointing		: FB_PointingModelForward(AOFF := 0.0, BNP := 0.0, AN_A := 0.0, AE_A := 0.0, NPAE := 0.0, EOFF := 0.0, AN_E := 0.0, AE_E := 0.0, TF := 0.0);	// zero coefficients
+	fbPointingInv	: FB_PointingModelInversion(fbPointing := fbPointing);
+	fbTel			: FB_MonetTelescopeControl(comm := fbComm);
+	nScans			: UDINT;
+END_VAR
+VAR CONSTANT
+	telescopeConfig	: ST_TelescopeConfig := (longitude := 20.810808, latitude := -32.375823, altitude := 1798.0,
+											 azimuthPark := 175, elevationPark := 60, derotatorPark := 0, focusPark := 36.0,
+											 azimuthHome := 175, elevationHome := 40, derotatorHome := 0,
+											 name := 'MONET/S', diameter := 1.2, cabinet := 'Beckhoff', manufacturer := 'test',
+											 mountOptions := 'ALT-AZ', mount := 'ALT_AZ');
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[
+]]></ST>
+    </Implementation>
+    <Method Name="Scan" Id="{121ba66a-36ff-4009-9705-7efd4e908f1b}">
+      <Declaration><![CDATA[METHOD Scan
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[fbTel(
+	telescopeConfig := telescopeConfig,
+	fbCovers := fbCovers,
+	fbBrake := fbBrakeHyd,
+	fbHydraulics := fbBrakeHyd,
+	fbFocus := fbFocus,
+	fbElevation := fbElev,
+	fbAzimuth := fbAzim,
+	fbDerotator := fbDero,
+	fbPointing := fbPointing,
+	fbPointingInverse := fbPointingInv);
+fbElev(fbCovers := fbCovers, fbBrake := fbBrakeHyd);
+fbAzim();
+fbDero();
+fbFocus();
+nScans := nScans + 1;
+]]></ST>
+      </Implementation>
+    </Method>
+    <Property Name="ClockValid" Id="{3076ff3c-98ad-4dc0-97fb-ed4821c83c33}">
+      <Declaration><![CDATA[PROPERTY ClockValid : BOOL]]></Declaration>
+      <Get Name="Get" Id="{bc2a52f7-905d-4428-b9c8-29b6c1c1c00d}">
+        <Declaration><![CDATA[VAR
+END_VAR
+]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[ClockValid := fbTel.fbTime.bValid;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Property Name="Online" Id="{d88bbb8d-d30d-4985-b3f0-0b0b689944f1}">
+      <Declaration><![CDATA[PROPERTY Online : BOOL]]></Declaration>
+      <Get Name="Get" Id="{fa836018-c28d-4e5d-becc-884b5bb557c9}">
+        <Declaration><![CDATA[VAR
+END_VAR
+]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[Online := fbTel.ReadyState = 1.0;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+  </POU>
+</TcPlcObject>

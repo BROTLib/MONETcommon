@@ -24,6 +24,7 @@ VAR
 	fbTempSensorTests	: FB_MonetTempSensor_Tests;
 	fbMethodVarProbeTests	: FB_MethodVarProbe_Tests;
 	fbMonetRigTests	: FB_MonetRig_Tests;
+	fbMonetStopDuringSlewTests	: MonetStopDuringSlew_Tests;
 END_VAR
 ]]></Declaration>
     <Implementation>

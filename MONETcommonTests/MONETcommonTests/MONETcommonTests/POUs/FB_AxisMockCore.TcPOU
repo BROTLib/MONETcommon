@@ -1,18 +1,21 @@
 <?xml version="1.0" encoding="utf-8"?>
 <TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
   <POU Name="FB_AxisMockCore" Id="{7268b1bc-a85f-46c9-bcb5-8b5f63d401a5}" SpecialFunc="None">
-    <Declaration><![CDATA[// Motion model of one mocked axis (MONETcommon#36 mock rig). One call = one PLC scan of the axis part. Enable -> Ready after
-// nReadyScans, homing -> calibrated after nHomeScans, a rising bMove -> InMotion for nMoveScans, then MoveDone for one
-// scan and the position is the target. Only the levels the telescope writes are inputs; nothing here touches an MC_* block.
+    <Declaration><![CDATA[// Motion model of one mocked axis (telescope state machine mock rig, BROTLib plan 2026-10-21-telescope-state-machine-unification).
+// One call = one PLC scan of the axis part. Enable -> Ready after nReadyScans, homing -> calibrated after nHomeScans, a rising
+// bMove -> InMotion for nMoveScans, then MoveDone for one scan and the position is the target. Only the levels the telescope
+// writes are inputs; nothing here touches an MC_* block. Same model as IAG50cmTests.
 FUNCTION_BLOCK FB_AxisMockCore
 VAR_INPUT
 	bEnable			: BOOL;
 	bHome			: BOOL;
 	bMove			: BOOL;
+	bStop			: BOOL;		// the StopAxis level: a rising edge is a stop request (MC_Stop)
 	fTarget			: LREAL;
 	nReadyScans		: UINT := 2;
 	nHomeScans		: UINT := 3;
 	nMoveScans		: UINT := 4;
+	nStopScans		: UINT := 3;
 END_VAR
 VAR_OUTPUT
 	bReady			: BOOL;
@@ -21,17 +24,40 @@ VAR_OUTPUT
 	bInMotion		: BOOL;
 	bStandStill		: BOOL := TRUE;
 	bMoveDone		: BOOL;		// one scan
+	bStopping		: BOOL;
+	bStopDone		: BOOL;		// one scan
+	nStopEdges		: UINT;		// rising edges of bStop, i.e. MC_Stop requests
 	fPosition		: LREAL;
 END_VAR
 VAR
 	nReadyCount		: UINT;
 	nHomeCount		: UINT;
 	nMoveCount		: UINT;
+	nStopCount		: UINT;
 	rtMove			: R_TRIG;
+	rtStop			: R_TRIG;
 END_VAR
 ]]></Declaration>
     <Implementation>
       <ST><![CDATA[bMoveDone := FALSE;
+bStopDone := FALSE;
+
+// a stop request aborts a running move where it is (the model has no interpolation: the position stays) and takes
+// nStopScans scans, then reports Done for one scan
+rtStop(CLK := bStop);
+IF rtStop.Q THEN
+	nStopEdges := nStopEdges + 1;
+	bStopping := TRUE;
+	nStopCount := 0;
+	bInMotion := FALSE;
+END_IF
+IF bStopping THEN
+	nStopCount := nStopCount + 1;
+	IF nStopCount >= nStopScans THEN
+		bStopping := FALSE;
+		bStopDone := TRUE;
+	END_IF
+END_IF
 
 IF bEnable THEN
 	IF nReadyCount >= nReadyScans THEN
@@ -57,7 +83,7 @@ ELSE
 END_IF
 
 rtMove(CLK := bMove);
-IF rtMove.Q AND bReady AND bCalibrated THEN
+IF rtMove.Q AND bReady AND bCalibrated AND NOT bStopping THEN
 	bInMotion := TRUE;
 	nMoveCount := 0;
 END_IF
@@ -70,7 +96,7 @@ IF bInMotion THEN
 	END_IF
 END_IF
 
-bStandStill := NOT bInMotion AND NOT bHoming;
+bStandStill := NOT bInMotion AND NOT bHoming AND NOT bStopping;
 ]]></ST>
     </Implementation>
   </POU>
