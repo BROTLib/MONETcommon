@@ -1,10 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
-  <POU Name="FB_AzimuthMock" Id="{315a3a17-4547-47df-9624-93323e4c0d1d}" SpecialFunc="None">
+  <POU Name="FB_AzimuthMock" Id="{f2ffd774-8a4d-4067-a41a-a990b1c8eab7}" SpecialFunc="None">
     <Declaration><![CDATA[// Mock of FB_AzimuthControl for the telescope state machine tests (MONETcommon#36, BROTLib plan 2026-10-21-telescope-state-machine-unification D1).
 FUNCTION_BLOCK FB_AzimuthMock EXTENDS HalfBROT.FB_AzimuthControl
 VAR
 	fbCore	: FB_AxisMockCore;
+	pBool	: POINTER TO BOOL;
+	pLreal	: POINTER TO LREAL;
 END_VAR
 ]]></Declaration>
     <Implementation>
@@ -14,16 +16,17 @@ END_VAR
 // fbAxis outputs.
 fbCore(bEnable := bEnable, bHome := bHomeAxis, bMove := bMoveAxis, fTarget := fPosition);
 
-fbAxis.Ready := fbCore.bReady;
-fbAxis.Calibrated := fbCore.bCalibrated;
-fbAxis.HomeDone := fbCore.bCalibrated;
-fbAxis.HomeActive := fbCore.bHoming;
-fbAxis.Homing := fbCore.bHoming;
-fbAxis.InMotion := fbCore.bInMotion;
-fbAxis.StandStill := fbCore.bStandStill;
-fbAxis.MoveDone := fbCore.bMoveDone;
-fbAxis.Busy := fbCore.bInMotion OR fbCore.bHoming;
-fbAxis.ActualPosition := fbCore.fPosition;
+// outputs of FB_Axis cannot be written from outside (C: 'is no input of'), a pointer sidesteps that (as FB_Axis_Tests.SetActPos)
+pBool := ADR(fbAxis.Ready);			pBool^ := fbCore.bReady;
+pBool := ADR(fbAxis.Calibrated);	pBool^ := fbCore.bCalibrated;
+pBool := ADR(fbAxis.HomeDone);		pBool^ := fbCore.bCalibrated;
+pBool := ADR(fbAxis.HomeActive);	pBool^ := fbCore.bHoming;
+pBool := ADR(fbAxis.Homing);		pBool^ := fbCore.bHoming;
+pBool := ADR(fbAxis.InMotion);		pBool^ := fbCore.bInMotion;
+pBool := ADR(fbAxis.StandStill);	pBool^ := fbCore.bStandStill;
+pBool := ADR(fbAxis.MoveDone);		pBool^ := fbCore.bMoveDone;
+pBool := ADR(fbAxis.Busy);			pBool^ := fbCore.bInMotion OR fbCore.bHoming;
+pLreal := ADR(fbAxis.ActualPosition);	pLreal^ := fbCore.fPosition;
 
 bReady := fbCore.bReady AND fbCore.bStandStill;
 bCalibrated := fbCore.bCalibrated;
