@@ -10,6 +10,7 @@ VAR_INPUT
 END_VAR
 VAR_OUTPUT
 	nStopEdges		: UINT;			// stop requests the telescope made (rising edges of StopAxis)
+	nResetEdges		: UINT;			// resets the telescope sent to the axis (Reset())
 END_VAR
 VAR
 	fbCore	: FB_AxisMockCore;
@@ -65,6 +66,10 @@ IF fbCore.bStopDone THEN
 END_IF
 IF fbCore.bCalibrated AND NOT fbCore.bHoming THEN
 	bHomeAxis := FALSE;
+END_IF
+IF bReset THEN
+	nResetEdges := nResetEdges + 1;
+	bReset := FALSE;	// ResetDone at once
 END_IF
 ]]></ST>
     </Implementation>
