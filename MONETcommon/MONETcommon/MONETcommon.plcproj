@@ -19,7 +19,7 @@
     <Company>IAG</Company>
     <Released>false</Released>
     <Title>MONETcommon</Title>
-    <ProjectVersion>0.9.2</ProjectVersion>
+    <ProjectVersion>0.9.3</ProjectVersion>
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="E_CommandDecision.TcDUT">
@@ -79,10 +79,19 @@
     <Compile Include="F_TargetBelowHorizonWarning.TcPOU">
       <SubType>Code</SubType>
     </Compile>
+    <Compile Include="F_BrakeMustClose.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="F_ParkAxesCanMove.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
     <Compile Include="F_ErrorParkRequest.TcPOU">
       <SubType>Code</SubType>
     </Compile>
     <Compile Include="F_ResetMoveAbort.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="F_SuspendStop.TcPOU">
       <SubType>Code</SubType>
     </Compile>
     <Compile Include="F_WakeShakeErrorExempt.TcPOU">
@@ -117,7 +126,7 @@
       <Namespace>BROTLib</Namespace>
     </PlaceholderReference>
     <PlaceholderReference Include="HalfBROT">
-      <DefaultResolution>HalfBROT, 0.5.5 (BROT)</DefaultResolution>
+      <DefaultResolution>HalfBROT, 0.5.7 (BROT)</DefaultResolution>
       <Namespace>HalfBROT</Namespace>
     </PlaceholderReference>
     <PlaceholderReference Include="Tc2_Math">
