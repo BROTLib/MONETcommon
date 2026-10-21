@@ -6,6 +6,7 @@ FUNCTION_BLOCK FB_ElevationMock EXTENDS HalfBROT.FB_ElevationControl
 VAR_INPUT
 	nMockMoveScans	: UINT := 60;	// scans a move takes (the telescope sees Busy meanwhile)
 	nMockStopScans	: UINT := 3;	// scans an MC_Stop takes until Done
+	nMockHomeScans	: UINT := 3;	// scans a homing takes
 END_VAR
 VAR_OUTPUT
 	nStopEdges		: UINT;			// stop requests the telescope made (rising edges of StopAxis)
@@ -22,7 +23,7 @@ END_VAR
 // is driven by the levels the telescope writes and writes what the telescope reads: the base outputs and, through pointers
 // (FB_Axis outputs are not writable from outside), the nested fbAxis outputs.
 fbCore(bEnable := bEnable, bHome := bHomeAxis, bMove := bMoveAxis, bStop := bStopAxis, fTarget := fPosition, fHomePosition := fCalibPosition,
-	nMoveScans := nMockMoveScans, nStopScans := nMockStopScans);
+	nMoveScans := nMockMoveScans, nStopScans := nMockStopScans, nHomeScans := nMockHomeScans);
 
 // the real elevation block opens the brake while the axis is enabled (the covers first as long as it is not calibrated)
 IF bEnable AND fbCovers <> 0 AND fbBrake <> 0 THEN

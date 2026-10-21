@@ -71,7 +71,7 @@ ELSE
 	bReady := FALSE;
 END_IF
 
-IF bHome AND bReady AND NOT bCalibrated THEN
+IF bHome AND bReady AND NOT bCalibrated AND NOT bStopping THEN
 	bHoming := TRUE;
 	nHomeCount := nHomeCount + 1;
 	IF nHomeCount >= nHomeScans THEN
@@ -82,6 +82,7 @@ IF bHome AND bReady AND NOT bCalibrated THEN
 	END_IF
 ELSE
 	bHoming := FALSE;
+	nHomeCount := 0;		// a homing that is stopped or no longer requested starts from zero
 END_IF
 
 rtMove(CLK := bMove);

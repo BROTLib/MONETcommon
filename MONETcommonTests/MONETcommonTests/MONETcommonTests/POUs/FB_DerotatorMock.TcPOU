@@ -6,6 +6,7 @@ FUNCTION_BLOCK FB_DerotatorMock EXTENDS HalfBROT.FB_DerotatorControl
 VAR_INPUT
 	nMockMoveScans	: UINT := 60;	// scans a move takes (the telescope sees Busy meanwhile)
 	nMockStopScans	: UINT := 3;	// scans an MC_Stop takes until Done
+	nMockHomeScans	: UINT := 3;	// scans a homing takes
 END_VAR
 VAR_OUTPUT
 	nStopEdges		: UINT;			// stop requests the telescope made (rising edges of StopAxis)
@@ -22,7 +23,7 @@ END_VAR
 // is driven by the levels the telescope writes and writes what the telescope reads: the base outputs and, through pointers
 // (FB_Axis outputs are not writable from outside), the nested fbAxis outputs.
 fbCore(bEnable := bEnable, bHome := bHomeAxis, bMove := bMoveAxis, bStop := bStopAxis, fTarget := fPosition, fHomePosition := fCalibPosition,
-	nMoveScans := nMockMoveScans, nStopScans := nMockStopScans);
+	nMoveScans := nMockMoveScans, nStopScans := nMockStopScans, nHomeScans := nMockHomeScans);
 
 pBool := ADR(fbAxis.Ready);			pBool^ := fbCore.bReady;
 pBool := ADR(fbAxis.Calibrated);	pBool^ := fbCore.bCalibrated;

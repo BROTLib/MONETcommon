@@ -25,6 +25,7 @@ VAR
 	fbMethodVarProbeTests	: FB_MethodVarProbe_Tests;
 	fbMonetRigTests	: FB_MonetRig_Tests;
 	fbMonetStopDuringSlewTests	: MonetStopDuringSlew_Tests;
+	fbMonetParkDuringPowerOnTests	: MonetParkDuringPowerOn_Tests;
 END_VAR
 ]]></Declaration>
     <Implementation>
