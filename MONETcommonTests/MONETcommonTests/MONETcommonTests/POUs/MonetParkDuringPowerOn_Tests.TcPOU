@@ -108,9 +108,7 @@ nCycles := nCycles + 1;
 CASE nStep OF
 0:	// wait for the clock, then power on
 	IF rig.ClockValid THEN
-		rig.fbElev.nMockHomeScans := 40;
-		rig.fbAzim.nMockHomeScans := 40;
-		rig.fbDero.nMockHomeScans := 40;
+		rig.SetHomeScans(40);
 		rig.fbTel.Init();
 		nStep := 10;
 		nCycles := 0;

@@ -32,6 +32,20 @@ END_VAR
       <ST><![CDATA[
 ]]></ST>
     </Implementation>
+    <Method Name="SetHomeScans" Id="{8a18ef85-bb7c-4844-b14a-04199381c5b4}">
+      <Declaration><![CDATA[// scans a homing takes on the three mock axes (default 3): a test that wants to act while the axes are homing makes it longer
+METHOD SetHomeScans
+VAR_INPUT
+	nScans	: UINT;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[fbElev.nMockHomeScans := nScans;
+fbAzim.nMockHomeScans := nScans;
+fbDero.nMockHomeScans := nScans;
+]]></ST>
+      </Implementation>
+    </Method>
     <Method Name="Scan" Id="{121ba66a-36ff-4009-9705-7efd4e908f1b}">
       <Declaration><![CDATA[METHOD Scan
 ]]></Declaration>
