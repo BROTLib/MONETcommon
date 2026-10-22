@@ -1,0 +1,86 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="F_FocusHomeRelease_Tests" Id="{ca8ac9eb-bae3-4fc7-baaf-c2cd31a16128}" SpecialFunc="None">
+    <Declaration><![CDATA[// Tests for HalfBROT.F_FocusHomeRelease, when the homing request (bHomeAxis) of the focus ends (manual re-home, HalfBROT 0.7.x).
+FUNCTION_BLOCK F_FocusHomeRelease_Tests EXTENDS TcUnit.FB_TestSuite
+VAR
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[Pending_On_Calibrated_Keeps_Level();
+Active_Keeps_Level();
+Calibrated_Idle_Releases();
+Error_Releases();
+Not_Calibrated_Keeps_Level();
+]]></ST>
+    </Implementation>
+    <Method Name="Pending_On_Calibrated_Keeps_Level" Id="{d3988157-f963-49be-9e02-91be68919565}">
+      <Declaration><![CDATA[// A manual re-home starts on a calibrated axis (HomeDone is a level): while Home() waits for the drive the request must stay.
+METHOD PRIVATE Pending_On_Calibrated_Keeps_Level
+VAR
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Pending_On_Calibrated_Keeps_Level');
+AssertFalse(Condition := HalfBROT.F_FocusHomeRelease(bCalibrated := TRUE, bHomeActive := FALSE, bHomePending := TRUE, bError := FALSE), Message := 'pending, calibrated');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Active_Keeps_Level" Id="{28fe2669-2122-4ce2-a63d-777b0b373074}">
+      <Declaration><![CDATA[// A running homing keeps the request, calibrated or not.
+METHOD PRIVATE Active_Keeps_Level
+VAR
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Active_Keeps_Level');
+AssertFalse(Condition := HalfBROT.F_FocusHomeRelease(bCalibrated := TRUE, bHomeActive := TRUE, bHomePending := FALSE, bError := FALSE), Message := 'active, calibrated');
+AssertFalse(Condition := HalfBROT.F_FocusHomeRelease(bCalibrated := FALSE, bHomeActive := TRUE, bHomePending := FALSE, bError := FALSE), Message := 'active, not calibrated');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Calibrated_Idle_Releases" Id="{b6cf7118-0823-4a32-aa00-8d2b08c48867}">
+      <Declaration><![CDATA[// Calibrated and no homing active or pending: the request ends.
+METHOD PRIVATE Calibrated_Idle_Releases
+VAR
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Calibrated_Idle_Releases');
+AssertTrue(Condition := HalfBROT.F_FocusHomeRelease(bCalibrated := TRUE, bHomeActive := FALSE, bHomePending := FALSE, bError := FALSE), Message := 'calibrated, idle');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Error_Releases" Id="{d9bb5408-3ea7-469b-847d-1e42c9249c96}">
+      <Declaration><![CDATA[// An axis error ends the request in every state.
+METHOD PRIVATE Error_Releases
+VAR
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Error_Releases');
+AssertTrue(Condition := HalfBROT.F_FocusHomeRelease(bCalibrated := FALSE, bHomeActive := FALSE, bHomePending := FALSE, bError := TRUE), Message := 'error, idle');
+AssertTrue(Condition := HalfBROT.F_FocusHomeRelease(bCalibrated := TRUE, bHomeActive := TRUE, bHomePending := TRUE, bError := TRUE), Message := 'error, busy');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Not_Calibrated_Keeps_Level" Id="{54afa5f4-43c9-4196-b157-6bbd62ab9426}">
+      <Declaration><![CDATA[// The automatic homing of an uncalibrated focus is unchanged: the request stays until the axis is calibrated.
+METHOD PRIVATE Not_Calibrated_Keeps_Level
+VAR
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Not_Calibrated_Keeps_Level');
+AssertFalse(Condition := HalfBROT.F_FocusHomeRelease(bCalibrated := FALSE, bHomeActive := FALSE, bHomePending := FALSE, bError := FALSE), Message := 'not calibrated, idle');
+AssertFalse(Condition := HalfBROT.F_FocusHomeRelease(bCalibrated := FALSE, bHomeActive := FALSE, bHomePending := TRUE, bError := FALSE), Message := 'not calibrated, pending');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>
