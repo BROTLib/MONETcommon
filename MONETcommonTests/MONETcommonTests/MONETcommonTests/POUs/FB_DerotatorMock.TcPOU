@@ -3,20 +3,31 @@
   <POU Name="FB_DerotatorMock" Id="{a5fdee77-15ca-44ee-96da-486af34b10eb}" SpecialFunc="None">
     <Declaration><![CDATA[// Mock of FB_DerotatorControl for the telescope state machine tests (MONETcommon#36, BROTLib plan 2026-10-21-telescope-state-machine-unification D1).
 FUNCTION_BLOCK FB_DerotatorMock EXTENDS HalfBROT.FB_DerotatorControl
+VAR_INPUT
+	nMockMoveScans	: UINT := 60;	// scans a move takes (the telescope sees Busy meanwhile)
+	nMockStopScans	: UINT := 3;	// scans an MC_Stop takes until Done
+	nMockHomeScans	: UINT := 3;	// scans a homing takes
+END_VAR
+VAR_OUTPUT
+	nStopEdges		: UINT;			// stop requests the telescope made (rising edges of StopAxis)
+	nResetEdges		: UINT;			// resets the telescope sent to the axis (Reset())
+END_VAR
 VAR
 	fbCore	: FB_AxisMockCore;
 	pBool	: POINTER TO BOOL;
 	pLreal	: POINTER TO LREAL;
+	bInjected	: BOOL;
+	nInjectedId	: UDINT;
 END_VAR
 ]]></Declaration>
     <Implementation>
       <ST><![CDATA[// No SUPER^(): the real body (MC_* blocks, AXIS_REF) does not run. The real property setters (MoveAxis -> fbAxis.MoveTo(),
 // StopAxis -> fbAxis.Stop(), HomeAxis -> _StartHoming) stay, so the telescope sees the real command interface. The model
-// is driven by the levels the telescope writes and writes what the telescope reads: the base outputs and the nested
-// fbAxis outputs.
-fbCore(bEnable := bEnable, bHome := bHomeAxis, bMove := bMoveAxis, fTarget := fPosition);
+// is driven by the levels the telescope writes and writes what the telescope reads: the base outputs and, through pointers
+// (FB_Axis outputs are not writable from outside), the nested fbAxis outputs.
+fbCore(bEnable := bEnable, bHome := bHomeAxis, bMove := bMoveAxis, bStop := bStopAxis, fTarget := fPosition, fHomePosition := fCalibPosition,
+	nMoveScans := nMockMoveScans, nStopScans := nMockStopScans, nHomeScans := nMockHomeScans);
 
-// outputs of FB_Axis cannot be written from outside (C: 'is no input of'), a pointer sidesteps that (as FB_Axis_Tests.SetActPos)
 pBool := ADR(fbAxis.Ready);			pBool^ := fbCore.bReady;
 pBool := ADR(fbAxis.Calibrated);	pBool^ := fbCore.bCalibrated;
 pBool := ADR(fbAxis.HomeDone);		pBool^ := fbCore.bCalibrated;
@@ -25,18 +36,48 @@ pBool := ADR(fbAxis.Homing);		pBool^ := fbCore.bHoming;
 pBool := ADR(fbAxis.InMotion);		pBool^ := fbCore.bInMotion;
 pBool := ADR(fbAxis.StandStill);	pBool^ := fbCore.bStandStill;
 pBool := ADR(fbAxis.MoveDone);		pBool^ := fbCore.bMoveDone;
+pBool := ADR(fbAxis.Stopping);		pBool^ := fbCore.bStopping;
+pBool := ADR(fbAxis.StopDone);		pBool^ := fbCore.bStopDone;
 pBool := ADR(fbAxis.Busy);			pBool^ := fbCore.bInMotion OR fbCore.bHoming;
 pLreal := ADR(fbAxis.ActualPosition);	pLreal^ := fbCore.fPosition;
 
 bReady := fbCore.bReady AND fbCore.bStandStill;
 bCalibrated := fbCore.bCalibrated;
 fActualPosition := fbCore.fPosition;
+nStopEdges := fbCore.nStopEdges;
 
-// the real control body clears the level on MoveDone
+// the real control body clears the levels like this: the move on MoveDone, the stop on StopDone, the homing request
+// once the axis is calibrated and the homing procedure is over
 IF fbCore.bMoveDone THEN
 	bMoveAxis := FALSE;
 END_IF
+IF fbCore.bStopDone THEN
+	bStopAxis := FALSE;
+END_IF
+IF fbCore.bCalibrated AND NOT fbCore.bHoming THEN
+	bHomeAxis := FALSE;
+END_IF
+IF bReset THEN
+	nResetEdges := nResetEdges + 1;
+	bReset := FALSE;	// ResetDone at once
+	bInjected := FALSE;
+END_IF
+bError := bInjected;
+nErrorID := nInjectedId;
 ]]></ST>
     </Implementation>
+    <Method Name="InjectError" Id="{15ab52cd-e3f6-45c9-9382-610dfdf8ff67}">
+      <Declaration><![CDATA[// the axis reports an error with this id until the telescope resets it (bError/nErrorID are what the telescope reads)
+METHOD InjectError
+VAR_INPUT
+	nId	: UDINT;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[bInjected := TRUE;
+nInjectedId := nId;
+]]></ST>
+      </Implementation>
+    </Method>
   </POU>
 </TcPlcObject>
