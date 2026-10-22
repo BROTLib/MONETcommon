@@ -1,0 +1,69 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="F_FocusTrackStoredPosition_Tests" Id="{7bd749d6-1509-476c-9de3-2a7826d3900f}" SpecialFunc="None">
+    <Declaration><![CDATA[// Tests for HalfBROT.F_FocusTrackStoredPosition (HalfBROT 0.7.2, #66): when the stored focus position takes the actual position.
+FUNCTION_BLOCK F_FocusTrackStoredPosition_Tests EXTENDS TcUnit.FB_TestSuite
+VAR
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[Calibrated_Locked_Idle_Tracks();
+Unlocked_Does_Not_Track();
+Homing_Does_Not_Track();
+Not_Calibrated_Does_Not_Track();
+]]></ST>
+    </Implementation>
+    <Method Name="Calibrated_Locked_Idle_Tracks" Id="{c234a005-5ad7-4cc6-88bb-9b738a644373}">
+      <Declaration><![CDATA[// #66: the function has no mode input. A focus jogged in manual mode is stored like one moved in automatic mode.
+METHOD PRIVATE Calibrated_Locked_Idle_Tracks
+VAR
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Calibrated_Locked_Idle_Tracks');
+AssertTrue(Condition := HalfBROT.F_FocusTrackStoredPosition(bCalibrated := TRUE, bLocked := TRUE, bHoming := FALSE), Message := 'calibrated, locked, not homing');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Unlocked_Does_Not_Track" Id="{c18ed53f-9c6c-48e4-b15f-1833acc4d89b}">
+      <Declaration><![CDATA[// While the drive is enabled the focus moves or is about to.
+METHOD PRIVATE Unlocked_Does_Not_Track
+VAR
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Unlocked_Does_Not_Track');
+AssertFalse(Condition := HalfBROT.F_FocusTrackStoredPosition(bCalibrated := TRUE, bLocked := FALSE, bHoming := FALSE), Message := 'unlocked');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Homing_Does_Not_Track" Id="{91dd4f63-beae-408f-8678-e9e7f5bbe9ee}">
+      <Declaration><![CDATA[// The homing owns fLastPosition (MC_Direct reads it).
+METHOD PRIVATE Homing_Does_Not_Track
+VAR
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Homing_Does_Not_Track');
+AssertFalse(Condition := HalfBROT.F_FocusTrackStoredPosition(bCalibrated := TRUE, bLocked := TRUE, bHoming := TRUE), Message := 'homing');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Not_Calibrated_Does_Not_Track" Id="{3a45cd72-43d7-4ee5-9da7-41e1db6ffef0}">
+      <Declaration><![CDATA[// An uncalibrated focus has no valid actual position.
+METHOD PRIVATE Not_Calibrated_Does_Not_Track
+VAR
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Not_Calibrated_Does_Not_Track');
+AssertFalse(Condition := HalfBROT.F_FocusTrackStoredPosition(bCalibrated := FALSE, bLocked := TRUE, bHoming := FALSE), Message := 'not calibrated');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

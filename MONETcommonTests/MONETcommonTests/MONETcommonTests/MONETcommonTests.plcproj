@@ -67,6 +67,18 @@
     <Compile Include="POUs\F_FocusHomeRelease_Tests.TcPOU">
       <SubType>Code</SubType>
     </Compile>
+    <Compile Include="POUs\F_FocusTargetFollowsActual_Tests.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="POUs\F_FocusTrackStoredPosition_Tests.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="POUs\FB_FocusJogLatch_Tests.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="POUs\FocusModeSwitch_Sim_Tests.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
     <Compile Include="POUs\FB_FocusManualHome_Tests.TcPOU">
       <SubType>Code</SubType>
     </Compile>
@@ -171,7 +183,7 @@
       <Namespace>BROTLib</Namespace>
     </PlaceholderReference>
     <PlaceholderReference Include="HalfBROT">
-      <DefaultResolution>HalfBROT, 0.7.1 (BROT)</DefaultResolution>
+      <DefaultResolution>HalfBROT, 0.7.2 (BROT)</DefaultResolution>
       <Namespace>HalfBROT</Namespace>
     </PlaceholderReference>
     <PlaceholderReference Include="AstroBROT">
@@ -212,7 +224,7 @@
       <Parameters>
         <Parameter ListName="GVL_PARAM_TCUNIT" xmlns="">
           <Key>MAXNUMBEROFTESTSUITES</Key>
-          <Value>32</Value>
+          <Value>40</Value>
         </Parameter>
         <Parameter ListName="GVL_PARAM_TCUNIT" xmlns="">
           <Key>MAXNUMBEROFTESTSFOREACHTESTSUITE</Key>

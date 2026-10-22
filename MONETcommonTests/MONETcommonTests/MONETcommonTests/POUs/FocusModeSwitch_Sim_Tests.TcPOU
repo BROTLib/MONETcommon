@@ -1,0 +1,215 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="FocusModeSwitch_Sim_Tests" Id="{4163ea71-87a5-4a3d-887f-9177bf4bf2e9}" SpecialFunc="None">
+    <Declaration><![CDATA[// Scan-level model of the focus body (HalfBROT 0.7.2) without hardware: real BROTLib.FB_MoveFollower, FB_FocusJogLatch and
+// F_FocusTargetFollowsActual in the order of FB_FocusControl. Shows that a manual jog no longer makes the follower drive back to the old
+// target. The wiring inside FB_FocusControl itself is not covered (FB_FocusMock has no body); that is the on-site check.
+FUNCTION_BLOCK FocusModeSwitch_Sim_Tests EXTENDS TcUnit.FB_TestSuite
+VAR
+	fbFollower		: BROTLib.FB_MoveFollower;
+	fbJog			: HalfBROT.FB_FocusJogLatch;
+	fTarget			: LREAL;	// FB_FocusControl.fPosition
+	fActual			: LREAL;	// fActualPosition
+	nStarts			: INT;		// cycles with bStartMove
+	nNeedEnable		: INT;		// cycles with bNeedEnable
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[Jog_Then_Automatic_No_Start();
+Jog_Then_Automatic_Without_Sync_Starts();
+Switch_During_Jog_No_Start();
+New_Target_After_Jog_Moves();
+Out_Of_Range_Moves_To_Edge();
+]]></ST>
+    </Implementation>
+    <Method Name="Cycle" Id="{44117084-c2a5-4161-96dd-165ec160c165}">
+      <Declaration><![CDATA[// One scan of the focus body in its order (HalfBROT 0.7.2): clamp, jog latch, follower, sync of the target. The inputs of
+// the follower are what fbAxis reported in its last call; the model has no NC, the test sets fActual.
+METHOD PRIVATE Cycle
+VAR_INPUT
+	bAutomatic	: BOOL;
+	bJogCmd		: BOOL;
+	bStandStill	: BOOL;
+	bReady		: BOOL;
+	bSync		: BOOL;		// FALSE: the code of HalfBROT 0.7.1 (no latch, no sync)
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[fTarget := LIMIT(0.5, fTarget, 91.5);
+fbJog(bJogCommand := bJogCmd AND bSync, bStandStill := bStandStill);
+fbFollower(
+	fTarget		:= fTarget,
+	fActual		:= fActual,
+	fTolerance	:= 0.005,
+	bActive		:= bAutomatic AND NOT fbJog.bJogging,
+	bReady		:= bReady,
+	bMoveDone	:= FALSE,
+	bAborted	:= FALSE,
+	bError		:= FALSE,
+	bStopDone	:= FALSE);
+IF fbFollower.bStartMove THEN
+	nStarts := nStarts + 1;
+END_IF
+IF fbFollower.bNeedEnable THEN
+	nNeedEnable := nNeedEnable + 1;
+END_IF
+IF bSync AND HalfBROT.F_FocusTargetFollowsActual(bAutomatic := bAutomatic, bManualUnlock := FALSE, bJogging := fbJog.bJogging, bCalibrated := TRUE, bHoming := FALSE) THEN
+	fTarget := fActual;
+END_IF
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Reset_Model" Id="{ec2bddcd-48d9-40a2-9350-e12f4a677513}">
+      <Declaration><![CDATA[// Calibrated, at rest on the target.
+METHOD PRIVATE Reset_Model
+VAR_INPUT
+	fPos	: LREAL;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[fbFollower(bActive := FALSE);
+fbJog(bJogCommand := FALSE, bStandStill := TRUE);
+fTarget := fPos;
+fActual := fPos;
+nStarts := 0;
+nNeedEnable := 0;
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Jog_Then_Automatic_No_Start" Id="{0585ffcb-1d6f-4867-abaa-584afccbe178}">
+      <Declaration><![CDATA[// A focus jogged in manual mode stays where it is when the mode returns to automatic (the bug of 0.7.1).
+METHOD PRIVATE Jog_Then_Automatic_No_Start
+VAR
+	n	: INT;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Jog_Then_Automatic_No_Start');
+Reset_Model(fPos := 36.0);
+FOR n := 1 TO 5 DO
+	fActual := fActual + 0.2;
+	Cycle(bAutomatic := FALSE, bJogCmd := TRUE, bStandStill := FALSE, bReady := TRUE, bSync := TRUE);
+END_FOR
+FOR n := 1 TO 3 DO
+	fActual := fActual + 0.05;
+	Cycle(bAutomatic := FALSE, bJogCmd := FALSE, bStandStill := FALSE, bReady := TRUE, bSync := TRUE);
+END_FOR
+Cycle(bAutomatic := FALSE, bJogCmd := FALSE, bStandStill := TRUE, bReady := TRUE, bSync := TRUE);
+FOR n := 1 TO 20 DO
+	Cycle(bAutomatic := TRUE, bJogCmd := FALSE, bStandStill := TRUE, bReady := (n MOD 2) = 0, bSync := TRUE);
+END_FOR
+AssertEquals_INT(Expected := 0, Actual := nStarts, Message := 'no move started');
+AssertEquals_INT(Expected := 0, Actual := nNeedEnable, Message := 'the drive is not enabled for a move');
+AssertTrue(Condition := ABS(fTarget - fActual) < 0.005, Message := 'the target is the jogged position');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Jog_Then_Automatic_Without_Sync_Starts" Id="{96f8a029-be29-4190-98a1-5439f75c2257}">
+      <Declaration><![CDATA[// The same sequence with the 0.7.1 code: the follower drives back to 36.0. Guards against a test that passes for the wrong reason.
+METHOD PRIVATE Jog_Then_Automatic_Without_Sync_Starts
+VAR
+	n	: INT;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Jog_Then_Automatic_Without_Sync_Starts');
+Reset_Model(fPos := 36.0);
+FOR n := 1 TO 5 DO
+	fActual := fActual + 0.2;
+	Cycle(bAutomatic := FALSE, bJogCmd := TRUE, bStandStill := FALSE, bReady := TRUE, bSync := FALSE);
+END_FOR
+FOR n := 1 TO 3 DO
+	fActual := fActual + 0.05;
+	Cycle(bAutomatic := FALSE, bJogCmd := FALSE, bStandStill := FALSE, bReady := TRUE, bSync := FALSE);
+END_FOR
+Cycle(bAutomatic := FALSE, bJogCmd := FALSE, bStandStill := TRUE, bReady := TRUE, bSync := FALSE);
+Cycle(bAutomatic := TRUE, bJogCmd := FALSE, bStandStill := TRUE, bReady := TRUE, bSync := FALSE);
+AssertEquals_INT(Expected := 1, Actual := nStarts, Message := 'the old code starts a move back to the old target');
+AssertEquals_LREAL(Expected := 36.0, Actual := fbFollower.fMoveTarget, Delta := 0.001, Message := 'to the pre-jog target');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Switch_During_Jog_No_Start" Id="{288e86c9-36e8-4591-87fc-503568f1654a}">
+      <Declaration><![CDATA[// The key is turned to automatic while the jog button is held, and the ramp down runs in automatic.
+METHOD PRIVATE Switch_During_Jog_No_Start
+VAR
+	n	: INT;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Switch_During_Jog_No_Start');
+Reset_Model(fPos := 36.0);
+FOR n := 1 TO 3 DO
+	fActual := fActual + 0.2;
+	Cycle(bAutomatic := TRUE, bJogCmd := TRUE, bStandStill := FALSE, bReady := TRUE, bSync := TRUE);
+END_FOR
+FOR n := 1 TO 5 DO
+	fActual := fActual + 0.05;
+	Cycle(bAutomatic := TRUE, bJogCmd := FALSE, bStandStill := FALSE, bReady := TRUE, bSync := TRUE);
+END_FOR
+FOR n := 1 TO 10 DO
+	Cycle(bAutomatic := TRUE, bJogCmd := FALSE, bStandStill := TRUE, bReady := TRUE, bSync := TRUE);
+END_FOR
+AssertEquals_INT(Expected := 0, Actual := nStarts, Message := 'no move during the jog, the ramp down and after it');
+AssertEquals_INT(Expected := 0, Actual := nNeedEnable, Message := 'no enable for a move');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="New_Target_After_Jog_Moves" Id="{4acd77c3-c79c-4d6f-9bc7-e619f47b320e}">
+      <Declaration><![CDATA[// The follower still works after a jog: a new target starts exactly one move.
+METHOD PRIVATE New_Target_After_Jog_Moves
+VAR
+	n	: INT;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('New_Target_After_Jog_Moves');
+Reset_Model(fPos := 36.0);
+FOR n := 1 TO 5 DO
+	fActual := fActual + 0.2;
+	Cycle(bAutomatic := FALSE, bJogCmd := TRUE, bStandStill := FALSE, bReady := TRUE, bSync := TRUE);
+END_FOR
+FOR n := 1 TO 3 DO
+	fActual := fActual + 0.05;
+	Cycle(bAutomatic := FALSE, bJogCmd := FALSE, bStandStill := FALSE, bReady := TRUE, bSync := TRUE);
+END_FOR
+Cycle(bAutomatic := FALSE, bJogCmd := FALSE, bStandStill := TRUE, bReady := TRUE, bSync := TRUE);
+Cycle(bAutomatic := TRUE, bJogCmd := FALSE, bStandStill := TRUE, bReady := TRUE, bSync := TRUE);
+fTarget := 40.0;
+FOR n := 1 TO 10 DO
+	Cycle(bAutomatic := TRUE, bJogCmd := FALSE, bStandStill := TRUE, bReady := TRUE, bSync := TRUE);
+END_FOR
+AssertEquals_INT(Expected := 1, Actual := nStarts, Message := 'one move');
+AssertEquals_LREAL(Expected := 40.0, Actual := fbFollower.fMoveTarget, Delta := 0.001, Message := 'to the new target');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Out_Of_Range_Moves_To_Edge" Id="{f96f345d-0639-4e3d-ac51-0da00e5dd020}">
+      <Declaration><![CDATA[// A jog beyond the range (MONET: 0.5..91.5) moves into the range once automatic resumes, at most to the edge (plan Q1: accepted).
+METHOD PRIVATE Out_Of_Range_Moves_To_Edge
+VAR
+	n	: INT;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Out_Of_Range_Moves_To_Edge');
+Reset_Model(fPos := 91.0);
+FOR n := 1 TO 4 DO
+	fActual := fActual + 0.2;
+	Cycle(bAutomatic := FALSE, bJogCmd := TRUE, bStandStill := FALSE, bReady := TRUE, bSync := TRUE);
+END_FOR
+Cycle(bAutomatic := FALSE, bJogCmd := FALSE, bStandStill := TRUE, bReady := TRUE, bSync := TRUE);
+AssertEquals_LREAL(Expected := 91.8, Actual := fActual, Delta := 0.001, Message := 'jogged beyond the range');
+Cycle(bAutomatic := TRUE, bJogCmd := FALSE, bStandStill := TRUE, bReady := TRUE, bSync := TRUE);
+AssertEquals_INT(Expected := 1, Actual := nStarts, Message := 'one move into the range');
+AssertEquals_LREAL(Expected := 91.5, Actual := fbFollower.fMoveTarget, Delta := 0.001, Message := 'to the edge');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>
