@@ -16,6 +16,10 @@ VAR_INPUT
 
 	bBrakeClearing		: BOOL	:= TRUE;
 
+	// Test seam (plan decision 4): every long timeout of this telescope (600 s, 2 min, 12 h) is divided by it. Production
+	// leaves it at 1. Per instance, because TcUnit runs all suites in the same PLC cycles.
+	nTimeDivisor		: UDINT := 1;
+
 	// M6: applied to every commanded elevation move (Goto/Home/Park/PowerOn/Slew, not
 	// the computed tracking rate), NOT just _HomeTelescope despite the old name.
 	// 5.0 deg/s confirmed correct on-site for MONETS; 10.0 was too fast.
@@ -428,14 +432,14 @@ END_IF
 		
 tpPowerOnWarning(IN := bPower OR (NOT fbElevation.bEnable AND fbBrake.BrakeOpen), PT := T#250MS);
 
-tonPowerTimeout(IN := TCS_command = E_TCSCommand.no_command AND NOT bIsParked, PT := T#12H);
+tonPowerTimeout(IN := TCS_command = E_TCSCommand.no_command AND NOT bIsParked, PT := T#12H, nDivisor := nTimeDivisor);
 tonCommandTimeout();
 
 // #17: state-machine timeouts, checked in _GotoTelescope/_HomeTelescope/_SlewTelescope (which raise the error and
 // clear the flag, so the timer resets on the next scan)
-tonGotoTimeout(IN := bGoto, PT := T#600S);
-tonHomeTimeout(IN := bGoHome, PT := T#600S);
-tonSlewTimeout(IN := bSlew, PT := T#600S);
+tonGotoTimeout(IN := bGoto, PT := T#600S, nDivisor := nTimeDivisor);
+tonHomeTimeout(IN := bGoHome, PT := T#600S, nDivisor := nTimeDivisor);
+tonSlewTimeout(IN := bSlew, PT := T#600S, nDivisor := nTimeDivisor);
 IF tonPowerTimeout.Q AND NOT bIsParked THEN
 	bPark := TRUE;
 END_IF
@@ -647,31 +651,31 @@ END_IF
 
 IF TCS_command = E_TCSCommand.poweron THEN
 	_PowerOn();
-	tonCommandTimeout(IN := TCS_command = E_TCSCommand.poweron, PT := T#12H);
+	tonCommandTimeout(IN := TCS_command = E_TCSCommand.poweron, PT := T#12H, nDivisor := nTimeDivisor);
 	TCSCTOEvent.OnMessage := 'POWER';
 ELSIF TCS_command = E_TCSCommand.stop THEN
 	_StopTelescope();
 	TCSCTOEvent.OnMessage := 'STOP';
-	tonCommandTimeout(IN := TCS_command = E_TCSCommand.stop, PT := T#15S);	// #84: provisional, measure on site
+	tonCommandTimeout(IN := TCS_command = E_TCSCommand.stop, PT := T#15S, nDivisor := nTimeDivisor);	// #84: provisional, measure on site
 ELSIF TCS_command = E_TCSCommand.park THEN
 	_ParkTelescope();
-	tonCommandTimeout(IN := TCS_command = E_TCSCommand.park, PT := T#2M);
+	tonCommandTimeout(IN := TCS_command = E_TCSCommand.park, PT := T#2M, nDivisor := nTimeDivisor);
 	TCSCTOEvent.OnMessage := 'PARK';
 ELSIF TCS_command = E_TCSCommand.gohome THEN
 	_HomeTelescope();
-	tonCommandTimeout(IN := TCS_command = E_TCSCommand.gohome, PT := T#2M);
+	tonCommandTimeout(IN := TCS_command = E_TCSCommand.gohome, PT := T#2M, nDivisor := nTimeDivisor);
 	TCSCTOEvent.OnMessage := 'GOHOME';
 ELSIF TCS_command = E_TCSCommand.goto THEN
 	_GotoTelescope();
-	tonCommandTimeout(IN := TCS_command = E_TCSCommand.goto, PT := T#2M);
+	tonCommandTimeout(IN := TCS_command = E_TCSCommand.goto, PT := T#2M, nDivisor := nTimeDivisor);
 	TCSCTOEvent.OnMessage := 'GOTO';
 ELSIF TCS_command = E_TCSCommand.slew THEN
 	_SlewTelescope();
-	tonCommandTimeout(IN := TCS_command = E_TCSCommand.slew, PT := T#2M);
+	tonCommandTimeout(IN := TCS_command = E_TCSCommand.slew, PT := T#2M, nDivisor := nTimeDivisor);
 	TCSCTOEvent.OnMessage := 'SLEW';
 ELSIF TCS_command = E_TCSCommand.track THEN
 	_TrackTelescope();
-	tonCommandTimeout(IN := TCS_command = E_TCSCommand.track, PT := T#12H);
+	tonCommandTimeout(IN := TCS_command = E_TCSCommand.track, PT := T#12H, nDivisor := nTimeDivisor);
 	TCSCTOEvent.OnMessage := 'TRACK';
 ELSE
 	// disable command timeout
@@ -1388,7 +1392,7 @@ IF bSuspendStop THEN
     fbElevation.MoveNeg := FALSE;
     fbDerotator.MovePos := FALSE;
     fbDerotator.MoveNeg := FALSE;
-    tonCommandTimeout(IN := TRUE, PT := T#15S);
+    tonCommandTimeout(IN := TRUE, PT := T#15S, nDivisor := nTimeDivisor);
     TCSCTOEvent.OnMessage := 'STOP';
     _StopTxMonitor();
     IF fbStopTx.bSettled THEN

@@ -1,8 +1,7 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
   <POU Name="MonetTimeouts_Tests" Id="{43b7f318-afbf-4581-9ab8-c204570dc7c2}" SpecialFunc="None">
-    <Declaration><![CDATA[// Characterization of the long timeouts of FB_MonetTelescopeControl on mock axes, through the time seam of BROTLib (GVL_TimeSeam.nTimeDivisor
-// shortens every FB_TimeoutTimer; each test restores it to 1 before it ends). Plan step 3 (decision 4). Failed checks are also noted
+    <Declaration><![CDATA[// Characterization of the long timeouts of FB_MonetTelescopeControl on mock axes, through the time seam (FB_MonetTelescopeControl.nTimeDivisor, per rig). Plan step 3 (decision 4). Failed checks are also noted
 // in GVL_Diag.sFailures.
 FUNCTION_BLOCK MonetTimeouts_Tests EXTENDS TcUnit.FB_TestSuite
 VAR
@@ -15,8 +14,8 @@ Suspend_Stuck_Stop_Hands_Over_And_Keeps_The_Abort();
 ]]></ST>
     </Implementation>
     <Method Name="Slew_Times_Out_After_600_Seconds" Id="{0f1dac27-94df-4228-bf7c-9724d9d1204a}">
-      <Declaration><![CDATA[// M:1592 (#17): a slew that is still running after 600 s is an error 16#40 and the slew is dropped. The time seam (BROTLib
-// GVL_TimeSeam) divides every timeout by 1000, so the 600 s are 0.6 s; the mock move takes far longer than that.
+      <Declaration><![CDATA[// M:1592 (#17): a slew that is still running after 600 s is an error 16#40 and the slew is dropped. The time seam (rig.SetTimeDivisor, FB_TimeoutTimer
+// of BROTLib) divides every timeout by 1000, so the 600 s are 0.6 s; the mock move takes far longer than that.
 METHOD PRIVATE Slew_Times_Out_After_600_Seconds
 VAR_INST
 	rig			: FB_MonetRig;
@@ -42,21 +41,21 @@ CASE nStep OF
 	ELSIF nCycles > 2000 THEN
 		AssertTrue(Condition := FALSE, Message := 'the astronomical clock never became valid');
 		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the astronomical clock never became valid'));
-		BROTLib.GVL_TimeSeam.nTimeDivisor := 1;
+		rig.SetTimeDivisor(nValue := 1);
 		nStep := 99;
 		TEST_FINISHED();
 	END_IF
 10:	// online: slow axes, short timeouts, slew
 	IF rig.Online THEN
 		rig.SetMoveScans(nScans := 60000);
-		BROTLib.GVL_TimeSeam.nTimeDivisor := 1000;
+		rig.SetTimeDivisor(nValue := 1000);
 		rig.fbTel.Slew(fAzimuth := 180.0, fAltitude := 45.0);
 		nStep := 20;
 		nCycles := 0;
 	ELSIF nCycles > 1500 THEN
 		AssertTrue(Condition := FALSE, Message := 'the mock telescope did not reach READY_STATE 1.0');
 		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the mock telescope did not reach READY_STATE 1.0'));
-		BROTLib.GVL_TimeSeam.nTimeDivisor := 1;
+		rig.SetTimeDivisor(nValue := 1);
 		nStep := 99;
 		TEST_FINISHED();
 	END_IF
@@ -66,13 +65,13 @@ CASE nStep OF
 		F_Note(bFailed := NOT (rig.fbTel.nErrorID = 16#40), sText := CONCAT(sTest, 'the slew timeout is error 16#40'));
 		AssertTrue(Condition := NOT rig.fbTel.bSlew, Message := 'the slew is dropped');
 		F_Note(bFailed := NOT (NOT rig.fbTel.bSlew), sText := CONCAT(sTest, 'the slew is dropped'));
-		BROTLib.GVL_TimeSeam.nTimeDivisor := 1;
+		rig.SetTimeDivisor(nValue := 1);
 		nStep := 99;
 		TEST_FINISHED();
 	ELSIF nCycles > 3000 THEN
 		AssertTrue(Condition := FALSE, Message := 'the slew never timed out');
 		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the slew never timed out'));
-		BROTLib.GVL_TimeSeam.nTimeDivisor := 1;
+		rig.SetTimeDivisor(nValue := 1);
 		nStep := 99;
 		TEST_FINISHED();
 	END_IF
@@ -109,24 +108,24 @@ CASE nStep OF
 	ELSIF nCycles > 2000 THEN
 		AssertTrue(Condition := FALSE, Message := 'the astronomical clock never became valid');
 		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the astronomical clock never became valid'));
-		BROTLib.GVL_TimeSeam.nTimeDivisor := 1;
+		rig.SetTimeDivisor(nValue := 1);
 		nStep := 99;
 		TEST_FINISHED();
 	END_IF
 10:	IF rig.Online THEN
-		BROTLib.GVL_TimeSeam.nTimeDivisor := 1000000;
+		rig.SetTimeDivisor(nValue := 1000000);
 		nStep := 20;
 		nCycles := 0;
 	ELSIF nCycles > 1500 THEN
 		AssertTrue(Condition := FALSE, Message := 'the mock telescope did not reach READY_STATE 1.0');
 		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the mock telescope did not reach READY_STATE 1.0'));
-		BROTLib.GVL_TimeSeam.nTimeDivisor := 1;
+		rig.SetTimeDivisor(nValue := 1);
 		nStep := 99;
 		TEST_FINISHED();
 	END_IF
 20:
 	IF rig.fbTel.bPark OR rig.fbTel.bIsParked THEN
-		BROTLib.GVL_TimeSeam.nTimeDivisor := 1;
+		rig.SetTimeDivisor(nValue := 1);
 		AssertTrue(Condition := rig.fbTel.bPark OR rig.fbTel.bIsParked, Message := 'the idle telescope parked itself');
 		F_Note(bFailed := NOT (rig.fbTel.bPark OR rig.fbTel.bIsParked), sText := CONCAT(sTest, 'the idle telescope parked itself'));
 		nStep := 99;
@@ -134,7 +133,7 @@ CASE nStep OF
 	ELSIF nCycles > 3000 THEN
 		AssertTrue(Condition := FALSE, Message := 'the idle telescope never parked');
 		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the idle telescope never parked'));
-		BROTLib.GVL_TimeSeam.nTimeDivisor := 1;
+		rig.SetTimeDivisor(nValue := 1);
 		nStep := 99;
 		TEST_FINISHED();
 	END_IF
@@ -171,7 +170,7 @@ CASE nStep OF
 	ELSIF nCycles > 2000 THEN
 		AssertTrue(Condition := FALSE, Message := 'the astronomical clock never became valid');
 		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the astronomical clock never became valid'));
-		BROTLib.GVL_TimeSeam.nTimeDivisor := 1;
+		rig.SetTimeDivisor(nValue := 1);
 		nStep := 99;
 		TEST_FINISHED();
 	END_IF
@@ -184,7 +183,7 @@ CASE nStep OF
 	ELSIF nCycles > 1500 THEN
 		AssertTrue(Condition := FALSE, Message := 'the mock telescope did not reach READY_STATE 1.0');
 		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the mock telescope did not reach READY_STATE 1.0'));
-		BROTLib.GVL_TimeSeam.nTimeDivisor := 1;
+		rig.SetTimeDivisor(nValue := 1);
 		nStep := 99;
 		TEST_FINISHED();
 	END_IF
@@ -195,20 +194,20 @@ CASE nStep OF
 	ELSIF nCycles > 300 THEN
 		AssertTrue(Condition := FALSE, Message := 'the slew did not start the axis moves');
 		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the slew did not start the axis moves'));
-		BROTLib.GVL_TimeSeam.nTimeDivisor := 1;
+		rig.SetTimeDivisor(nValue := 1);
 		nStep := 99;
 		TEST_FINISHED();
 	END_IF
 30:
 	IF nCycles >= 5 THEN
-		BROTLib.GVL_TimeSeam.nTimeDivisor := 1000;
+		rig.SetTimeDivisor(nValue := 1000);
 		rig.SetManual(TRUE);
 		nStep := 40;
 		nCycles := 0;
 	END_IF
 40:
 	IF NOT rig.fbTel.bSuspendStop AND nCycles > 2 THEN
-		BROTLib.GVL_TimeSeam.nTimeDivisor := 1;
+		rig.SetTimeDivisor(nValue := 1);
 		AssertTrue(Condition := rig.fbTel.bMoveAbortPending, Message := 'the abort stop is still pending after the hand-over');
 		F_Note(bFailed := NOT (rig.fbTel.bMoveAbortPending), sText := CONCAT(sTest, 'the abort stop is still pending after the hand-over'));
 		nStep := 99;
@@ -216,7 +215,7 @@ CASE nStep OF
 	ELSIF nCycles > 3000 THEN
 		AssertTrue(Condition := FALSE, Message := 'the stuck stop was never handed over');
 		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the stuck stop was never handed over'));
-		BROTLib.GVL_TimeSeam.nTimeDivisor := 1;
+		rig.SetTimeDivisor(nValue := 1);
 		nStep := 99;
 		TEST_FINISHED();
 	END_IF
