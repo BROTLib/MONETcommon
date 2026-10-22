@@ -136,6 +136,9 @@
     <Compile Include="POUs\MonetStopDuringSlew_Tests.TcPOU">
       <SubType>Code</SubType>
     </Compile>
+    <Compile Include="POUs\MonetStopWhileTracking_Tests.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
     <Compile Include="POUs\MonetParkDuringPowerOn_Tests.TcPOU">
       <SubType>Code</SubType>
     </Compile>

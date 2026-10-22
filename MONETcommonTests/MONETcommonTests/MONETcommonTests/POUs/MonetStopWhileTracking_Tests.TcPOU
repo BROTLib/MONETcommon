@@ -1,0 +1,276 @@
+<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="MonetStopWhileTracking_Tests" Id="{35f24aec-8256-41e7-abe8-fa232f5bd22e}" SpecialFunc="None">
+    <Declaration><![CDATA[// Stop, retarget and suspend while tracking on the mock rig (BROTLib#101, plan 2026-10-22-stop-while-tracking-0x4257-101, step 1).
+// Every test owns a rig and runs over many PLC cycles (VAR_INST of the method, one Scan() per cycle); see MonetStopDuringSlew_Tests.
+FUNCTION_BLOCK MonetStopWhileTracking_Tests EXTENDS TcUnit.FB_TestSuite
+VAR
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[Stop_While_Tracking_Meets_No_Setpoint_Generator();
+Retarget_While_Tracking_Meets_No_Setpoint_Generator();
+Suspend_While_Tracking_Meets_No_Setpoint_Generator();
+]]></ST>
+    </Implementation>
+    <Method Name="Stop_While_Tracking_Meets_No_Setpoint_Generator" Id="{417cd427-bcb4-4b8b-8f3f-c7b6fc5c622d}">
+      <Declaration><![CDATA[// BROTLib#101: a stop while the axes track (external setpoint generator on). The telescope drops Tracking (MC_ExtSetPointGenDisable)
+// and stops (MC_Stop) in the same scan, the NC rejects the stop with 0x4257. Pinned by mock: the mock axis models the generator
+// (FB_AxisMockCore, nDisableScans), so this pins the order of the telescope, not the FB_Axis gate.
+METHOD PRIVATE Stop_While_Tracking_Meets_No_Setpoint_Generator
+VAR_INST
+	rig			: FB_MonetRig;
+	nStep		: INT;
+	nCycles		: UINT;
+	nTracking	: UINT;
+	sTest		: STRING(80);
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Stop_While_Tracking_Meets_No_Setpoint_Generator');
+sTest := 'Stop_While_Tracking_Meets_No_Setpoint_Generator: ';
+IF nStep >= 90 THEN
+	RETURN;
+END_IF
+rig.Scan();
+nCycles := nCycles + 1;
+CASE nStep OF
+0:	// wait for the clock, then power on
+	IF rig.ClockValid THEN
+		rig.fbTel.Init();
+		nStep := 10;
+		nCycles := 0;
+	ELSIF nCycles > 2000 THEN
+		AssertTrue(Condition := FALSE, Message := 'the astronomical clock never became valid');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the astronomical clock never became valid'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+10:	// wait until the startup has finished (READY_STATE 1.0), then track a circumpolar target (always above the horizon, any RA)
+	IF rig.Online THEN
+		rig.fbTel.Track(fRightAscension := 0.0, fDeclination := -85.0);
+		nStep := 20;
+		nCycles := 0;
+	ELSIF nCycles > 1500 THEN
+		AssertTrue(Condition := FALSE, Message := 'the mock telescope did not reach READY_STATE 1.0');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the mock telescope did not reach READY_STATE 1.0'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+20:	// wait until all three axes have tracked for a few scans
+	IF rig.fbAzim.Tracking AND rig.fbElev.Tracking AND rig.fbDero.Tracking THEN
+		nTracking := nTracking + 1;
+	ELSE
+		nTracking := 0;
+	END_IF
+	IF nTracking >= 5 THEN
+		nStep := 30;
+		nCycles := 0;
+	ELSIF nCycles > 800 THEN
+		AssertTrue(Condition := FALSE, Message := 'the telescope did not start tracking');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the telescope did not start tracking'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+30:	// stop while all three axes track
+	rig.fbTel.Stop();
+	nStep := 40;
+	nCycles := 0;
+40:	// wait until the stop has settled
+	IF NOT rig.fbTel.bStop AND rig.fbTel.bStopped AND nCycles > 5 THEN
+		AssertTrue(Condition := rig.fbAzim.nExtErrors = 0 AND rig.fbElev.nExtErrors = 0 AND rig.fbDero.nExtErrors = 0, Message := 'no axis met the external setpoint generator (0x4257)');
+		F_Note(bFailed := NOT (rig.fbAzim.nExtErrors = 0 AND rig.fbElev.nExtErrors = 0 AND rig.fbDero.nExtErrors = 0), sText := CONCAT(sTest, 'no axis met the external setpoint generator (0x4257)'));
+		AssertTrue(Condition := rig.fbAzim.ErrorID <> 16#4257 AND rig.fbElev.ErrorID <> 16#4257 AND rig.fbDero.ErrorID <> 16#4257, Message := 'no axis error 0x4257');
+		F_Note(bFailed := NOT (rig.fbAzim.ErrorID <> 16#4257 AND rig.fbElev.ErrorID <> 16#4257 AND rig.fbDero.ErrorID <> 16#4257), sText := CONCAT(sTest, 'no axis error 0x4257'));
+		AssertTrue(Condition := NOT rig.fbTel.bError, Message := 'the telescope has no error (no emergency park)');
+		F_Note(bFailed := NOT (NOT rig.fbTel.bError), sText := CONCAT(sTest, 'the telescope has no error (no emergency park)'));
+		AssertTrue(Condition := rig.fbAzim.nStopEdges = 1 AND rig.fbElev.nStopEdges = 1 AND rig.fbDero.nStopEdges = 1, Message := 'one stop for each axis');
+		F_Note(bFailed := NOT (rig.fbAzim.nStopEdges = 1 AND rig.fbElev.nStopEdges = 1 AND rig.fbDero.nStopEdges = 1), sText := CONCAT(sTest, 'one stop for each axis'));
+		nStep := 99;
+		TEST_FINISHED();
+	ELSIF nCycles > 400 THEN
+		AssertTrue(Condition := FALSE, Message := 'the stop did not settle');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the stop did not settle'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+END_CASE
+
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Retarget_While_Tracking_Meets_No_Setpoint_Generator" Id="{60b92b1f-c7c3-47d9-aa48-363d30670416}">
+      <Declaration><![CDATA[// BROTLib#101: a new track command while tracking goes through the abort stop (bMoveAbortPending, _StopTelescope): same collision as
+// the stop. Also checks that the new target is tracked afterwards (the abort branch clears bTrack, plan step 4). Pinned by mock.
+METHOD PRIVATE Retarget_While_Tracking_Meets_No_Setpoint_Generator
+VAR_INST
+	rig			: FB_MonetRig;
+	nStep		: INT;
+	nCycles		: UINT;
+	nTracking	: UINT;
+	sTest		: STRING(80);
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Retarget_While_Tracking_Meets_No_Setpoint_Generator');
+sTest := 'Retarget_While_Tracking_Meets_No_Setpoint_Generator: ';
+IF nStep >= 90 THEN
+	RETURN;
+END_IF
+rig.Scan();
+nCycles := nCycles + 1;
+CASE nStep OF
+0:	// wait for the clock, then power on
+	IF rig.ClockValid THEN
+		rig.fbTel.Init();
+		nStep := 10;
+		nCycles := 0;
+	ELSIF nCycles > 2000 THEN
+		AssertTrue(Condition := FALSE, Message := 'the astronomical clock never became valid');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the astronomical clock never became valid'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+10:	// wait until the startup has finished (READY_STATE 1.0), then track a circumpolar target (always above the horizon, any RA)
+	IF rig.Online THEN
+		rig.fbTel.Track(fRightAscension := 0.0, fDeclination := -85.0);
+		nStep := 20;
+		nCycles := 0;
+	ELSIF nCycles > 1500 THEN
+		AssertTrue(Condition := FALSE, Message := 'the mock telescope did not reach READY_STATE 1.0');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the mock telescope did not reach READY_STATE 1.0'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+20:	// wait until all three axes have tracked for a few scans
+	IF rig.fbAzim.Tracking AND rig.fbElev.Tracking AND rig.fbDero.Tracking THEN
+		nTracking := nTracking + 1;
+	ELSE
+		nTracking := 0;
+	END_IF
+	IF nTracking >= 5 THEN
+		nStep := 30;
+		nCycles := 0;
+	ELSIF nCycles > 800 THEN
+		AssertTrue(Condition := FALSE, Message := 'the telescope did not start tracking');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the telescope did not start tracking'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+30:	// a new track command while tracking: the supersede path aborts with a stop first
+	rig.fbTel.Track(fRightAscension := 0.0, fDeclination := -80.0);
+	nStep := 40;
+	nCycles := 0;
+	nTracking := 0;
+40:	// wait until the abort stop has settled and the telescope tracks the new target again
+	IF rig.fbAzim.Tracking AND rig.fbElev.Tracking AND rig.fbDero.Tracking AND NOT rig.fbTel.bMoveAbortPending THEN
+		nTracking := nTracking + 1;
+	ELSE
+		nTracking := 0;
+	END_IF
+	IF nTracking >= 5 THEN
+		AssertTrue(Condition := rig.fbAzim.nExtErrors = 0 AND rig.fbElev.nExtErrors = 0 AND rig.fbDero.nExtErrors = 0, Message := 'no axis met the external setpoint generator (0x4257)');
+		F_Note(bFailed := NOT (rig.fbAzim.nExtErrors = 0 AND rig.fbElev.nExtErrors = 0 AND rig.fbDero.nExtErrors = 0), sText := CONCAT(sTest, 'no axis met the external setpoint generator (0x4257)'));
+		AssertTrue(Condition := rig.fbAzim.ErrorID <> 16#4257 AND rig.fbElev.ErrorID <> 16#4257 AND rig.fbDero.ErrorID <> 16#4257, Message := 'no axis error 0x4257');
+		F_Note(bFailed := NOT (rig.fbAzim.ErrorID <> 16#4257 AND rig.fbElev.ErrorID <> 16#4257 AND rig.fbDero.ErrorID <> 16#4257), sText := CONCAT(sTest, 'no axis error 0x4257'));
+		AssertTrue(Condition := NOT rig.fbTel.bError, Message := 'the telescope has no error (no emergency park)');
+		F_Note(bFailed := NOT (NOT rig.fbTel.bError), sText := CONCAT(sTest, 'the telescope has no error (no emergency park)'));
+		nStep := 99;
+		TEST_FINISHED();
+	ELSIF nCycles > 800 THEN
+		AssertTrue(Condition := FALSE, Message := 'the telescope did not track the new target after the retarget');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the telescope did not track the new target after the retarget'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+END_CASE
+
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Suspend_While_Tracking_Meets_No_Setpoint_Generator" Id="{8cf67f18-e027-4fec-b281-651bf78f1325}">
+      <Declaration><![CDATA[// BROTLib#101: SuspendAutomatic (cabinet selector to manual) drops Tracking and stops the axes: same path as the stop. Pinned by mock.
+METHOD PRIVATE Suspend_While_Tracking_Meets_No_Setpoint_Generator
+VAR_INST
+	rig			: FB_MonetRig;
+	nStep		: INT;
+	nCycles		: UINT;
+	nTracking	: UINT;
+	sTest		: STRING(80);
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Suspend_While_Tracking_Meets_No_Setpoint_Generator');
+sTest := 'Suspend_While_Tracking_Meets_No_Setpoint_Generator: ';
+IF nStep >= 90 THEN
+	RETURN;
+END_IF
+rig.Scan();
+nCycles := nCycles + 1;
+CASE nStep OF
+0:	// wait for the clock, then power on
+	IF rig.ClockValid THEN
+		rig.fbTel.Init();
+		nStep := 10;
+		nCycles := 0;
+	ELSIF nCycles > 2000 THEN
+		AssertTrue(Condition := FALSE, Message := 'the astronomical clock never became valid');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the astronomical clock never became valid'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+10:	// wait until the startup has finished (READY_STATE 1.0), then track a circumpolar target (always above the horizon, any RA)
+	IF rig.Online THEN
+		rig.fbTel.Track(fRightAscension := 0.0, fDeclination := -85.0);
+		nStep := 20;
+		nCycles := 0;
+	ELSIF nCycles > 1500 THEN
+		AssertTrue(Condition := FALSE, Message := 'the mock telescope did not reach READY_STATE 1.0');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the mock telescope did not reach READY_STATE 1.0'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+20:	// wait until all three axes have tracked for a few scans
+	IF rig.fbAzim.Tracking AND rig.fbElev.Tracking AND rig.fbDero.Tracking THEN
+		nTracking := nTracking + 1;
+	ELSE
+		nTracking := 0;
+	END_IF
+	IF nTracking >= 5 THEN
+		nStep := 30;
+		nCycles := 0;
+	ELSIF nCycles > 800 THEN
+		AssertTrue(Condition := FALSE, Message := 'the telescope did not start tracking');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the telescope did not start tracking'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+30:	// the cabinet selector goes to manual while tracking: SuspendAutomatic stops the axes
+	rig.SetManual(TRUE);
+	nStep := 40;
+	nCycles := 0;
+40:	// wait until the suspend stop is over
+	IF NOT rig.fbTel.bSuspendStop AND nCycles > 5 THEN
+		AssertTrue(Condition := rig.fbAzim.nExtErrors = 0 AND rig.fbElev.nExtErrors = 0 AND rig.fbDero.nExtErrors = 0, Message := 'no axis met the external setpoint generator (0x4257)');
+		F_Note(bFailed := NOT (rig.fbAzim.nExtErrors = 0 AND rig.fbElev.nExtErrors = 0 AND rig.fbDero.nExtErrors = 0), sText := CONCAT(sTest, 'no axis met the external setpoint generator (0x4257)'));
+		AssertTrue(Condition := rig.fbAzim.ErrorID <> 16#4257 AND rig.fbElev.ErrorID <> 16#4257 AND rig.fbDero.ErrorID <> 16#4257, Message := 'no axis error 0x4257');
+		F_Note(bFailed := NOT (rig.fbAzim.ErrorID <> 16#4257 AND rig.fbElev.ErrorID <> 16#4257 AND rig.fbDero.ErrorID <> 16#4257), sText := CONCAT(sTest, 'no axis error 0x4257'));
+		AssertTrue(Condition := NOT rig.fbTel.bError, Message := 'the telescope has no error (no emergency park)');
+		F_Note(bFailed := NOT (NOT rig.fbTel.bError), sText := CONCAT(sTest, 'the telescope has no error (no emergency park)'));
+		AssertTrue(Condition := rig.fbAzim.nStopEdges = 1 AND rig.fbElev.nStopEdges = 1 AND rig.fbDero.nStopEdges = 1, Message := 'one stop for each axis');
+		F_Note(bFailed := NOT (rig.fbAzim.nStopEdges = 1 AND rig.fbElev.nStopEdges = 1 AND rig.fbDero.nStopEdges = 1), sText := CONCAT(sTest, 'one stop for each axis'));
+		nStep := 99;
+		TEST_FINISHED();
+	ELSIF nCycles > 400 THEN
+		AssertTrue(Condition := FALSE, Message := 'the suspend stop did not end');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the suspend stop did not end'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+END_CASE
+
+]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>
