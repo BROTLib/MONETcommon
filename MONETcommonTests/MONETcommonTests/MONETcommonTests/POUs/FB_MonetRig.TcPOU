@@ -20,6 +20,7 @@ VAR
 	fbTel			: FB_MonetTelescopeControl(comm := fbComm);
 	nScans			: UDINT;
 	bManual			: BOOL;	// MAIN calls SuspendAutomatic instead of the body while the cabinet selector is on manual
+	nTimeDivisor	: UDINT := 1;	// the time seam of the telescope under test (SetTimeDivisor)
 	bEstopIn		: BOOL;	// SafetyHandling.estop
 END_VAR
 VAR CONSTANT
@@ -48,6 +49,47 @@ fbDero.nMockHomeScans := nScans;
 ]]></ST>
       </Implementation>
     </Method>
+    <Method Name="SetMoveScans" Id="{65c9910e-1c65-4968-95a1-8c415702ba7d}">
+      <Declaration><![CDATA[// scans a move takes on the three mock axes (default 60)
+METHOD SetMoveScans
+VAR_INPUT
+	nScans	: UINT;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[fbElev.nMockMoveScans := nScans;
+fbAzim.nMockMoveScans := nScans;
+fbDero.nMockMoveScans := nScans;
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="SetStopScans" Id="{d676b49d-f214-4b42-a004-df2964ff2f3e}">
+      <Declaration><![CDATA[// scans an MC_Stop takes on the three mock axes (default 3); a very large value is an axis that never reports standstill
+METHOD SetStopScans
+VAR_INPUT
+	nScans	: UINT;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[fbElev.nMockStopScans := nScans;
+fbAzim.nMockStopScans := nScans;
+fbDero.nMockStopScans := nScans;
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="SetTimeDivisor" Id="{ebf41625-64f0-473d-96e0-0430a16c873f}">
+      <Declaration><![CDATA[// divides every long timeout of the telescope (600 s, 2 min, 12 h) by nValue, for this rig only (1 = real times)
+METHOD SetTimeDivisor
+VAR_INPUT
+	nValue	: UDINT;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[nTimeDivisor := nValue;
+fbTel.nTimeDivisor := nValue;	// also in manual, where the body (and its input list) is not called
+]]></ST>
+      </Implementation>
+    </Method>
     <Method Name="Scan" Id="{121ba66a-36ff-4009-9705-7efd4e908f1b}">
       <Declaration><![CDATA[METHOD Scan
 ]]></Declaration>
@@ -66,7 +108,8 @@ ELSE
 		fbDerotator := fbDero,
 		fbPointing := fbPointing,
 		fbPointingInverse := fbPointingInv,
-		bEstopTriggered := bEstopIn);
+		bEstopTriggered := bEstopIn,
+		nTimeDivisor := nTimeDivisor);
 END_IF
 fbElev(fbCovers := fbCovers, fbBrake := fbBrakeHyd);
 fbAzim();
