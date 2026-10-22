@@ -81,9 +81,9 @@ VAR
 	// #17: 600 s timeouts of the goto/home/slew state machines. They used to be TONs in the methods' plain VAR,
 	// which is re-created on every call, so they never fired. They are fed every scan in the body (the methods are
 	// only called while their command is selected) and reset as soon as the command flag drops, whatever ended it.
-	tonGotoTimeout		: TON;
-	tonHomeTimeout		: TON;
-	tonSlewTimeout		: TON;
+	tonGotoTimeout		: FB_TimeoutTimer;
+	tonHomeTimeout		: FB_TimeoutTimer;
+	tonSlewTimeout		: FB_TimeoutTimer;
 
 	// #26: safety net for a latched bInterrupted (now a one-shot, see the arbitration): auto-clear after 5 s of
 	// true idle, logged and counted. The counter should stay at 0.
