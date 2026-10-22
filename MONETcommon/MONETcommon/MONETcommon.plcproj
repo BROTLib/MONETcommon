@@ -125,7 +125,7 @@
       <Namespace>AstroBROT</Namespace>
     </PlaceholderReference>
     <PlaceholderReference Include="BROTLib">
-      <DefaultResolution>BROTLib, 0.10.3 (BROT)</DefaultResolution>
+      <DefaultResolution>BROTLib, 0.10.4 (BROT)</DefaultResolution>
       <Namespace>BROTLib</Namespace>
     </PlaceholderReference>
     <PlaceholderReference Include="HalfBROT">
