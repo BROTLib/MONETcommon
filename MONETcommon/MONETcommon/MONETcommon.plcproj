@@ -19,7 +19,7 @@
     <Company>IAG</Company>
     <Released>false</Released>
     <Title>MONETcommon</Title>
-    <ProjectVersion>0.9.7</ProjectVersion>
+    <ProjectVersion>0.9.8</ProjectVersion>
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="E_CommandDecision.TcDUT">
@@ -125,7 +125,7 @@
       <Namespace>AstroBROT</Namespace>
     </PlaceholderReference>
     <PlaceholderReference Include="BROTLib">
-      <DefaultResolution>BROTLib, 0.10.3 (BROT)</DefaultResolution>
+      <DefaultResolution>BROTLib, 0.10.4 (BROT)</DefaultResolution>
       <Namespace>BROTLib</Namespace>
     </PlaceholderReference>
     <PlaceholderReference Include="HalfBROT">

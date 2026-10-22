@@ -136,6 +136,9 @@
     <Compile Include="POUs\MonetStopDuringSlew_Tests.TcPOU">
       <SubType>Code</SubType>
     </Compile>
+    <Compile Include="POUs\MonetStopWhileTracking_Tests.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
     <Compile Include="POUs\MonetParkDuringPowerOn_Tests.TcPOU">
       <SubType>Code</SubType>
     </Compile>
@@ -164,7 +167,7 @@
       <Namespace>MONETcommon</Namespace>
     </PlaceholderReference>
     <PlaceholderReference Include="BROTLib">
-      <DefaultResolution>BROTLib, 0.10.3 (BROT)</DefaultResolution>
+      <DefaultResolution>BROTLib, 0.10.4 (BROT)</DefaultResolution>
       <Namespace>BROTLib</Namespace>
     </PlaceholderReference>
     <PlaceholderReference Include="HalfBROT">
