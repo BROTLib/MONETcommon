@@ -18,6 +18,10 @@ VAR
 	fbWakeShakeErrorExemptTests	: F_WakeShakeErrorExempt_Tests;
 	fbFocusHomeReleaseTests	: F_FocusHomeRelease_Tests;
 	fbFocusManualHomeTests	: FB_FocusManualHome_Tests;
+	fbFocusTargetFollowsActualTests	: F_FocusTargetFollowsActual_Tests;
+	fbFocusTrackStoredPositionTests	: F_FocusTrackStoredPosition_Tests;
+	fbFocusJogLatchTests	: FB_FocusJogLatch_Tests;
+	fbFocusModeSwitchSimTests	: FocusModeSwitch_Sim_Tests;
 	fbOilLevelValidTests	: F_OilLevelValid_Tests;
 	fbOilSuctionLatchTests	: F_OilSuctionLatch_Tests;
 	fbGotoTargetCheckTests	: F_GotoTargetCheck_Tests;
