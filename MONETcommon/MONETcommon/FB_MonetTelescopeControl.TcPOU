@@ -1856,6 +1856,18 @@ END_VAR
       <Implementation>
         <ST><![CDATA[// #84: one scan does it all. fbAxis.Stop() cancels a pending MoveTo itself; clearing MoveAxis
 // alone (CancelMove) does not stop a running move.
+// BROTLib#101: while an axis tracks, dropping Tracking sends MC_ExtSetPointGenDisable, and an MC_Stop in the same cycle meets the
+// still active setpoint generator (NC error 0x4257 on every tracking axis). The stop therefore starts one scan after the drop.
+IF fbAzimuth.Tracking OR fbElevation.Tracking OR fbDerotator.Tracking THEN
+	fbAzimuth.Tracking := FALSE;
+	fbElevation.Tracking := FALSE;
+	fbDerotator.Tracking := FALSE;
+	fbAzimuth.MoveAxis := FALSE;
+	fbElevation.MoveAxis := FALSE;
+	fbDerotator.MoveAxis := FALSE;
+	_StopTelescope := FALSE;
+	RETURN;
+END_IF
 fbAzimuth.Tracking := FALSE;
 fbElevation.Tracking := FALSE;
 fbDerotator.Tracking := FALSE;
