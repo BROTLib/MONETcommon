@@ -8,6 +8,7 @@
 // External setpoint generator (BROTLib#101): while bTracking the generator is on (bTrackActive, the axis is in motion and
 // tracking). It takes nDisableScans scans to be off after bTracking falls. A stop or a move request that arrives while it
 // is still on is rejected by the NC with 0x4257 (bExtError for one scan, counted in nExtErrors), like the real axis.
+// Once the generator is off the axis keeps moving (bCoast) until a stop or a move request, so the telescope still has to stop it.
 FUNCTION_BLOCK FB_AxisMockCore
 VAR_INPUT
 	bEnable			: BOOL;
@@ -34,6 +35,7 @@ VAR_OUTPUT
 	bStopDone		: BOOL;		// one scan
 	nStopEdges		: UINT;		// rising edges of bStop, i.e. MC_Stop requests
 	bTrackActive	: BOOL;		// the external setpoint generator is on and the axis tracks
+	bCoast			: BOOL;		// the generator is off, the axis has not been stopped yet
 	bExtError		: BOOL;		// one scan: a stop or move request met the generator (NC error 0x4257)
 	nExtErrors		: UINT;
 	fPosition		: LREAL;
@@ -61,6 +63,7 @@ IF rtStop.Q AND bExtActive THEN
 	bExtError := TRUE;
 END_IF
 IF rtStop.Q THEN
+	bCoast := FALSE;
 	nStopEdges := nStopEdges + 1;
 	bStopping := TRUE;
 	nStopCount := 0;
@@ -104,6 +107,7 @@ IF rtMove.Q AND bExtActive THEN
 	bExtError := TRUE;
 END_IF
 IF rtMove.Q AND bReady AND bCalibrated AND NOT bStopping THEN
+	bCoast := FALSE;
 	bInMotion := TRUE;
 	nMoveCount := 0;
 END_IF
@@ -120,11 +124,13 @@ END_IF
 // edges above were checked against the state of the previous call, i.e. a disable and a stop in the same scan collide.
 IF bTracking AND bReady AND bCalibrated AND NOT bStopping THEN
 	bExtActive := TRUE;
+	bCoast := FALSE;
 	nDisableCount := 0;
 ELSIF bExtActive THEN
 	nDisableCount := nDisableCount + 1;
 	IF nDisableCount >= nDisableScans THEN
 		bExtActive := FALSE;
+		bCoast := NOT bStopping;
 	END_IF
 END_IF
 IF bExtError THEN
