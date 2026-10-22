@@ -48,9 +48,7 @@ CASE nStep OF
 	END_IF
 10:	// online: slow axes, short timeouts, slew
 	IF rig.Online THEN
-		rig.fbElev.nMockMoveScans := 60000;
-		rig.fbAzim.nMockMoveScans := 60000;
-		rig.fbDero.nMockMoveScans := 60000;
+		rig.SetMoveScans(nScans := 60000);
 		BROTLib.GVL_TimeSeam.nTimeDivisor := 1000;
 		rig.fbTel.Slew(fAzimuth := 180.0, fAltitude := 45.0);
 		nStep := 20;
@@ -178,12 +176,8 @@ CASE nStep OF
 		TEST_FINISHED();
 	END_IF
 10:	IF rig.Online THEN
-		rig.fbElev.nMockMoveScans := 60000;
-		rig.fbAzim.nMockMoveScans := 60000;
-		rig.fbDero.nMockMoveScans := 60000;
-		rig.fbElev.nMockStopScans := 60000;
-		rig.fbAzim.nMockStopScans := 60000;
-		rig.fbDero.nMockStopScans := 60000;
+		rig.SetMoveScans(nScans := 60000);
+		rig.SetStopScans(nScans := 60000);
 		rig.fbTel.Slew(fAzimuth := 180.0, fAltitude := 45.0);
 		nStep := 20;
 		nCycles := 0;

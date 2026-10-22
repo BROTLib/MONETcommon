@@ -48,6 +48,34 @@ fbDero.nMockHomeScans := nScans;
 ]]></ST>
       </Implementation>
     </Method>
+    <Method Name="SetMoveScans" Id="{65c9910e-1c65-4968-95a1-8c415702ba7d}">
+      <Declaration><![CDATA[// scans a move takes on the three mock axes (default 60)
+METHOD SetMoveScans
+VAR_INPUT
+	nScans	: UINT;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[fbElev.nMockMoveScans := nScans;
+fbAzim.nMockMoveScans := nScans;
+fbDero.nMockMoveScans := nScans;
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="SetStopScans" Id="{d676b49d-f214-4b42-a004-df2964ff2f3e}">
+      <Declaration><![CDATA[// scans an MC_Stop takes on the three mock axes (default 3); a very large value is an axis that never reports standstill
+METHOD SetStopScans
+VAR_INPUT
+	nScans	: UINT;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[fbElev.nMockStopScans := nScans;
+fbAzim.nMockStopScans := nScans;
+fbDero.nMockStopScans := nScans;
+]]></ST>
+      </Implementation>
+    </Method>
     <Method Name="Scan" Id="{121ba66a-36ff-4009-9705-7efd4e908f1b}">
       <Declaration><![CDATA[METHOD Scan
 ]]></Declaration>
