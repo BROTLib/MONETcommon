@@ -57,10 +57,9 @@ See `BROTLibTests/README.md` for the full one-time setup and Windows 11 usermode
 installed as a library:
 
 ```powershell
-& "C:\Program Files\Industrial Brains B.V\TcBuild\TcBuild.exe" install MONETcommon.sln -x MONETcommon -p MONETcommon -l MONETcommon.library
+tctool MONETcommon.sln library --xae MONETcommon --plc MONETcommon --out MONETcommon.library --install
 cd C:\TwinCAT\3.1\Runtimes\UmRT_Default; .\Start.bat
-& "C:\Program Files\Industrial Brains B.V\TcBuild\TcBuild.exe" build MONETcommonTests.sln
-.\MONETcommonTests\tools\Run-Tests.ps1
+tctool MONETcommonTests.sln build run --require-valid-license
 ```
 
 ## Things to know
