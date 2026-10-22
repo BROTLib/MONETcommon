@@ -20,6 +20,7 @@ results); this one only covers what's specific to MONETcommon.
 | `F_ResetMoveAbort_Tests` | the abort stop after a reset (#56, #66): kept while an enabled axis moves or homes, cleared at rest, on an error and while a park runs |
 | `F_SuspendStop_Tests` | the stop at the switch to manual (#118): moving or homing axis, running park and running stop are stopped, not at rest or on an error |
 | `F_WakeShakeErrorExempt_Tests` | the Wake&Shake exemption from the emergency park (#113): only the first power-on after a PLC restart, only while powering, only for azimuth/elevation errors |
+| `F_FocusHomeRelease_Tests`, `FB_FocusManualHome_Tests` | HalfBROT `F_FocusHomeRelease` and `FB_FocusManualHome` (manual focus re-home, `FB_FocusControl.bManualHome`): when the homing request ends, which requests are accepted or rejected, done/abort detection, the block of the automatic homing after an aborted re-home. The wiring in `FB_FocusControl` and the NC behaviour are on-site tests |
 | `F_OilLevelValid_Tests` | HalfBROT `F_OilLevelValid` (MONETS#32): the raw oil level range, with the values measured on MONET/S (wire break 0, sensor error 330, empty 883..1330, float switch 9416, over-range 16383/32767) and the no-guard defaults |
 | `F_OilSuctionLatch_Tests` | HalfBROT `F_OilSuctionLatch` (MONETS#32): equal to the old suction SR while the level is valid; invalid: no start by level, a running suction kept while the main pump is enabled, float switch still starts |
 | `FB_MonetStopTransaction_Tests` | `FB_MonetStopTransaction` (#96): one MC_Stop per axis and stop, a latched StopAxis level written low first, no second stop while an axis is Stopping after StopDone (the #96 guard), no settling on a bare standstill sample, three scans at rest after the last StopDone, disabled axes, repeated stop (D2) and the timeout cases (D1) |
@@ -57,10 +58,9 @@ See `BROTLibTests/README.md` for the full one-time setup and Windows 11 usermode
 installed as a library:
 
 ```powershell
-& "C:\Program Files\Industrial Brains B.V\TcBuild\TcBuild.exe" install MONETcommon.sln -x MONETcommon -p MONETcommon -l MONETcommon.library
+tctool MONETcommon.sln library --xae MONETcommon --plc MONETcommon --out MONETcommon.library --install
 cd C:\TwinCAT\3.1\Runtimes\UmRT_Default; .\Start.bat
-& "C:\Program Files\Industrial Brains B.V\TcBuild\TcBuild.exe" build MONETcommonTests.sln
-.\MONETcommonTests\tools\Run-Tests.ps1
+tctool MONETcommonTests.sln build run --require-valid-license
 ```
 
 ## Things to know

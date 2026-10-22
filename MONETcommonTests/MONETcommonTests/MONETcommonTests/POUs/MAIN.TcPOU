@@ -16,6 +16,8 @@ VAR
 	fbResetMoveAbortTests	: F_ResetMoveAbort_Tests;
 	fbSuspendStopTests		: F_SuspendStop_Tests;
 	fbWakeShakeErrorExemptTests	: F_WakeShakeErrorExempt_Tests;
+	fbFocusHomeReleaseTests	: F_FocusHomeRelease_Tests;
+	fbFocusManualHomeTests	: FB_FocusManualHome_Tests;
 	fbOilLevelValidTests	: F_OilLevelValid_Tests;
 	fbOilSuctionLatchTests	: F_OilSuctionLatch_Tests;
 	fbGotoTargetCheckTests	: F_GotoTargetCheck_Tests;

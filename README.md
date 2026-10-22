@@ -129,7 +129,7 @@ library (`.tspproj`, AmsPort 851; solution platforms Debug/Release × TwinCAT
 RT (x64/x86), TwinCAT CE7 (ARMV7), TwinCAT OS (ARMT2)) and referenced from the
 MONETN / MONETS application projects.
 
-**CI.** `.github/workflows/tcbuild.yml` builds `MONETcommon.sln` with TcBuild on every push (self-hosted runner, never on pull requests). A green run means the project compiles; TcBuild exit code 1 (built with warnings) counts as success. The TcUnit tests are not run there (see below).
+**CI.** `.github/workflows/tcbuild.yml` builds `MONETcommon.sln` with [`tctool`](https://github.com/BROTLib/TcTool) on every push (self-hosted runner, never on pull requests) and runs the TcUnit tests of `MONETcommonTests` on the user-mode runtime (see `MONETcommonTests/README.md`). A green run means the project compiles and the tests passed, or that they were skipped with a warning because the TwinCAT license or runtime is missing; `tctool` exit code 1 (built with warnings) counts as success.
 
 ## Startup readiness (READY_STATE)
 
