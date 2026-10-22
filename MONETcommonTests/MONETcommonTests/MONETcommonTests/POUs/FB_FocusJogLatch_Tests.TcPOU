@@ -1,0 +1,85 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="FB_FocusJogLatch_Tests" Id="{45a2827f-713d-4f86-a620-b5971909938a}" SpecialFunc="None">
+    <Declaration><![CDATA[// Tests for HalfBROT.FB_FocusJogLatch (HalfBROT 0.7.2): a jog runs from the command until the axis is at standstill.
+FUNCTION_BLOCK FB_FocusJogLatch_Tests EXTENDS TcUnit.FB_TestSuite
+VAR
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[Command_Sets();
+Holds_Until_StandStill();
+Idle_Clear();
+StandStill_With_Command_Stays();
+]]></ST>
+    </Implementation>
+    <Method Name="Command_Sets" Id="{20734b22-5737-4fc5-ac28-e9dcbc2a5a6f}">
+      <Declaration><![CDATA[// The jog command sets the latch at once.
+METHOD PRIVATE Command_Sets
+VAR
+	fbLatch	: HalfBROT.FB_FocusJogLatch;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Command_Sets');
+fbLatch(bJogCommand := TRUE, bStandStill := FALSE);
+AssertTrue(Condition := fbLatch.bJogging, Message := 'jogging');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Holds_Until_StandStill" Id="{284eaaa7-afae-42be-be9f-5ecf59eda00f}">
+      <Declaration><![CDATA[// The ramp down after the button is released is part of the jog.
+METHOD PRIVATE Holds_Until_StandStill
+VAR
+	fbLatch	: HalfBROT.FB_FocusJogLatch;
+	n	: INT;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Holds_Until_StandStill');
+fbLatch(bJogCommand := TRUE, bStandStill := FALSE);
+FOR n := 1 TO 3 DO
+	fbLatch(bJogCommand := FALSE, bStandStill := FALSE);
+	AssertTrue(Condition := fbLatch.bJogging, Message := 'ramp down');
+END_FOR
+fbLatch(bJogCommand := FALSE, bStandStill := TRUE);
+AssertFalse(Condition := fbLatch.bJogging, Message := 'at standstill');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Idle_Clear" Id="{c64d69c8-da38-4d1f-b31a-d5e2fc7042c9}">
+      <Declaration><![CDATA[// No command and no jog running: not jogging, moving or not.
+METHOD PRIVATE Idle_Clear
+VAR
+	fbLatch	: HalfBROT.FB_FocusJogLatch;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Idle_Clear');
+fbLatch(bJogCommand := FALSE, bStandStill := TRUE);
+AssertFalse(Condition := fbLatch.bJogging, Message := 'idle, at rest');
+fbLatch(bJogCommand := FALSE, bStandStill := FALSE);
+AssertFalse(Condition := fbLatch.bJogging, Message := 'idle, a move runs, not a jog');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="StandStill_With_Command_Stays" Id="{130782d2-ae61-4741-91bf-bfffeb610243}">
+      <Declaration><![CDATA[// A held jog command wins over StandStill (the first cycles of a jog).
+METHOD PRIVATE StandStill_With_Command_Stays
+VAR
+	fbLatch	: HalfBROT.FB_FocusJogLatch;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('StandStill_With_Command_Stays');
+fbLatch(bJogCommand := TRUE, bStandStill := TRUE);
+AssertTrue(Condition := fbLatch.bJogging, Message := 'command and standstill');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>
