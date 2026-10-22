@@ -27,6 +27,7 @@ VAR
 	fbMethodVarProbeTests	: FB_MethodVarProbe_Tests;
 	fbMonetRigTests	: FB_MonetRig_Tests;
 	fbMonetStopDuringSlewTests	: MonetStopDuringSlew_Tests;
+	fbMonetStopWhileTrackingTests	: MonetStopWhileTracking_Tests;
 	fbMonetParkDuringPowerOnTests	: MonetParkDuringPowerOn_Tests;
 	fbMonetResetUnderMotionTests	: MonetResetUnderMotion_Tests;
 	fbMonetSuspendUnderMotionTests	: MonetSuspendUnderMotion_Tests;

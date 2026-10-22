@@ -5,18 +5,23 @@
 // One call = one PLC scan of the axis part. Enable -> Ready after nReadyScans, homing -> calibrated after nHomeScans, a rising
 // bMove -> InMotion for nMoveScans, then MoveDone for one scan and the position is the target. Only the levels the telescope
 // writes are inputs; nothing here touches an MC_* block. Same model as IAG50cmTests.
+// External setpoint generator (BROTLib#101): while bTracking the generator is on (bTrackActive, the axis is in motion and
+// tracking). It takes nDisableScans scans to be off after bTracking falls. A stop or a move request that arrives while it
+// is still on is rejected by the NC with 0x4257 (bExtError for one scan, counted in nExtErrors), like the real axis.
 FUNCTION_BLOCK FB_AxisMockCore
 VAR_INPUT
 	bEnable			: BOOL;
 	bHome			: BOOL;
 	bMove			: BOOL;
 	bStop			: BOOL;		// the StopAxis level: a rising edge is a stop request (MC_Stop)
+	bTracking		: BOOL;		// the Tracking level (MC_ExtSetPointGenEnable wanted)
 	fTarget			: LREAL;
 	fHomePosition	: LREAL;		// the position a homing ends at (the calibration cam, fCalibPosition of the axis block)
 	nReadyScans		: UINT := 2;
 	nHomeScans		: UINT := 3;
 	nMoveScans		: UINT := 4;
 	nStopScans		: UINT := 3;
+	nDisableScans	: UINT := 1;	// scans MC_ExtSetPointGenDisable takes after bTracking fell
 END_VAR
 VAR_OUTPUT
 	bReady			: BOOL;
@@ -28,6 +33,9 @@ VAR_OUTPUT
 	bStopping		: BOOL;
 	bStopDone		: BOOL;		// one scan
 	nStopEdges		: UINT;		// rising edges of bStop, i.e. MC_Stop requests
+	bTrackActive	: BOOL;		// the external setpoint generator is on and the axis tracks
+	bExtError		: BOOL;		// one scan: a stop or move request met the generator (NC error 0x4257)
+	nExtErrors		: UINT;
 	fPosition		: LREAL;
 END_VAR
 VAR
@@ -37,6 +45,8 @@ VAR
 	nStopCount		: UINT;
 	rtMove			: R_TRIG;
 	rtStop			: R_TRIG;
+	bExtActive		: BOOL;		// the generator is on or still being disabled
+	nDisableCount	: UINT;
 END_VAR
 ]]></Declaration>
     <Implementation>
@@ -45,7 +55,11 @@ bStopDone := FALSE;
 
 // a stop request aborts a running move where it is (the model has no interpolation: the position stays) and takes
 // nStopScans scans, then reports Done for one scan
+bExtError := FALSE;
 rtStop(CLK := bStop);
+IF rtStop.Q AND bExtActive THEN
+	bExtError := TRUE;
+END_IF
 IF rtStop.Q THEN
 	nStopEdges := nStopEdges + 1;
 	bStopping := TRUE;
@@ -86,6 +100,9 @@ ELSE
 END_IF
 
 rtMove(CLK := bMove);
+IF rtMove.Q AND bExtActive THEN
+	bExtError := TRUE;
+END_IF
 IF rtMove.Q AND bReady AND bCalibrated AND NOT bStopping THEN
 	bInMotion := TRUE;
 	nMoveCount := 0;
@@ -99,7 +116,23 @@ IF bInMotion THEN
 	END_IF
 END_IF
 
-bStandStill := NOT bInMotion AND NOT bHoming AND NOT bStopping;
+// the generator: on while tracking on a ready, calibrated axis; off nDisableScans scans after bTracking fell. The request
+// edges above were checked against the state of the previous call, i.e. a disable and a stop in the same scan collide.
+IF bTracking AND bReady AND bCalibrated AND NOT bStopping THEN
+	bExtActive := TRUE;
+	nDisableCount := 0;
+ELSIF bExtActive THEN
+	nDisableCount := nDisableCount + 1;
+	IF nDisableCount >= nDisableScans THEN
+		bExtActive := FALSE;
+	END_IF
+END_IF
+IF bExtError THEN
+	nExtErrors := nExtErrors + 1;
+END_IF
+bTrackActive := bExtActive AND bTracking;
+
+bStandStill := NOT bInMotion AND NOT bHoming AND NOT bStopping;	// a tracking axis is not at standstill for the status (the mocks use bTrackActive), but it stays ready
 ]]></ST>
     </Implementation>
   </POU>
