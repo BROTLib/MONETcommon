@@ -19,13 +19,16 @@
     <Company>IAG</Company>
     <Released>false</Released>
     <Title>MONETcommon</Title>
-    <ProjectVersion>0.9.5</ProjectVersion>
+    <ProjectVersion>0.9.6</ProjectVersion>
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="E_CommandDecision.TcDUT">
       <SubType>Code</SubType>
     </Compile>
     <Compile Include="E_CommandRejectReason.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="ST_AxisStatus.TcDUT">
       <SubType>Code</SubType>
     </Compile>
     <Compile Include="ST_CommandState.TcDUT">
