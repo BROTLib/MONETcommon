@@ -102,6 +102,8 @@ VAR
 	bMoveAbortPending	: BOOL;
 	eTimeoutCommand		: E_TCSCommand;	// #56: the command tonCommandTimeout is counting for
 	MoveAbortEvent		: FB_EventLog;
+	// plan step 3.1: the axis feedback of this scan (1 azimuth, 2 elevation, 3 derotator), filled by _ReadAxes
+	aAxis				: ARRAY[1..3] OF ST_AxisStatus;
 	// #96: one MC_Stop per axis and stop transaction; the stop is over when every axis that was sent one has
 	// reported StopDone and the telescope has been at rest for 3 scans. Replaces bStopIssuedAz/El/Dr (#84).
 	fbStopTx			: FB_MonetStopTransaction;
@@ -186,6 +188,7 @@ END_IF
 // set reset state either by hardware (key pressed) or by software (set by e.g. tcs)
 rtrigReset(CLK := bReset);
 
+_ReadAxes();
 // #96: axis state for the stop transaction (the state of the last axis cycle, like bStopped below)
 _StopTxInputs();
 
@@ -695,14 +698,14 @@ IF F_BrakeMustClose(bElevationEnabled := fbElevation.bEnable) THEN
 	fbBrake.CloseBrake();
 END_IF
  
-bSlewing := NOT bTracking AND (fbElevation.fbAxis.InMotion OR fbElevation.fbAxis.InRamp OR
-			fbAzimuth.fbAxis.InMotion OR fbAzimuth.fbAxis.InRamp OR
-			fbDerotator.fbAxis.InMotion OR fbDerotator.fbAxis.InRamp);
+bSlewing := NOT bTracking AND (aAxis[2].bInMotion OR aAxis[2].bInRamp OR
+			aAxis[1].bInMotion OR aAxis[1].bInRamp OR
+			aAxis[3].bInMotion OR aAxis[3].bInRamp);
 
 // signal must be stable for 5500MS
-tonTrackingDelay(in := fbElevation.fbAxis.isTracking AND 
-			fbAzimuth.fbAxis.isTracking AND
-			fbDerotator.fbAxis.isTracking,PT :=T#5500MS, Q => bTracking);
+tonTrackingDelay(in := aAxis[2].bTracking AND
+			aAxis[1].bTracking AND
+			aAxis[3].bTracking,PT :=T#5500MS, Q => bTracking);
 			
 _StopTxMonitor();
 			
@@ -718,9 +721,9 @@ bReady := bHomed AND
 	fbDerotator.bEnable AND fbBrake.BrakeOpen AND 
     NOT bError;
 
-bBusy := fbElevation.fbAxis.Busy OR
-		fbAzimuth.fbAxis.Busy OR
-		fbDerotator.fbAxis.Busy OR
+bBusy := aAxis[2].bBusy OR
+		aAxis[1].bBusy OR
+		aAxis[3].bBusy OR
 		fbFocus.Busy;
 
 (* STATUS STATES*)
@@ -1333,7 +1336,8 @@ END_CASE]]></ST>
 // during manual (Stop()) is processed after the return, it must not brake an axis the operator is jogging.
 METHOD SuspendAutomatic
 ]]></Declaration>
-      <Implementation><ST><![CDATA[_StopTxInputs();
+      <Implementation><ST><![CDATA[_ReadAxes();
+_StopTxInputs();
 IF fbStartup.EnterSuspend() THEN
     bHwErrorLast := TRUE;	// #86: an error already present when switching back to automatic does not park
     IF fbStartup.Initializing OR bPower THEN
@@ -1675,6 +1679,41 @@ nLastStage := nStage;
 ]]></ST>
       </Implementation>
     </Method>
+    <Method Name="_ReadAxes" Id="{01fb7eb4-fd45-4d34-9738-945e1968aeee}" FolderPath="internal methods\">
+      <Declaration><![CDATA[// plan step 3.1: the feedback of the three axes (the outputs of their FB_Axis) once per scan, at the start of the body and of
+// SuspendAutomatic. The axes are called after the telescope, so the outputs are the same wherever the body reads them.
+METHOD PRIVATE _ReadAxes
+VAR_INPUT
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[aAxis[1].bStandStill := fbAzimuth.fbAxis.StandStill;
+aAxis[1].bStopDone := fbAzimuth.fbAxis.StopDone;
+aAxis[1].bInMotion := fbAzimuth.fbAxis.InMotion;
+aAxis[1].bInRamp := fbAzimuth.fbAxis.InRamp;
+aAxis[1].bHoming := fbAzimuth.fbAxis.Homing;
+aAxis[1].bStopping := fbAzimuth.fbAxis.Stopping;
+aAxis[1].bBusy := fbAzimuth.fbAxis.Busy;
+aAxis[1].bTracking := fbAzimuth.fbAxis.isTracking;
+aAxis[2].bStandStill := fbElevation.fbAxis.StandStill;
+aAxis[2].bStopDone := fbElevation.fbAxis.StopDone;
+aAxis[2].bInMotion := fbElevation.fbAxis.InMotion;
+aAxis[2].bInRamp := fbElevation.fbAxis.InRamp;
+aAxis[2].bHoming := fbElevation.fbAxis.Homing;
+aAxis[2].bStopping := fbElevation.fbAxis.Stopping;
+aAxis[2].bBusy := fbElevation.fbAxis.Busy;
+aAxis[2].bTracking := fbElevation.fbAxis.isTracking;
+aAxis[3].bStandStill := fbDerotator.fbAxis.StandStill;
+aAxis[3].bStopDone := fbDerotator.fbAxis.StopDone;
+aAxis[3].bInMotion := fbDerotator.fbAxis.InMotion;
+aAxis[3].bInRamp := fbDerotator.fbAxis.InRamp;
+aAxis[3].bHoming := fbDerotator.fbAxis.Homing;
+aAxis[3].bStopping := fbDerotator.fbAxis.Stopping;
+aAxis[3].bBusy := fbDerotator.fbAxis.Busy;
+aAxis[3].bTracking := fbDerotator.fbAxis.isTracking;
+]]></ST>
+      </Implementation>
+    </Method>
     <Method Name="_StopTxInputs" Id="{b7e41c92-3d58-4f06-a1c9-0e8d52b6f301}" FolderPath="internal methods\">
       <Declaration><![CDATA[// #96/#118: axis state for the stop transaction (the state of the last axis cycle), set by the body and SuspendAutomatic
 METHOD PRIVATE _StopTxInputs
@@ -1685,21 +1724,21 @@ END_VAR
         <ST><![CDATA[fbStopTx.abEnabled[1] := fbAzimuth.bEnable;
 fbStopTx.abEnabled[2] := fbElevation.bEnable;
 fbStopTx.abEnabled[3] := fbDerotator.bEnable;
-fbStopTx.abStandStill[1] := fbAzimuth.fbAxis.StandStill;
-fbStopTx.abStandStill[2] := fbElevation.fbAxis.StandStill;
-fbStopTx.abStandStill[3] := fbDerotator.fbAxis.StandStill;
+fbStopTx.abStandStill[1] := aAxis[1].bStandStill;
+fbStopTx.abStandStill[2] := aAxis[2].bStandStill;
+fbStopTx.abStandStill[3] := aAxis[3].bStandStill;
 fbStopTx.abStopAxis[1] := fbAzimuth.StopAxis;
 fbStopTx.abStopAxis[2] := fbElevation.StopAxis;
 fbStopTx.abStopAxis[3] := fbDerotator.StopAxis;
-fbStopTx.abStopDone[1] := fbAzimuth.fbAxis.StopDone;
-fbStopTx.abStopDone[2] := fbElevation.fbAxis.StopDone;
-fbStopTx.abStopDone[3] := fbDerotator.fbAxis.StopDone;
-fbStopTx.abMoving[1] := fbAzimuth.fbAxis.InMotion OR fbAzimuth.fbAxis.InRamp OR fbAzimuth.fbAxis.Homing;
-fbStopTx.abMoving[2] := fbElevation.fbAxis.InMotion OR fbElevation.fbAxis.InRamp OR fbElevation.fbAxis.Homing;
-fbStopTx.abMoving[3] := fbDerotator.fbAxis.InMotion OR fbDerotator.fbAxis.InRamp OR fbDerotator.fbAxis.Homing;
-fbStopTx.abStopping[1] := fbAzimuth.fbAxis.Stopping;
-fbStopTx.abStopping[2] := fbElevation.fbAxis.Stopping;
-fbStopTx.abStopping[3] := fbDerotator.fbAxis.Stopping;
+fbStopTx.abStopDone[1] := aAxis[1].bStopDone;
+fbStopTx.abStopDone[2] := aAxis[2].bStopDone;
+fbStopTx.abStopDone[3] := aAxis[3].bStopDone;
+fbStopTx.abMoving[1] := aAxis[1].bInMotion OR aAxis[1].bInRamp OR aAxis[1].bHoming;
+fbStopTx.abMoving[2] := aAxis[2].bInMotion OR aAxis[2].bInRamp OR aAxis[2].bHoming;
+fbStopTx.abMoving[3] := aAxis[3].bInMotion OR aAxis[3].bInRamp OR aAxis[3].bHoming;
+fbStopTx.abStopping[1] := aAxis[1].bStopping;
+fbStopTx.abStopping[2] := aAxis[2].bStopping;
+fbStopTx.abStopping[3] := aAxis[3].bStopping;
 ]]></ST>
       </Implementation>
     </Method>
@@ -1710,9 +1749,9 @@ VAR_INPUT
 END_VAR
 ]]></Declaration>
       <Implementation>
-        <ST><![CDATA[bStopped :=  (NOT fbElevation.bEnable OR fbElevation.fbAxis.StandStill) AND 
-			(NOT fbAzimuth.bEnable OR fbAzimuth.fbAxis.StandStill) AND
-			(NOT fbDerotator.bEnable OR fbDerotator.fbAxis.StandStill);
+        <ST><![CDATA[bStopped :=  (NOT fbElevation.bEnable OR aAxis[2].bStandStill) AND
+			(NOT fbAzimuth.bEnable OR aAxis[1].bStandStill) AND
+			(NOT fbDerotator.bEnable OR aAxis[3].bStandStill);
 
 // #96: settles the stop (every issued axis reported StopDone, at rest for 3 scans) or raises the timeout cases
 fbStopTx.bStopped := bStopped;

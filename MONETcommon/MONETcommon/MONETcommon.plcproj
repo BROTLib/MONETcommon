@@ -28,6 +28,9 @@
     <Compile Include="E_CommandRejectReason.TcDUT">
       <SubType>Code</SubType>
     </Compile>
+    <Compile Include="ST_AxisStatus.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
     <Compile Include="ST_CommandState.TcDUT">
       <SubType>Code</SubType>
     </Compile>
