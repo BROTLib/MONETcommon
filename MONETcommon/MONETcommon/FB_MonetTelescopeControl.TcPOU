@@ -185,62 +185,11 @@ IF NOT fbTime.bValid AND (bGoto OR bSlew OR bTrack) THEN
 	bStop := TRUE;
 END_IF
 
-// set reset state either by hardware (key pressed) or by software (set by e.g. tcs)
-rtrigReset(CLK := bReset);
-
 _ReadAxes();
 // #96: axis state for the stop transaction (the state of the last axis cycle, like bStopped below)
 _StopTxInputs();
 
-// #96 (D3): a reset recovers a stop that is stuck in Stopping without writing over ADS. Only axes that stand still
-// are reset (a reset under motion was followed by 0x4260, #84); a moving enabled axis keeps the stop going.
-// #56: also for an abort stop (bMoveAbortPending), not only for an operator stop.
-IF rtrigReset.Q AND (bStop OR bMoveAbortPending)
-	AND NOT (fbStopTx.abEnabled[1] AND fbStopTx.abMoving[1])
-	AND NOT (fbStopTx.abEnabled[2] AND fbStopTx.abMoving[2])
-	AND NOT (fbStopTx.abEnabled[3] AND fbStopTx.abMoving[3]) THEN
-	IF fbStopTx.abStopping[1] THEN
-		fbAzimuth.Reset();
-	END_IF
-	IF fbStopTx.abStopping[2] THEN
-		fbElevation.Reset();
-	END_IF
-	IF fbStopTx.abStopping[3] THEN
-		fbDerotator.Reset();
-	END_IF
-	fbStopTx.Cancel();	// bStop then clears at standstill
-END_IF
-
-IF bReset THEN
-    fbStartup.MarkAborted();
-	bHorizonError := FALSE; // if reset, the bHorizonError can be switched off
-	bSoftwareError := FALSE;
-	nSoftwareErrorID := 0;	// #88
-
-	// #85: a reset drops every pending move command; nothing may move later because of a command sent
-	// before the reset. bPark is kept on purpose (safe direction, emergency park).
-	bGoHome := FALSE;
-	bGoto := FALSE;
-	bSlew := FALSE;
-	bTrack := FALSE;
-	// #56: a move that is still running is stopped (the abort stop of #84 goes on), not left to run to its old target.
-	// Not during an error (the drives are off) and not during a park (its motion is wanted, bPark is kept).
-	bMoveAbortPending := F_ResetMoveAbort(
-		bError := bError,
-		bParkRunning := TCS_command = E_TCSCommand.park,
-		bAzMoving := fbStopTx.abEnabled[1] AND fbStopTx.abMoving[1],
-		bElMoving := fbStopTx.abEnabled[2] AND fbStopTx.abMoving[2],
-		bDrMoving := fbStopTx.abEnabled[3] AND fbStopTx.abMoving[3]);
-	bSupersedeRequest := FALSE;	// #83
-
-	// reset the stages of all statemachine methods
-	bInterrupted := TRUE; 
-	_HomeTelescope();
-	_GotoTelescope();
-	_SlewTelescope();
-	_ParkTelescope();
-	bInterrupted := FALSE;
-END_IF
+_HandleReset();
 
 // #34: refuse a home/park position the horizon guard below would keep re-homing to. Checked every
 // scan, so a reset does not clear it until the configuration is fixed.
@@ -773,117 +722,7 @@ IF tonMQTTTimer.Q THEN
 END_IF
 
 
-(* Event function blocks start here. *)
-TCSpowerEvent(	Trigger := bPowerFailure, 
-				Level := ADSLOG_MSGTYPE_ERROR,
-				FormatString := 'power %s',
-				//OnMessage := 'Failure',
-				OffMessage := 'OK', 
-				Comm := fbComm);
-
-TCSgohomeEvent(	Trigger := bGoHome, 
-				Level := ADSLOG_MSGTYPE_HINT,
-				FormatString := 'GOHOME %s',
-				OnMessage := 'commencing',
-				OffMEssage := 'completed', 
-				Comm := fbComm);
-TCSparkEvent(	Trigger := bPark, 
-				Level := ADSLOG_MSGTYPE_HINT,
-				FormatString := 'PARK %s',
-				OnMessage := 'commencing',
-				OffMEssage := 'completed', 
-				Comm := fbComm);
-TCSgotoEvent(	Trigger := bGoto, 
-				Level := ADSLOG_MSGTYPE_HINT,
-				FormatString := 'GOTO %s',
-				OnMessage := 'commencing',
-				OffMEssage := 'completed', 
-				Comm := fbComm);
-TCStrackEvent(	Trigger := bTrack, 
-				Level := ADSLOG_MSGTYPE_HINT,
-				FormatString := 'TRACK %s',
-				OnMessage := 'commencing',
-				OffMEssage := 'completed', 
-				Comm := fbComm);
-_StopEvents();
-TCStargetHorizonEvent(	Trigger := bTargetBelowHorizonWarn,
-				Level := ADSLOG_MSGTYPE_WARN,
-				FormatString := '%s',
-				OnMessage := 'Target below safe horizon',
-				OffMEssage := '', 
-				Comm := fbComm);
-AzimuthNoTurnEvent(	Trigger := bAzimuthNoTurn,
-				Level := ADSLOG_MSGTYPE_WARN,
-				FormatString := '%s',
-				OnMessage := 'No azimuth position inside the axis limits for the target, goto/track refused',
-				OffMEssage := '',
-				Comm := fbComm);
-DerotatorNoTurnEvent(	Trigger := bDerotatorNoTurn,
-				Level := ADSLOG_MSGTYPE_WARN,
-				FormatString := '%s',
-				OnMessage := 'No derotator position inside the axis limits for the target, goto/track refused',
-				OffMEssage := '',
-				Comm := fbComm);
-SlewOutOfLimitsEvent(	Trigger := bSlewOutOfLimits,
-				Level := ADSLOG_MSGTYPE_WARN,
-				FormatString := '%s',
-				OnMessage := 'Slew target outside the axis limits, slew refused',
-				OffMEssage := '',
-				Comm := fbComm);
-bSlewOutOfLimits := FALSE;
-TCSreadyEvent(	Trigger := bPower AND bReady, 
-				Level := ADSLOG_MSGTYPE_HINT,
-				FormatString := '%s',
-				OnMessage := 'STELLA1 startup finished', 
-				Comm := fbComm);
-SoftwareErrorEvent(	Trigger := bSoftwareError,
-				Level := ADSLOG_MSGTYPE_ERROR,
-				FormatString := 'Internal command error, ID: %s',
-				OnMessage := UINT_TO_STRING(nSoftwareErrorID),
-				OffMessage := 'cleared',
-				OffLevel := ADSLOG_MSGTYPE_HINT,
-				Comm := fbComm);
-PowerAbortEvent(	Trigger := bPowerAbortedByPark,
-				Level := ADSLOG_MSGTYPE_WARN,
-				FormatString := '%s',
-				OnMessage := 'power-on aborted: park requested',
-				Comm := fbComm);
-bPowerAbortedByPark := FALSE;
-ErrorParkEvent(	Trigger := bErrorParkStarted,
-				Level := ADSLOG_MSGTYPE_WARN,
-				FormatString := '%s',
-				OnMessage := 'emergency park started: axis error',
-				Comm := fbComm);
-bErrorParkStarted := FALSE;
-ErrorParkExemptEvent(	Trigger := bErrorParkExempt,
-				Level := ADSLOG_MSGTYPE_WARN,
-				FormatString := '%s',
-				OnMessage := 'axis error in the first power-on after a PLC restart (Wake&Shake?): no emergency park, covers stay open; reset, Wake&Shake and power=1, or park=1',
-				Comm := fbComm);
-bErrorParkExempt := FALSE;
-// #83: every rejection is logged and published (ADS log and MQTT log topic). An identical rejection repeated
-// within 2 s is logged once (a level writer would flood the log); all of them are counted. The event is re-armed
-// with FALSE first so that rejections in consecutive scans each give a rising edge.
-tonRejectRepeat(IN := TRUE, PT := T#2S);
-RejectEvent(Trigger := FALSE, Comm := fbComm);
-IF bCommandRejected THEN
-	IF tonRejectRepeat.Q OR eLastRejectedCommand <> eLoggedCommand OR eLastRejectReason <> eLoggedReason THEN
-		sRejectMessage := CONCAT(CONCAT(F_TCSCommandText(eLastRejectedCommand), ' rejected: '),
-			F_CommandRejectText(eLastRejectReason));
-		RejectEvent(Trigger := TRUE, Level := ADSLOG_MSGTYPE_WARN, FormatString := '%s',
-			OnMessage := sRejectMessage, Comm := fbComm);
-		eLoggedCommand := eLastRejectedCommand;
-		eLoggedReason := eLastRejectReason;
-		tonRejectRepeat(IN := FALSE);
-	END_IF
-	bCommandRejected := FALSE;
-END_IF
-InitRefusedEvent(	Trigger := bInitRefused,
-				Level := nInitRefusedLevel,
-				FormatString := 'power-on ignored: %s',
-				OnMessage := sInitRefusedReason,
-				Comm := fbComm);
-bInitRefused := FALSE;
+_LogEvents();
 
 // #83: remember which flags the direct-write gate has seen. Flags set inside this body (horizon guard, auto-track)
 // are set before this point and so never look new to the gate.
@@ -1676,6 +1515,191 @@ CASE nStage OF
 END_CASE
 SlewEvent(Trigger := nStage > nLastStage, FormatString := 'Slew progress: %s', OnMessage := USINT_TO_STRING(nStage), Comm := fbComm);
 nLastStage := nStage;		
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="_LogEvents" Id="{37adc943-5fc3-45c0-ba6e-4d7a16cee2e8}" FolderPath="internal methods\">
+      <Declaration><![CDATA[// plan step 3.3: the event function blocks of the body (ADS log and MQTT log), moved unchanged; called where the block stood, at the end of the body.
+METHOD PRIVATE _LogEvents
+VAR_INPUT
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[(* Event function blocks start here. *)
+TCSpowerEvent(	Trigger := bPowerFailure, 
+				Level := ADSLOG_MSGTYPE_ERROR,
+				FormatString := 'power %s',
+				//OnMessage := 'Failure',
+				OffMessage := 'OK', 
+				Comm := fbComm);
+
+TCSgohomeEvent(	Trigger := bGoHome, 
+				Level := ADSLOG_MSGTYPE_HINT,
+				FormatString := 'GOHOME %s',
+				OnMessage := 'commencing',
+				OffMEssage := 'completed', 
+				Comm := fbComm);
+TCSparkEvent(	Trigger := bPark, 
+				Level := ADSLOG_MSGTYPE_HINT,
+				FormatString := 'PARK %s',
+				OnMessage := 'commencing',
+				OffMEssage := 'completed', 
+				Comm := fbComm);
+TCSgotoEvent(	Trigger := bGoto, 
+				Level := ADSLOG_MSGTYPE_HINT,
+				FormatString := 'GOTO %s',
+				OnMessage := 'commencing',
+				OffMEssage := 'completed', 
+				Comm := fbComm);
+TCStrackEvent(	Trigger := bTrack, 
+				Level := ADSLOG_MSGTYPE_HINT,
+				FormatString := 'TRACK %s',
+				OnMessage := 'commencing',
+				OffMEssage := 'completed', 
+				Comm := fbComm);
+_StopEvents();
+TCStargetHorizonEvent(	Trigger := bTargetBelowHorizonWarn,
+				Level := ADSLOG_MSGTYPE_WARN,
+				FormatString := '%s',
+				OnMessage := 'Target below safe horizon',
+				OffMEssage := '', 
+				Comm := fbComm);
+AzimuthNoTurnEvent(	Trigger := bAzimuthNoTurn,
+				Level := ADSLOG_MSGTYPE_WARN,
+				FormatString := '%s',
+				OnMessage := 'No azimuth position inside the axis limits for the target, goto/track refused',
+				OffMEssage := '',
+				Comm := fbComm);
+DerotatorNoTurnEvent(	Trigger := bDerotatorNoTurn,
+				Level := ADSLOG_MSGTYPE_WARN,
+				FormatString := '%s',
+				OnMessage := 'No derotator position inside the axis limits for the target, goto/track refused',
+				OffMEssage := '',
+				Comm := fbComm);
+SlewOutOfLimitsEvent(	Trigger := bSlewOutOfLimits,
+				Level := ADSLOG_MSGTYPE_WARN,
+				FormatString := '%s',
+				OnMessage := 'Slew target outside the axis limits, slew refused',
+				OffMEssage := '',
+				Comm := fbComm);
+bSlewOutOfLimits := FALSE;
+TCSreadyEvent(	Trigger := bPower AND bReady, 
+				Level := ADSLOG_MSGTYPE_HINT,
+				FormatString := '%s',
+				OnMessage := 'STELLA1 startup finished', 
+				Comm := fbComm);
+SoftwareErrorEvent(	Trigger := bSoftwareError,
+				Level := ADSLOG_MSGTYPE_ERROR,
+				FormatString := 'Internal command error, ID: %s',
+				OnMessage := UINT_TO_STRING(nSoftwareErrorID),
+				OffMessage := 'cleared',
+				OffLevel := ADSLOG_MSGTYPE_HINT,
+				Comm := fbComm);
+PowerAbortEvent(	Trigger := bPowerAbortedByPark,
+				Level := ADSLOG_MSGTYPE_WARN,
+				FormatString := '%s',
+				OnMessage := 'power-on aborted: park requested',
+				Comm := fbComm);
+bPowerAbortedByPark := FALSE;
+ErrorParkEvent(	Trigger := bErrorParkStarted,
+				Level := ADSLOG_MSGTYPE_WARN,
+				FormatString := '%s',
+				OnMessage := 'emergency park started: axis error',
+				Comm := fbComm);
+bErrorParkStarted := FALSE;
+ErrorParkExemptEvent(	Trigger := bErrorParkExempt,
+				Level := ADSLOG_MSGTYPE_WARN,
+				FormatString := '%s',
+				OnMessage := 'axis error in the first power-on after a PLC restart (Wake&Shake?): no emergency park, covers stay open; reset, Wake&Shake and power=1, or park=1',
+				Comm := fbComm);
+bErrorParkExempt := FALSE;
+// #83: every rejection is logged and published (ADS log and MQTT log topic). An identical rejection repeated
+// within 2 s is logged once (a level writer would flood the log); all of them are counted. The event is re-armed
+// with FALSE first so that rejections in consecutive scans each give a rising edge.
+tonRejectRepeat(IN := TRUE, PT := T#2S);
+RejectEvent(Trigger := FALSE, Comm := fbComm);
+IF bCommandRejected THEN
+	IF tonRejectRepeat.Q OR eLastRejectedCommand <> eLoggedCommand OR eLastRejectReason <> eLoggedReason THEN
+		sRejectMessage := CONCAT(CONCAT(F_TCSCommandText(eLastRejectedCommand), ' rejected: '),
+			F_CommandRejectText(eLastRejectReason));
+		RejectEvent(Trigger := TRUE, Level := ADSLOG_MSGTYPE_WARN, FormatString := '%s',
+			OnMessage := sRejectMessage, Comm := fbComm);
+		eLoggedCommand := eLastRejectedCommand;
+		eLoggedReason := eLastRejectReason;
+		tonRejectRepeat(IN := FALSE);
+	END_IF
+	bCommandRejected := FALSE;
+END_IF
+InitRefusedEvent(	Trigger := bInitRefused,
+				Level := nInitRefusedLevel,
+				FormatString := 'power-on ignored: %s',
+				OnMessage := sInitRefusedReason,
+				Comm := fbComm);
+bInitRefused := FALSE;
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="_HandleReset" Id="{e7e606af-0b84-4ec5-8f2f-365038356508}" FolderPath="internal methods\">
+      <Declaration><![CDATA[// plan step 3.3: the reset handling of the body (stuck-stop recovery, drop of the pending moves, stage reset), moved unchanged; called after
+// _ReadAxes/_StopTxInputs at the place where the block stood. rtrigReset is clocked here (nothing before it reads bReset's edge).
+METHOD PRIVATE _HandleReset
+VAR_INPUT
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[// set reset state either by hardware (key pressed) or by software (set by e.g. tcs)
+rtrigReset(CLK := bReset);
+
+// #96 (D3): a reset recovers a stop that is stuck in Stopping without writing over ADS. Only axes that stand still
+// are reset (a reset under motion was followed by 0x4260, #84); a moving enabled axis keeps the stop going.
+// #56: also for an abort stop (bMoveAbortPending), not only for an operator stop.
+IF rtrigReset.Q AND (bStop OR bMoveAbortPending)
+	AND NOT (fbStopTx.abEnabled[1] AND fbStopTx.abMoving[1])
+	AND NOT (fbStopTx.abEnabled[2] AND fbStopTx.abMoving[2])
+	AND NOT (fbStopTx.abEnabled[3] AND fbStopTx.abMoving[3]) THEN
+	IF fbStopTx.abStopping[1] THEN
+		fbAzimuth.Reset();
+	END_IF
+	IF fbStopTx.abStopping[2] THEN
+		fbElevation.Reset();
+	END_IF
+	IF fbStopTx.abStopping[3] THEN
+		fbDerotator.Reset();
+	END_IF
+	fbStopTx.Cancel();	// bStop then clears at standstill
+END_IF
+
+IF bReset THEN
+    fbStartup.MarkAborted();
+	bHorizonError := FALSE; // if reset, the bHorizonError can be switched off
+	bSoftwareError := FALSE;
+	nSoftwareErrorID := 0;	// #88
+
+	// #85: a reset drops every pending move command; nothing may move later because of a command sent
+	// before the reset. bPark is kept on purpose (safe direction, emergency park).
+	bGoHome := FALSE;
+	bGoto := FALSE;
+	bSlew := FALSE;
+	bTrack := FALSE;
+	// #56: a move that is still running is stopped (the abort stop of #84 goes on), not left to run to its old target.
+	// Not during an error (the drives are off) and not during a park (its motion is wanted, bPark is kept).
+	bMoveAbortPending := F_ResetMoveAbort(
+		bError := bError,
+		bParkRunning := TCS_command = E_TCSCommand.park,
+		bAzMoving := fbStopTx.abEnabled[1] AND fbStopTx.abMoving[1],
+		bElMoving := fbStopTx.abEnabled[2] AND fbStopTx.abMoving[2],
+		bDrMoving := fbStopTx.abEnabled[3] AND fbStopTx.abMoving[3]);
+	bSupersedeRequest := FALSE;	// #83
+
+	// reset the stages of all statemachine methods
+	bInterrupted := TRUE; 
+	_HomeTelescope();
+	_GotoTelescope();
+	_SlewTelescope();
+	_ParkTelescope();
+	bInterrupted := FALSE;
+END_IF
+
 ]]></ST>
       </Implementation>
     </Method>
