@@ -6,13 +6,16 @@
 // The brake close in HalfBROT FB_ElevationControl is edge-only (falling edge of bEnable) and bOpenBrake of the
 // hydraulics is a latch, so a brake that opens later (manual-mode latch, ADS write, pendant) stayed open.
 // Only called in automatic: in manual the azimuth needs the brake open with the elevation disabled.
+// Exception (#151): in the Wake&Shake window the drives run their own command with the brake released and the axes not
+// enabled by the PLC, so the brake that the operator opened is left open (F_WakeShakeWindow bounds the window).
 FUNCTION F_BrakeMustClose : BOOL
 VAR_INPUT
 	bElevationEnabled	: BOOL;		// fbElevation.bEnable
+	bWakeShakeWindow	: BOOL;		// F_WakeShakeWindow
 END_VAR
 ]]></Declaration>
     <Implementation>
-      <ST><![CDATA[F_BrakeMustClose := NOT bElevationEnabled;
+      <ST><![CDATA[F_BrakeMustClose := NOT bElevationEnabled AND NOT bWakeShakeWindow;
 ]]></ST>
     </Implementation>
   </POU>

@@ -73,7 +73,11 @@ finished, `stop=1` cancels it; recover with `reset=1`, then `power=1`.
 `bIsParked` drops with the cover command of a power-on, so a park during a
 power-on closes the covers again. Exception: an azimuth/elevation error in the
 first power-on after a PLC restart (the Wake&Shake fault) does not park; the
-covers stay open for the manual Wake&Shake (a WARN is logged).
+covers stay open for the manual Wake&Shake (a WARN is logged). From then on a
+15 min Wake&Shake window lets the brake stay open with the elevation disabled
+(otherwise it is closed whenever the elevation is disabled, #121). The window
+closes, and the brake with it, on park, E-stop, a focus/derotator error, closed
+covers, a new `power=1` or the timeout (#151).
 
 ### Safety and auxiliary systems
 

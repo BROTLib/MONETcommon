@@ -1,6 +1,6 @@
 # Wake&Shake after a PLC restart: keep the brake open in a bounded window (#151, groundwork for #76)
 
-Date: 2026-10-25. Status: **plan, not started. Nothing compiled or run on a PLC or telescope.**
+Date: 2026-10-25. Status: **implemented in a PR (window, brake rule, tests, README). Not compiled in XAE, not run on a PLC or telescope. Version bump left to the release.**
 Repos: BROTLib/MONETcommon (main). Base: `develop` = `2bbda83` (0.9.9), HalfBROT 0.7.2.
 Line numbers below are from `FB_MonetTelescopeControl` (FBMTC) at that commit.
 
@@ -174,4 +174,4 @@ Close #151 when W1-W4 pass. Report the result in the issue and in this plan.
 1. Is 15 min the right window? Fixed constant, or a configurable value in `telescopeConfig`?
 2. At the end of the window by timeout: only close the brake (recommended), or also run the emergency park that #113 skipped?
 3. Should `reset` extend the window (restart the timer), so a long XAE session is not cut off, or is the timer fixed from the error?
-4. Does the Visu need a visible indication that the window is open (an MQTT/diagnostics flag)? Proposed: `diagnostics/WakeShakeWindow`.
+4. Decided 2026-10-25: yes, `diagnostics/WakeShakeWindow`, in the PR. Questions 1-3 decided as proposed (fixed 15 min, timeout only closes the brake, reset does not extend).
