@@ -23,6 +23,9 @@ VAR
 	fbFocusTrackStoredPositionTests	: F_FocusTrackStoredPosition_Tests;
 	fbFocusJogLatchTests	: FB_FocusJogLatch_Tests;
 	fbFocusModeSwitchSimTests	: FocusModeSwitch_Sim_Tests;
+	fbFocusTargetInitTests	: FB_FocusTargetInit_Tests;
+	fbFocusHomingReferenceTests	: F_FocusHomingReference_Tests;
+	fbFocusTargetInitSimTests	: FocusTargetInit_Sim_Tests;
 	fbOilLevelValidTests	: F_OilLevelValid_Tests;
 	fbOilSuctionLatchTests	: F_OilSuctionLatch_Tests;
 	fbGotoTargetCheckTests	: F_GotoTargetCheck_Tests;

@@ -1,0 +1,114 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="FB_FocusTargetInit_Tests" Id="{e6ae5e92-025f-47bb-b795-0c7d7037ecb0}" SpecialFunc="None">
+    <Declaration><![CDATA[// Tests for HalfBROT.FB_FocusTargetInit (HalfBROT 0.7.3, #115): the target takes the actual position once, at the first calibration outside a homing.
+FUNCTION_BLOCK FB_FocusTargetInit_Tests EXTENDS TcUnit.FB_TestSuite
+VAR
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[Calibrated_First_Call_Syncs();
+Not_Calibrated_Never_Syncs();
+Calibrated_During_Homing_Does_Not_Sync();
+Recalibrated_After_Loss_Syncs();
+Calibrated_For_Many_Cycles_Syncs_Once();
+]]></ST>
+    </Implementation>
+    <Method Name="Calibrated_First_Call_Syncs" Id="{1697738b-6c64-431f-8128-939483b8da91}">
+      <Declaration><![CDATA[// Restart: the axis is calibrated from the first call, the target takes the actual position once.
+METHOD PRIVATE Calibrated_First_Call_Syncs
+VAR
+	fbInit	: HalfBROT.FB_FocusTargetInit;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Calibrated_First_Call_Syncs');
+fbInit(bCalibrated := TRUE, bHoming := FALSE);
+AssertTrue(Condition := fbInit.bSync, Message := 'sync in the first calibrated cycle');
+fbInit(bCalibrated := TRUE, bHoming := FALSE);
+AssertFalse(Condition := fbInit.bSync, Message := 'only once');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Not_Calibrated_Never_Syncs" Id="{0cd98d1a-3f39-426f-aaa3-ff2ee5a89819}">
+      <Declaration><![CDATA[// No sync while the axis is not calibrated.
+METHOD PRIVATE Not_Calibrated_Never_Syncs
+VAR
+	fbInit	: HalfBROT.FB_FocusTargetInit;
+	n		: INT;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Not_Calibrated_Never_Syncs');
+FOR n := 1 TO 5 DO
+	fbInit(bCalibrated := FALSE, bHoming := FALSE);
+	AssertFalse(Condition := fbInit.bSync, Message := 'not calibrated');
+END_FOR
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Calibrated_During_Homing_Does_Not_Sync" Id="{a7492f76-c05e-4b5b-a1a9-5e56758dd0db}">
+      <Declaration><![CDATA[// A homing owns the target: no sync at the calibration, and none when the homing ends.
+METHOD PRIVATE Calibrated_During_Homing_Does_Not_Sync
+VAR
+	fbInit	: HalfBROT.FB_FocusTargetInit;
+	n		: INT;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Calibrated_During_Homing_Does_Not_Sync');
+fbInit(bCalibrated := FALSE, bHoming := TRUE);
+fbInit(bCalibrated := TRUE, bHoming := TRUE);
+AssertFalse(Condition := fbInit.bSync, Message := 'calibrated during the homing');
+FOR n := 1 TO 3 DO
+	fbInit(bCalibrated := TRUE, bHoming := FALSE);
+	AssertFalse(Condition := fbInit.bSync, Message := 'after the homing');
+END_FOR
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Recalibrated_After_Loss_Syncs" Id="{66cbd251-fe27-433c-a1ae-d46cfc78b23a}">
+      <Declaration><![CDATA[// The calibration is lost (error) and comes back outside a homing: the target takes the actual position again.
+METHOD PRIVATE Recalibrated_After_Loss_Syncs
+VAR
+	fbInit	: HalfBROT.FB_FocusTargetInit;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Recalibrated_After_Loss_Syncs');
+fbInit(bCalibrated := TRUE, bHoming := FALSE);
+fbInit(bCalibrated := FALSE, bHoming := FALSE);
+AssertFalse(Condition := fbInit.bSync, Message := 'lost');
+fbInit(bCalibrated := TRUE, bHoming := FALSE);
+AssertTrue(Condition := fbInit.bSync, Message := 'calibrated again');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Calibrated_For_Many_Cycles_Syncs_Once" Id="{c63eb014-e390-48f3-8c3d-f73fd1b427ff}">
+      <Declaration><![CDATA[// A calibrated axis does not sync again.
+METHOD PRIVATE Calibrated_For_Many_Cycles_Syncs_Once
+VAR
+	fbInit	: HalfBROT.FB_FocusTargetInit;
+	n		: INT;
+	nSync	: INT;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Calibrated_For_Many_Cycles_Syncs_Once');
+FOR n := 1 TO 50 DO
+	fbInit(bCalibrated := TRUE, bHoming := FALSE);
+	IF fbInit.bSync THEN
+		nSync := nSync + 1;
+	END_IF
+END_FOR
+AssertEquals_INT(Expected := 1, Actual := nSync, Message := 'one sync');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

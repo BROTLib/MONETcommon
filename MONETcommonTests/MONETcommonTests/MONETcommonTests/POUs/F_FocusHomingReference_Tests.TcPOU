@@ -1,0 +1,77 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="F_FocusHomingReference_Tests" Id="{48d6081f-1a74-4223-893c-ad21e4b960b2}" SpecialFunc="None">
+    <Declaration><![CDATA[// Tests for HalfBROT.F_FocusHomingReference (HalfBROT 0.7.3, #115): mode and reference of the focus homing, chosen once when it starts.
+FUNCTION_BLOCK F_FocusHomingReference_Tests EXTENDS TcUnit.FB_TestSuite
+VAR
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[Stored_Position_Is_Direct();
+Minus_One_Is_Cam_Homing();
+Zero_Is_Cam_Homing();
+Small_Positive_Is_Direct();
+]]></ST>
+    </Implementation>
+    <Method Name="Stored_Position_Is_Direct" Id="{e8d49b37-ec89-4451-ad37-dd6d028107fc}">
+      <Declaration><![CDATA[// A stored position gives MC_Direct to that position.
+METHOD PRIVATE Stored_Position_Is_Direct
+VAR
+	fRef	: LREAL;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Stored_Position_Is_Direct');
+AssertTrue(Condition := HalfBROT.F_FocusHomingReference(fLastPosition := 35.9978, fHomingPosition := 92.02, fReference => fRef), Message := 'direct');
+AssertEquals_LREAL(Expected := 35.9978, Actual := fRef, Delta := 0.00001, Message := 'reference');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Minus_One_Is_Cam_Homing" Id="{d750d5ef-0a5b-483e-a904-c9c86649159a}">
+      <Declaration><![CDATA[// -1 (no stored position) gives the cam homing to the homing position.
+METHOD PRIVATE Minus_One_Is_Cam_Homing
+VAR
+	fRef	: LREAL;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Minus_One_Is_Cam_Homing');
+AssertFalse(Condition := HalfBROT.F_FocusHomingReference(fLastPosition := -1.0, fHomingPosition := 92.02, fReference => fRef), Message := 'cam');
+AssertEquals_LREAL(Expected := 92.02, Actual := fRef, Delta := 0.00001, Message := 'reference');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Zero_Is_Cam_Homing" Id="{213fdc73-3e26-416b-a112-22241b7d2229}">
+      <Declaration><![CDATA[// 0 is not a stored position (as before, fLastPosition > 0).
+METHOD PRIVATE Zero_Is_Cam_Homing
+VAR
+	fRef	: LREAL;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Zero_Is_Cam_Homing');
+AssertFalse(Condition := HalfBROT.F_FocusHomingReference(fLastPosition := 0.0, fHomingPosition := 92.02, fReference => fRef), Message := 'cam');
+AssertEquals_LREAL(Expected := 92.02, Actual := fRef, Delta := 0.00001, Message := 'reference');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Small_Positive_Is_Direct" Id="{cd6ba676-e058-41e0-8d0b-a21cb2f28dcb}">
+      <Declaration><![CDATA[// Any positive value is a stored position.
+METHOD PRIVATE Small_Positive_Is_Direct
+VAR
+	fRef	: LREAL;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Small_Positive_Is_Direct');
+AssertTrue(Condition := HalfBROT.F_FocusHomingReference(fLastPosition := 0.001, fHomingPosition := 92.02, fReference => fRef), Message := 'direct');
+AssertEquals_LREAL(Expected := 0.001, Actual := fRef, Delta := 0.00001, Message := 'reference');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>
