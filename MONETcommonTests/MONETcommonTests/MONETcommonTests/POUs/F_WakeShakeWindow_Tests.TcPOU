@@ -31,7 +31,7 @@ END_VAR
         <ST><![CDATA[TEST('Sets_On_Exempt_Error');
 bWindow := MONETcommon.F_WakeShakeWindow(bWindow := FALSE, bSet := TRUE, bTimeout := FALSE, bParkActive := FALSE, bCoversOpen := TRUE, bPowerOnStart := FALSE, bEstop := FALSE, bOtherHwError := FALSE, sEndReason => sReason);
 AssertTrue(Condition := bWindow, Message := 'window open');
-AssertEquals(Expected := '', Actual := sReason, Message := 'no end reason');
+AssertEquals_STRING(Expected := '', Actual := sReason, Message := 'no end reason');
 TEST_FINISHED();
 ]]></ST>
       </Implementation>
@@ -80,7 +80,7 @@ END_VAR
         <ST><![CDATA[TEST('Clear_Wins_Over_Set');
 bWindow := MONETcommon.F_WakeShakeWindow(bWindow := FALSE, bSet := TRUE, bTimeout := FALSE, bParkActive := FALSE, bCoversOpen := TRUE, bPowerOnStart := FALSE, bEstop := TRUE, bOtherHwError := FALSE, sEndReason => sReason);
 AssertFalse(Condition := bWindow, Message := 'closed');
-AssertEquals(Expected := '', Actual := sReason, Message := 'no reason');
+AssertEquals_STRING(Expected := '', Actual := sReason, Message := 'no reason');
 TEST_FINISHED();
 ]]></ST>
       </Implementation>
@@ -97,7 +97,7 @@ END_VAR
         <ST><![CDATA[TEST('Timeout_Closes');
 bWindow := MONETcommon.F_WakeShakeWindow(bWindow := TRUE, bSet := FALSE, bTimeout := TRUE, bParkActive := FALSE, bCoversOpen := TRUE, bPowerOnStart := FALSE, bEstop := FALSE, bOtherHwError := FALSE, sEndReason => sReason);
 AssertFalse(Condition := bWindow, Message := 'window closed');
-AssertEquals(Expected := 'timeout', Actual := sReason, Message := 'reason');
+AssertEquals_STRING(Expected := 'timeout', Actual := sReason, Message := 'reason');
 TEST_FINISHED();
 ]]></ST>
       </Implementation>
@@ -114,7 +114,7 @@ END_VAR
         <ST><![CDATA[TEST('Park_Closes');
 bWindow := MONETcommon.F_WakeShakeWindow(bWindow := TRUE, bSet := FALSE, bTimeout := FALSE, bParkActive := TRUE, bCoversOpen := TRUE, bPowerOnStart := FALSE, bEstop := FALSE, bOtherHwError := FALSE, sEndReason => sReason);
 AssertFalse(Condition := bWindow, Message := 'window closed');
-AssertEquals(Expected := 'park', Actual := sReason, Message := 'reason');
+AssertEquals_STRING(Expected := 'park', Actual := sReason, Message := 'reason');
 TEST_FINISHED();
 ]]></ST>
       </Implementation>
@@ -131,7 +131,7 @@ END_VAR
         <ST><![CDATA[TEST('Covers_Not_Open_Closes');
 bWindow := MONETcommon.F_WakeShakeWindow(bWindow := TRUE, bSet := FALSE, bTimeout := FALSE, bParkActive := FALSE, bCoversOpen := FALSE, bPowerOnStart := FALSE, bEstop := FALSE, bOtherHwError := FALSE, sEndReason => sReason);
 AssertFalse(Condition := bWindow, Message := 'window closed');
-AssertEquals(Expected := 'covers not open', Actual := sReason, Message := 'reason');
+AssertEquals_STRING(Expected := 'covers not open', Actual := sReason, Message := 'reason');
 TEST_FINISHED();
 ]]></ST>
       </Implementation>
@@ -148,7 +148,7 @@ END_VAR
         <ST><![CDATA[TEST('Power_On_Closes');
 bWindow := MONETcommon.F_WakeShakeWindow(bWindow := TRUE, bSet := FALSE, bTimeout := FALSE, bParkActive := FALSE, bCoversOpen := TRUE, bPowerOnStart := TRUE, bEstop := FALSE, bOtherHwError := FALSE, sEndReason => sReason);
 AssertFalse(Condition := bWindow, Message := 'window closed');
-AssertEquals(Expected := 'power-on', Actual := sReason, Message := 'reason');
+AssertEquals_STRING(Expected := 'power-on', Actual := sReason, Message := 'reason');
 TEST_FINISHED();
 ]]></ST>
       </Implementation>
@@ -165,7 +165,7 @@ END_VAR
         <ST><![CDATA[TEST('Estop_Closes');
 bWindow := MONETcommon.F_WakeShakeWindow(bWindow := TRUE, bSet := FALSE, bTimeout := FALSE, bParkActive := FALSE, bCoversOpen := TRUE, bPowerOnStart := FALSE, bEstop := TRUE, bOtherHwError := FALSE, sEndReason => sReason);
 AssertFalse(Condition := bWindow, Message := 'window closed');
-AssertEquals(Expected := 'E-stop', Actual := sReason, Message := 'reason');
+AssertEquals_STRING(Expected := 'E-stop', Actual := sReason, Message := 'reason');
 TEST_FINISHED();
 ]]></ST>
       </Implementation>
@@ -182,7 +182,7 @@ END_VAR
         <ST><![CDATA[TEST('Other_Hw_Error_Closes');
 bWindow := MONETcommon.F_WakeShakeWindow(bWindow := TRUE, bSet := FALSE, bTimeout := FALSE, bParkActive := FALSE, bCoversOpen := TRUE, bPowerOnStart := FALSE, bEstop := FALSE, bOtherHwError := TRUE, sEndReason => sReason);
 AssertFalse(Condition := bWindow, Message := 'window closed');
-AssertEquals(Expected := 'focus/derotator error', Actual := sReason, Message := 'reason');
+AssertEquals_STRING(Expected := 'focus/derotator error', Actual := sReason, Message := 'reason');
 TEST_FINISHED();
 ]]></ST>
       </Implementation>
