@@ -82,6 +82,15 @@
     <Compile Include="POUs\FocusModeSwitch_Sim_Tests.TcPOU">
       <SubType>Code</SubType>
     </Compile>
+    <Compile Include="POUs\FB_FocusTargetInit_Tests.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="POUs\F_FocusHomingReference_Tests.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="POUs\FocusTargetInit_Sim_Tests.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
     <Compile Include="POUs\FB_FocusManualHome_Tests.TcPOU">
       <SubType>Code</SubType>
     </Compile>
@@ -186,7 +195,7 @@
       <Namespace>BROTLib</Namespace>
     </PlaceholderReference>
     <PlaceholderReference Include="HalfBROT">
-      <DefaultResolution>HalfBROT, 0.7.2 (BROT)</DefaultResolution>
+      <DefaultResolution>HalfBROT, 0.7.3 (BROT)</DefaultResolution>
       <Namespace>HalfBROT</Namespace>
     </PlaceholderReference>
     <PlaceholderReference Include="AstroBROT">
