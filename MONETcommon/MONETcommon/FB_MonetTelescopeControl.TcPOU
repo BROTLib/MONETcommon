@@ -149,6 +149,20 @@ VAR
 	bFirstPowerOnPending	: BOOL := TRUE;
 	bErrorParkExempt		: BOOL;	// one scan, logged
 	ErrorParkExemptEvent	: FB_EventLog;
+	// #151: the brake may stay open with the elevation disabled for the Wake&Shake (F_WakeShakeWindow)
+	bWakeShakeWindow		: BOOL;
+	bWakeShakeWindowLast	: BOOL;
+	bWakeShakePowerLast		: BOOL;
+	tonWakeShakeWindow		: TON;
+	sWakeShakeEnd			: STRING(24);
+	bWakeShakeOpened		: BOOL;	// one scan, logged
+	bWakeShakeClosed		: BOOL;	// one scan, logged
+	WakeShakeOpenEvent		: FB_EventLog;
+	WakeShakeCloseEvent		: FB_EventLog;
+	sWakeShakeCloseMessage	: STRING(80);
+END_VAR
+VAR CONSTANT
+	tWakeShakeWindow	: TIME := T#15M;	// #151: longest time the brake stays open for the Wake&Shake
 END_VAR
 VAR PERSISTENT
 	nInterruptedAutoClearCount	: UDINT;	// how many times auto-clear has fired, ever
@@ -643,7 +657,17 @@ END_IF
 // #121: the shared Az/El brake is closed whenever the elevation is disabled. HalfBROT closes it only on the falling
 // edge of the elevation enable and bOpenBrake of the hydraulics is a latch, so a brake that opened later stayed open.
 // After the dispatch, so the power-on that enables the axes in this scan is not seen as disabled.
-IF F_BrakeMustClose(bElevationEnabled := fbElevation.bEnable) THEN
+// #151: except in the Wake&Shake window. The exemption of #113 is true for one scan, so the window is latched here.
+tonWakeShakeWindow(IN := bWakeShakeWindow, PT := tWakeShakeWindow, nDivisor := nTimeDivisor);
+bWakeShakeWindow := F_WakeShakeWindow(bWindow := bWakeShakeWindow, bSet := bErrorParkExempt,
+	bTimeout := tonWakeShakeWindow.Q, bParkActive := bPark OR bIsParked, bCoversOpen := fbCovers.Opened,
+	bPowerOnStart := bPower AND NOT bWakeShakePowerLast, bEstop := bEstopTriggered,
+	bOtherHwError := fbFocus.Error OR fbDerotator.bError, sEndReason => sWakeShakeEnd);
+bWakeShakePowerLast := bPower;
+bWakeShakeOpened := bWakeShakeWindow AND NOT bWakeShakeWindowLast;
+bWakeShakeClosed := bWakeShakeWindowLast AND NOT bWakeShakeWindow;
+bWakeShakeWindowLast := bWakeShakeWindow;
+IF F_BrakeMustClose(bElevationEnabled := fbElevation.bEnable, bWakeShakeWindow := bWakeShakeWindow) THEN
 	fbBrake.CloseBrake();
 END_IF
  
@@ -1613,6 +1637,21 @@ ErrorParkExemptEvent(	Trigger := bErrorParkExempt,
 				OnMessage := 'axis error in the first power-on after a PLC restart (Wake&Shake?): no emergency park, covers stay open; reset, Wake&Shake and power=1, or park=1',
 				Comm := fbComm);
 bErrorParkExempt := FALSE;
+WakeShakeOpenEvent(	Trigger := bWakeShakeOpened,
+				Level := ADSLOG_MSGTYPE_WARN,
+				FormatString := '%s',
+				OnMessage := 'Wake&Shake window open: the brake may stay open for 15 min, then it is closed',
+				Comm := fbComm);
+bWakeShakeOpened := FALSE;
+IF bWakeShakeClosed THEN
+	sWakeShakeCloseMessage := CONCAT('Wake&Shake window closed, brake closed: ', sWakeShakeEnd);
+END_IF
+WakeShakeCloseEvent(	Trigger := bWakeShakeClosed,
+				Level := ADSLOG_MSGTYPE_WARN,
+				FormatString := '%s',
+				OnMessage := sWakeShakeCloseMessage,
+				Comm := fbComm);
+bWakeShakeClosed := FALSE;
 // #83: every rejection is logged and published (ADS log and MQTT log topic). An identical rejection repeated
 // within 2 s is logged once (a level writer would flood the log); all of them are counted. The event is re-armed
 // with FALSE first so that rejections in consecutive scans each give a rising edge.

@@ -1,0 +1,191 @@
+<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="F_WakeShakeWindow_Tests" Id="{365afcba-9976-43a0-b37b-22b72c50967f}" SpecialFunc="None">
+    <Declaration><![CDATA[// Tests for MONETcommon.F_WakeShakeWindow, the latched window in which the brake may stay open for the Wake&Shake (#151).
+FUNCTION_BLOCK F_WakeShakeWindow_Tests EXTENDS TcUnit.FB_TestSuite
+VAR
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[Sets_On_Exempt_Error();
+Stays_Set_Without_Condition();
+Not_Set_Stays_Not_Set();
+Clear_Wins_Over_Set();
+Timeout_Closes();
+Park_Closes();
+Covers_Not_Open_Closes();
+Power_On_Closes();
+Estop_Closes();
+Other_Hw_Error_Closes();
+]]></ST>
+    </Implementation>
+    <Method Name="Sets_On_Exempt_Error" Id="{3439bf1a-0345-4420-88a1-fdbd0de5eb7b}">
+      <Declaration><![CDATA[// The #113 exemption opens the window.
+METHOD PRIVATE Sets_On_Exempt_Error
+VAR
+	bWindow	: BOOL;
+	sReason	: STRING(24);
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Sets_On_Exempt_Error');
+bWindow := MONETcommon.F_WakeShakeWindow(bWindow := FALSE, bSet := TRUE, bTimeout := FALSE, bParkActive := FALSE, bCoversOpen := TRUE, bPowerOnStart := FALSE, bEstop := FALSE, bOtherHwError := FALSE, sEndReason => sReason);
+AssertTrue(Condition := bWindow, Message := 'window open');
+AssertEquals(Expected := '', Actual := sReason, Message := 'no end reason');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Stays_Set_Without_Condition" Id="{3c26585b-2306-43d8-8add-422688d4f568}">
+      <Declaration><![CDATA[// The exemption is gone after one scan; the window stays (the reason for the latch).
+METHOD PRIVATE Stays_Set_Without_Condition
+VAR
+	bWindow	: BOOL;
+	sReason	: STRING(24);
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Stays_Set_Without_Condition');
+bWindow := MONETcommon.F_WakeShakeWindow(bWindow := TRUE, bSet := FALSE, bTimeout := FALSE, bParkActive := FALSE, bCoversOpen := TRUE, bPowerOnStart := FALSE, bEstop := FALSE, bOtherHwError := FALSE, sEndReason => sReason);
+AssertTrue(Condition := bWindow, Message := 'window stays open');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Not_Set_Stays_Not_Set" Id="{72ca0856-d219-44b0-93e0-4150c6ed9e9f}">
+      <Declaration><![CDATA[// No exemption, no window.
+METHOD PRIVATE Not_Set_Stays_Not_Set
+VAR
+	bWindow	: BOOL;
+	sReason	: STRING(24);
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Not_Set_Stays_Not_Set');
+bWindow := MONETcommon.F_WakeShakeWindow(bWindow := FALSE, bSet := FALSE, bTimeout := FALSE, bParkActive := FALSE, bCoversOpen := TRUE, bPowerOnStart := FALSE, bEstop := FALSE, bOtherHwError := FALSE, sEndReason => sReason);
+AssertFalse(Condition := bWindow, Message := 'no window');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Clear_Wins_Over_Set" Id="{2a60a101-e590-487f-a56f-42d655a0d487}">
+      <Declaration><![CDATA[// Set and cleared in the same scan: not open, and no end reason (it never was open).
+METHOD PRIVATE Clear_Wins_Over_Set
+VAR
+	bWindow	: BOOL;
+	sReason	: STRING(24);
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Clear_Wins_Over_Set');
+bWindow := MONETcommon.F_WakeShakeWindow(bWindow := FALSE, bSet := TRUE, bTimeout := FALSE, bParkActive := FALSE, bCoversOpen := TRUE, bPowerOnStart := FALSE, bEstop := TRUE, bOtherHwError := FALSE, sEndReason => sReason);
+AssertFalse(Condition := bWindow, Message := 'closed');
+AssertEquals(Expected := '', Actual := sReason, Message := 'no reason');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Timeout_Closes" Id="{7bf0f4b7-0611-4a2f-816d-bdca26f6d4d7}">
+      <Declaration><![CDATA[// Window timer elapsed.
+METHOD PRIVATE Timeout_Closes
+VAR
+	bWindow	: BOOL;
+	sReason	: STRING(24);
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Timeout_Closes');
+bWindow := MONETcommon.F_WakeShakeWindow(bWindow := TRUE, bSet := FALSE, bTimeout := TRUE, bParkActive := FALSE, bCoversOpen := TRUE, bPowerOnStart := FALSE, bEstop := FALSE, bOtherHwError := FALSE, sEndReason => sReason);
+AssertFalse(Condition := bWindow, Message := 'window closed');
+AssertEquals(Expected := 'timeout', Actual := sReason, Message := 'reason');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Park_Closes" Id="{66d89e64-c0e1-45f8-8420-dc79337b6856}">
+      <Declaration><![CDATA[// A park is requested, running or done.
+METHOD PRIVATE Park_Closes
+VAR
+	bWindow	: BOOL;
+	sReason	: STRING(24);
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Park_Closes');
+bWindow := MONETcommon.F_WakeShakeWindow(bWindow := TRUE, bSet := FALSE, bTimeout := FALSE, bParkActive := TRUE, bCoversOpen := TRUE, bPowerOnStart := FALSE, bEstop := FALSE, bOtherHwError := FALSE, sEndReason => sReason);
+AssertFalse(Condition := bWindow, Message := 'window closed');
+AssertEquals(Expected := 'park', Actual := sReason, Message := 'reason');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Covers_Not_Open_Closes" Id="{0b32e7ae-2341-4232-95f8-79c68a7b7d1e}">
+      <Declaration><![CDATA[// The covers are not open any more.
+METHOD PRIVATE Covers_Not_Open_Closes
+VAR
+	bWindow	: BOOL;
+	sReason	: STRING(24);
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Covers_Not_Open_Closes');
+bWindow := MONETcommon.F_WakeShakeWindow(bWindow := TRUE, bSet := FALSE, bTimeout := FALSE, bParkActive := FALSE, bCoversOpen := FALSE, bPowerOnStart := FALSE, bEstop := FALSE, bOtherHwError := FALSE, sEndReason => sReason);
+AssertFalse(Condition := bWindow, Message := 'window closed');
+AssertEquals(Expected := 'covers not open', Actual := sReason, Message := 'reason');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Power_On_Closes" Id="{6d2ae647-6bd8-48f8-8146-77ad3e83c70c}">
+      <Declaration><![CDATA[// A new power-on enables the elevation.
+METHOD PRIVATE Power_On_Closes
+VAR
+	bWindow	: BOOL;
+	sReason	: STRING(24);
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Power_On_Closes');
+bWindow := MONETcommon.F_WakeShakeWindow(bWindow := TRUE, bSet := FALSE, bTimeout := FALSE, bParkActive := FALSE, bCoversOpen := TRUE, bPowerOnStart := TRUE, bEstop := FALSE, bOtherHwError := FALSE, sEndReason => sReason);
+AssertFalse(Condition := bWindow, Message := 'window closed');
+AssertEquals(Expected := 'power-on', Actual := sReason, Message := 'reason');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Estop_Closes" Id="{7ec98f05-e44b-4a85-a68d-1a61f0b35381}">
+      <Declaration><![CDATA[// E-stop.
+METHOD PRIVATE Estop_Closes
+VAR
+	bWindow	: BOOL;
+	sReason	: STRING(24);
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Estop_Closes');
+bWindow := MONETcommon.F_WakeShakeWindow(bWindow := TRUE, bSet := FALSE, bTimeout := FALSE, bParkActive := FALSE, bCoversOpen := TRUE, bPowerOnStart := FALSE, bEstop := TRUE, bOtherHwError := FALSE, sEndReason => sReason);
+AssertFalse(Condition := bWindow, Message := 'window closed');
+AssertEquals(Expected := 'E-stop', Actual := sReason, Message := 'reason');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Other_Hw_Error_Closes" Id="{66b42fc4-8815-4cd1-ae7d-96a5822ac11b}">
+      <Declaration><![CDATA[// Focus or derotator error.
+METHOD PRIVATE Other_Hw_Error_Closes
+VAR
+	bWindow	: BOOL;
+	sReason	: STRING(24);
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Other_Hw_Error_Closes');
+bWindow := MONETcommon.F_WakeShakeWindow(bWindow := TRUE, bSet := FALSE, bTimeout := FALSE, bParkActive := FALSE, bCoversOpen := TRUE, bPowerOnStart := FALSE, bEstop := FALSE, bOtherHwError := TRUE, sEndReason => sReason);
+AssertFalse(Condition := bWindow, Message := 'window closed');
+AssertEquals(Expected := 'focus/derotator error', Actual := sReason, Message := 'reason');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

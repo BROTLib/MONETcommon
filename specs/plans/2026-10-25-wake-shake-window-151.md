@@ -1,6 +1,6 @@
 # Wake&Shake after a PLC restart: keep the brake open in a bounded window (#151, groundwork for #76)
 
-Date: 2026-10-25. Status: **plan, not started. Nothing compiled or run on a PLC or telescope.**
+Date: 2026-10-25. Status: **implemented in a PR (window, brake rule, tests, README). Not compiled in XAE, not run on a PLC or telescope. Version bump left to the release.**
 Repos: BROTLib/MONETcommon (main). Base: `develop` = `2bbda83` (0.9.9), HalfBROT 0.7.2.
 Line numbers below are from `FB_MonetTelescopeControl` (FBMTC) at that commit.
 
