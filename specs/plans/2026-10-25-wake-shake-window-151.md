@@ -137,14 +137,17 @@ The roof stays closed and someone at the telescope has the E-stop at hand. The t
 
 1. **W1, the #151 sequence.** PLC cold restart, `power=1`, wait for the expected Az/El error and 'no emergency park' (#113).
    `reset`, open the brake in the Visu. Pass: `bBrakeOpen` stays TRUE for more than 1 min while the elevation `bEnable` is FALSE;
-   log shows 'Wake&Shake window open'. Run the Wake&Shake from XAE, then `power=1`: reaches READY_STATE 1.0.
+   log shows 'Wake&Shake window open'; `diagnostics/WakeShakeWindow` goes TRUE with it and stays TRUE while the brake is open.
+   Run the Wake&Shake from XAE, then `power=1`: `diagnostics/WakeShakeWindow` goes FALSE, READY_STATE reaches 1.0.
 2. **W2, timeout.** Same start, leave the brake open. Pass: the brake closes after the timeout, log shows the window closed with
-   the reason, the covers stay open.
-3. **W3, park ends the window.** In the window with the brake open, `park=1`. Pass: the brake closes at once, covers close.
+   the reason, the covers stay open. `diagnostics/WakeShakeWindow` goes FALSE in the same moment as the brake closes.
+3. **W3, park ends the window.** In the window with the brake open, `park=1`. Pass: the brake closes at once, covers close,
+   `diagnostics/WakeShakeWindow` FALSE.
 4. **W4, no window outside the case.**
    - After a completed power-on, a later Az/El error: emergency park as before (#86), brake closed.
    - An ADS write of `HydraulicsControl.bOpenBrake := TRUE` while parked and no window: the brake closes again (#121 B3).
    - A focus or derotator error in the first power-on: emergency park, no window.
+   - In all three, `diagnostics/WakeShakeWindow` stays FALSE.
 5. **W5, regression.** Power-on from parked, park from ready, manual mode with the clear-brakes key: unchanged.
 
 Close #151 when W1-W4 pass. Report the result in the issue and in this plan.
