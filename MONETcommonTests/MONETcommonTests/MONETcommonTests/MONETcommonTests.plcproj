@@ -64,6 +64,9 @@
     <Compile Include="POUs\F_WakeShakeErrorExempt_Tests.TcPOU">
       <SubType>Code</SubType>
     </Compile>
+    <Compile Include="POUs\F_WakeShakeWindow_Tests.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
     <Compile Include="POUs\F_FocusHomeRelease_Tests.TcPOU">
       <SubType>Code</SubType>
     </Compile>

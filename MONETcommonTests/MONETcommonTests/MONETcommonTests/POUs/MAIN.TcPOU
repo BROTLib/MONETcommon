@@ -16,6 +16,7 @@ VAR
 	fbResetMoveAbortTests	: F_ResetMoveAbort_Tests;
 	fbSuspendStopTests		: F_SuspendStop_Tests;
 	fbWakeShakeErrorExemptTests	: F_WakeShakeErrorExempt_Tests;
+	fbWakeShakeWindowTests	: F_WakeShakeWindow_Tests;
 	fbFocusHomeReleaseTests	: F_FocusHomeRelease_Tests;
 	fbFocusManualHomeTests	: FB_FocusManualHome_Tests;
 	fbFocusTargetFollowsActualTests	: F_FocusTargetFollowsActual_Tests;

@@ -19,7 +19,7 @@
     <Company>IAG</Company>
     <Released>false</Released>
     <Title>MONETcommon</Title>
-    <ProjectVersion>0.9.9</ProjectVersion>
+    <ProjectVersion>0.9.10</ProjectVersion>
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="E_CommandDecision.TcDUT">
@@ -98,6 +98,9 @@
       <SubType>Code</SubType>
     </Compile>
     <Compile Include="F_WakeShakeErrorExempt.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="F_WakeShakeWindow.TcPOU">
       <SubType>Code</SubType>
     </Compile>
     <Compile Include="F_GotoTargetCheck.TcPOU">
