@@ -74,6 +74,8 @@ CASE nStep OF
 		F_Note(bFailed := NOT (rig.fbTel.bError), sText := CONCAT(sTest, 'the error stays until it is reset'));
 		AssertTrue(Condition := rig.fbTel.ReadyState = -1.0, Message := 'READY_STATE is -1.0 (error)');
 		F_Note(bFailed := NOT (rig.fbTel.ReadyState = -1.0), sText := CONCAT(sTest, 'READY_STATE is -1.0 (error)'));
+		AssertTrue(Condition := rig.fbTel.bParkedInPlace, Message := 'the park ended in place');
+		F_Note(bFailed := NOT (rig.fbTel.bParkedInPlace), sText := CONCAT(sTest, 'the park ended in place'));
 		nStep := 99;
 		TEST_FINISHED();
 	ELSIF nCycles > 600 THEN
@@ -138,6 +140,8 @@ CASE nStep OF
 		F_Note(bFailed := NOT (rig.fbCovers.bClosed AND rig.fbCovers.nCloseCalls >= 1), sText := CONCAT(sTest, 'the covers are closed'));
 		AssertTrue(Condition := rig.fbTel.ReadyState = -1.0, Message := 'READY_STATE is -1.0 (error)');
 		F_Note(bFailed := NOT (rig.fbTel.ReadyState = -1.0), sText := CONCAT(sTest, 'READY_STATE is -1.0 (error)'));
+		AssertTrue(Condition := rig.fbTel.bParkedInPlace, Message := 'the park ended in place');
+		F_Note(bFailed := NOT (rig.fbTel.bParkedInPlace), sText := CONCAT(sTest, 'the park ended in place'));
 		nStep := 99;
 		TEST_FINISHED();
 	ELSIF nCycles > 600 THEN
@@ -195,6 +199,8 @@ CASE nStep OF
 	END_IF
 20:	// wait until it is parked, then an axis reports an error
 	IF rig.fbTel.bIsParked AND nCycles > 5 THEN
+		AssertFalse(Condition := rig.fbTel.bParkedInPlace, Message := 'a park to the park position is not in place');
+		F_Note(bFailed := (rig.fbTel.bParkedInPlace), sText := CONCAT(sTest, 'a park to the park position is not in place'));
 		nCloses := rig.fbCovers.nCloseCalls;
 		rig.InjectElevationError(16#4550);
 		nStep := 30;

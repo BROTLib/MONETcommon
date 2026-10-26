@@ -115,6 +115,12 @@ VAR
 	bSuspendStop		: BOOL;
 	bSuspendStopStarted	: BOOL;	// one scan, logged
 	SuspendStopEvent	: FB_EventLog;
+	// #158: bIsParked means "secured" (covers closed, brake closed, hydraulics off, axes disabled), not "at the park position".
+	// bParkedInPlace is TRUE when the park ended where the telescope stood (error, or axes could not move, #86/#87). Not
+	// persistent: FALSE after a PLC restart, where the pose is unknown.
+	bParkedInPlace		: BOOL;
+	ParkedInPlaceEvent	: FB_EventLog;
+	bParkedInPlaceLogged: BOOL;	// one scan, logged
 
 	// #83: command acceptance. Methods and the direct-write gate decide at arrival (F_CommandAcceptance);
 	// a rejection is logged and counted, never queued.
@@ -954,7 +960,8 @@ rtrigError(CLK := bError);
 IF rtrigError.Q THEN
 	nStage := 0;
 END_IF
-// parked means: nothing opened since the last park (#113: bIsParked drops with the cover command of a power-on)
+// parked means: nothing opened since the last park (#113: bIsParked drops with the cover command of a power-on).
+// #158: that is "secured", not "at the park position"; see bParkedInPlace.
 IF bIsParked THEN
 	nStage := 100;
 END_IF
@@ -977,8 +984,11 @@ CASE nStage OF
 			fbAzimuth.Enable := FALSE;
 			fbDerotator.Enable := FALSE;	
 			fbCovers.Close();	
+			bParkedInPlace := TRUE;
+			bParkedInPlaceLogged := TRUE;
 			nStage := 80;
 		ELSE
+			bParkedInPlace := FALSE;
 			nStage := 10;
 		END_IF
 	10:
@@ -1109,6 +1119,7 @@ CASE nStage OF
 		// #113: from the cover command on, a park must close what the power-on opens (with bIsParked TRUE it would only
 		// clear bPark). A power-on that fails before this line (checks above) has opened nothing and stays parked.
 		bIsParked := FALSE;
+		bParkedInPlace := FALSE;
 		fbCovers.Open();
 		IF bMainReady AND fbCovers.Opened THEN
 			nStage := 10;
@@ -1185,6 +1196,7 @@ CASE nStage OF
             fAzimuth := fAzimuthCurrent;
             _PowerOn := TRUE;
             bIsParked := FALSE;
+            bParkedInPlace := FALSE;
             nStage := 0;
         END_IF
 
@@ -1286,6 +1298,13 @@ SuspendStopEvent(	Trigger := bSuspendStopStarted,
 					OnMessage := 'switch to manual under motion: stopping axes',
 					Comm := fbComm);
 bSuspendStopStarted := FALSE;
+ParkedInPlaceEvent(	Trigger := bParkedInPlaceLogged,
+					Level := ADSLOG_MSGTYPE_WARN,
+					FormatString := '%s',
+					OnMessage := CONCAT(CONCAT(CONCAT('parked in place at el ', LREAL_TO_STRING(fElevationCurrent)), ' az '),
+										CONCAT(LREAL_TO_STRING(fAzimuthCurrent), ' (not the park position)')),
+					Comm := fbComm);
+bParkedInPlaceLogged := FALSE;
 _StopEvents();
 IF NOT bSuspendStop THEN
     tonCommandTimeout(IN := FALSE);
