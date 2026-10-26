@@ -79,6 +79,11 @@ covers stay open for the manual Wake&Shake (a WARN is logged). From then on a
 closes, and the brake with it, on park, E-stop, a focus/derotator error, closed
 covers, a new `power=1` or the timeout (#151).
 
+`bIsParked` means *secured* (covers closed, brake closed, hydraulics off, axes disabled), not *at the park
+position*: the emergency park, and a park after a reset or an aborted power-on, secure the telescope where it stands.
+`bParkedInPlace` (MQTT `diagnostics/base/ParkedInPlace`, WARN log "parked in place at el .. az ..") is TRUE then; it drops
+with the cover command of a power-on and is FALSE after a normal park and after a PLC restart (#158).
+
 ### Safety and auxiliary systems
 
 - `FB_MonetSafetyHandling` — handles the TwinSAFE startup sequence and the
