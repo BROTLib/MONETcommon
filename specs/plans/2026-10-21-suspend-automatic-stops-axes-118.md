@@ -1,6 +1,6 @@
 # The switch to manual does not stop moving axes (#118)
 
-Date: 2026-10-21. Status: **plan agreed (section 11), implemented in a PR (0.9.3 after the release). Nothing compiled locally, run on a PLC or run on a telescope.**
+Date: 2026-10-21. Status: **implemented and on `develop` (released by 0.9.7; the sim tests `MonetSuspendUnderMotion_Tests` and `F_SuspendStop_Tests` pass, checked 2026-10-27 against 0.9.10). Not run on a telescope: the hardware check is MS-77 in the IAG MONET test plan (run block R6, needs a person at the cabinet selector). The text below was written for 0.9.2/0.9.3; Step A is obsolete.**
 Repo: BROTLib/MONETcommon. Base: `develop` = `origin/develop` = `0103577` (0.9.2: #56 reset under motion, #66 part 1, command
 timeout per command). Line numbers below are from `0103577`.
 
