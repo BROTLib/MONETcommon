@@ -51,77 +51,77 @@ IF bHeartbeatTick THEN
 END_IF
 
 IF (fbTelescope.bInterrupted <> bLastInterrupted) OR bHeartbeatTick THEN
-	fbComm.Publish('diagnostics', 'base', 'Interrupted', BOOL_TO_STRING(fbTelescope.bInterrupted));
+	fbComm.PublishBOOL('diagnostics', 'base', 'Interrupted', fbTelescope.bInterrupted);
 	bLastInterrupted := fbTelescope.bInterrupted;
 END_IF
 
 IF (fbElevation.bError <> bLastElevationError) OR bHeartbeatTick THEN
-	fbComm.Publish('diagnostics', 'base', 'ElevationError', BOOL_TO_STRING(fbElevation.bError));
-	fbComm.Publish('diagnostics', 'base', 'ElevationErrorID', UDINT_TO_STRING(fbElevation.nErrorID));
+	fbComm.PublishBOOL('diagnostics', 'base', 'ElevationError', fbElevation.bError);
+	fbComm.PublishINT('diagnostics', 'base', 'ElevationErrorID', fbElevation.nErrorID);
 	bLastElevationError := fbElevation.bError;
 END_IF
 IF (fbAzimuth.bError <> bLastAzimuthError) OR bHeartbeatTick THEN
-	fbComm.Publish('diagnostics', 'base', 'AzimuthError', BOOL_TO_STRING(fbAzimuth.bError));
-	fbComm.Publish('diagnostics', 'base', 'AzimuthErrorID', UDINT_TO_STRING(fbAzimuth.nErrorID));
+	fbComm.PublishBOOL('diagnostics', 'base', 'AzimuthError', fbAzimuth.bError);
+	fbComm.PublishINT('diagnostics', 'base', 'AzimuthErrorID', fbAzimuth.nErrorID);
 	bLastAzimuthError := fbAzimuth.bError;
 END_IF
 IF (fbDerotator.bError <> bLastDerotatorError) OR bHeartbeatTick THEN
-	fbComm.Publish('diagnostics', 'base', 'DerotatorError', BOOL_TO_STRING(fbDerotator.bError));
-	fbComm.Publish('diagnostics', 'base', 'DerotatorErrorID', UDINT_TO_STRING(fbDerotator.nErrorID));
+	fbComm.PublishBOOL('diagnostics', 'base', 'DerotatorError', fbDerotator.bError);
+	fbComm.PublishINT('diagnostics', 'base', 'DerotatorErrorID', fbDerotator.nErrorID);
 	bLastDerotatorError := fbDerotator.bError;
 END_IF
 IF (fbFocus.bError <> bLastFocusError) OR bHeartbeatTick THEN
-	fbComm.Publish('diagnostics', 'base', 'FocusError', BOOL_TO_STRING(fbFocus.bError));
-	fbComm.Publish('diagnostics', 'base', 'FocusErrorID', UDINT_TO_STRING(fbFocus.nErrorID));
+	fbComm.PublishBOOL('diagnostics', 'base', 'FocusError', fbFocus.bError);
+	fbComm.PublishINT('diagnostics', 'base', 'FocusErrorID', fbFocus.nErrorID);
 	bLastFocusError := fbFocus.bError;
 END_IF
 
 IF (fbElevation.bEnable <> bLastElevationEnabled) OR bHeartbeatTick THEN
-	fbComm.Publish('diagnostics', 'base', 'ElevationEnabled', BOOL_TO_STRING(fbElevation.bEnable));
+	fbComm.PublishBOOL('diagnostics', 'base', 'ElevationEnabled', fbElevation.bEnable);
 	bLastElevationEnabled := fbElevation.bEnable;
 END_IF
 IF (fbAzimuth.bEnable <> bLastAzimuthEnabled) OR bHeartbeatTick THEN
-	fbComm.Publish('diagnostics', 'base', 'AzimuthEnabled', BOOL_TO_STRING(fbAzimuth.bEnable));
+	fbComm.PublishBOOL('diagnostics', 'base', 'AzimuthEnabled', fbAzimuth.bEnable);
 	bLastAzimuthEnabled := fbAzimuth.bEnable;
 END_IF
 IF (fbDerotator.bEnable <> bLastDerotatorEnabled) OR bHeartbeatTick THEN
-	fbComm.Publish('diagnostics', 'base', 'DerotatorEnabled', BOOL_TO_STRING(fbDerotator.bEnable));
+	fbComm.PublishBOOL('diagnostics', 'base', 'DerotatorEnabled', fbDerotator.bEnable);
 	bLastDerotatorEnabled := fbDerotator.bEnable;
 END_IF
 
 IF (fbSafety.error <> bLastSafetyError) OR bHeartbeatTick THEN
-	fbComm.Publish('diagnostics', 'base', 'SafetyError', BOOL_TO_STRING(fbSafety.error));
+	fbComm.PublishBOOL('diagnostics', 'base', 'SafetyError', fbSafety.error);
 	bLastSafetyError := fbSafety.error;
 END_IF
 IF (fbSafety.estop <> bLastSafetyEstop) OR bHeartbeatTick THEN
-	fbComm.Publish('diagnostics', 'base', 'SafetyEstop', BOOL_TO_STRING(fbSafety.estop));
+	fbComm.PublishBOOL('diagnostics', 'base', 'SafetyEstop', fbSafety.estop);
 	bLastSafetyEstop := fbSafety.estop;
 END_IF
 IF (fbSafety.state <> bLastSafetyState) OR bHeartbeatTick THEN
-	fbComm.Publish('diagnostics', 'base', 'SafetyState', BOOL_TO_STRING(fbSafety.state));
+	fbComm.PublishBOOL('diagnostics', 'base', 'SafetyState', fbSafety.state);
 	bLastSafetyState := fbSafety.state;
 END_IF
 
 IF (fbTelescope.bReady <> bLastTelescopeReady) OR bHeartbeatTick THEN
-	fbComm.Publish('diagnostics', 'base', 'TelescopeReady', BOOL_TO_STRING(fbTelescope.bReady));
+	fbComm.PublishBOOL('diagnostics', 'base', 'TelescopeReady', fbTelescope.bReady);
 	bLastTelescopeReady := fbTelescope.bReady;
 END_IF
 IF (fbTelescope.bBusy <> bLastTelescopeBusy) OR bHeartbeatTick THEN
-	fbComm.Publish('diagnostics', 'base', 'TelescopeBusy', BOOL_TO_STRING(fbTelescope.bBusy));
+	fbComm.PublishBOOL('diagnostics', 'base', 'TelescopeBusy', fbTelescope.bBusy);
 	bLastTelescopeBusy := fbTelescope.bBusy;
 END_IF
 IF (fbTelescope.bStopped <> bLastTelescopeStopped) OR bHeartbeatTick THEN
-	fbComm.Publish('diagnostics', 'base', 'TelescopeStopped', BOOL_TO_STRING(fbTelescope.bStopped));
+	fbComm.PublishBOOL('diagnostics', 'base', 'TelescopeStopped', fbTelescope.bStopped);
 	bLastTelescopeStopped := fbTelescope.bStopped;
 END_IF
 // #151: the brake may stay open with the elevation disabled for the Wake&Shake (visible in the Visu)
 IF (fbTelescope.bWakeShakeWindow <> bLastWakeShakeWindow) OR bHeartbeatTick THEN
-	fbComm.Publish('diagnostics', 'base', 'WakeShakeWindow', BOOL_TO_STRING(fbTelescope.bWakeShakeWindow));
+	fbComm.PublishBOOL('diagnostics', 'base', 'WakeShakeWindow', fbTelescope.bWakeShakeWindow);
 	bLastWakeShakeWindow := fbTelescope.bWakeShakeWindow;
 END_IF
 // #158: bIsParked means secured; this tells that the park ended where the telescope stood, not at the park position
 IF (fbTelescope.bParkedInPlace <> bLastParkedInPlace) OR bHeartbeatTick THEN
-	fbComm.Publish('diagnostics', 'base', 'ParkedInPlace', BOOL_TO_STRING(fbTelescope.bParkedInPlace));
+	fbComm.PublishBOOL('diagnostics', 'base', 'ParkedInPlace', fbTelescope.bParkedInPlace);
 	bLastParkedInPlace := fbTelescope.bParkedInPlace;
 END_IF
 ]]></ST>
