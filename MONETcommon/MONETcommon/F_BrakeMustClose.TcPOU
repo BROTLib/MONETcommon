@@ -8,14 +8,21 @@
 // Only called in automatic: in manual the azimuth needs the brake open with the elevation disabled.
 // Exception (#151): in the Wake&Shake window the drives run their own command with the brake released and the axes not
 // enabled by the PLC, so the brake that the operator opened is left open (F_WakeShakeWindow bounds the window).
+// #155: the operator may also open it in the window with an elevation error latched. Four level blocks close it while
+// they hold (they do not end the window): E-stop, hydraulics error, safety error, covers not open.
 FUNCTION F_BrakeMustClose : BOOL
 VAR_INPUT
 	bElevationEnabled	: BOOL;		// fbElevation.bEnable
 	bWakeShakeWindow	: BOOL;		// F_WakeShakeWindow
+	bEstop				: BOOL;		// bEstopTriggered
+	bHydraulicsError	: BOOL;		// fbHydraulics.Error
+	bSafetyError		: BOOL;		// bSafetyError (SafetyHandling.error)
+	bCoversOpen			: BOOL;		// fbCovers.Opened
 END_VAR
 ]]></Declaration>
     <Implementation>
-      <ST><![CDATA[F_BrakeMustClose := NOT bElevationEnabled AND NOT bWakeShakeWindow;
+      <ST><![CDATA[F_BrakeMustClose := NOT bElevationEnabled AND
+	(NOT bWakeShakeWindow OR bEstop OR bHydraulicsError OR bSafetyError OR NOT bCoversOpen);
 ]]></ST>
     </Implementation>
   </POU>

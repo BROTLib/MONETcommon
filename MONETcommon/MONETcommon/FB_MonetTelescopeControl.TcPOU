@@ -16,6 +16,9 @@ VAR_INPUT
 
 	bBrakeClearing		: BOOL	:= TRUE;
 
+	// #155: SafetyHandling.error, wired in MAIN. FALSE (default) means the safety block of the brake is not enforced.
+	bSafetyError		: BOOL;
+
 	// Test seam (plan decision 4): every long timeout of this telescope (600 s, 2 min, 12 h) is divided by it. Production
 	// leaves it at 1. Per instance, because TcUnit runs all suites in the same PLC cycles.
 	nTimeDivisor		: UDINT := 1;
@@ -166,6 +169,12 @@ VAR
 	WakeShakeOpenEvent		: FB_EventLog;
 	WakeShakeCloseEvent		: FB_EventLog;
 	sWakeShakeCloseMessage	: STRING(80);
+	// #155: the elevation error closes the brake once; the operator may open it again in the window
+	rtrigElevationError		: R_TRIG;
+	// #155: a block (E-stop, hydraulics error, safety error, covers not open) closed an open brake in the window
+	bWakeShakeBrakeBlocked	: BOOL;	// logged on its rising edge
+	sWakeShakeBlockMessage	: STRING(80);
+	WakeShakeBlockEvent		: FB_EventLog;
 END_VAR
 VAR CONSTANT
 	tWakeShakeWindow	: TIME := T#15M;	// #151: longest time the brake stays open for the Wake&Shake
@@ -291,11 +300,16 @@ ELSE
 	nErrorID := 0;
 END_IF
 
+// #155: the brake is closed once when the elevation error appears, not in every scan: a level close would undo the
+// opening from the Visu in the Wake&Shake window (F_BrakeMustClose keeps the brake closed outside the window).
+rtrigElevationError(CLK := fbElevation.bError);
 IF fbElevation.bError THEN
 	fbElevation.Enable := FALSE;
 	fbAzimuth.Enable := FALSE;
 	fbDerotator.Enable := FALSE;
-	fbBrake.CloseBrake();
+	IF rtrigElevationError.Q THEN
+		fbBrake.CloseBrake();
+	END_IF
 END_IF
 
 eq2hor(
@@ -673,8 +687,25 @@ bWakeShakePowerLast := bPower;
 bWakeShakeOpened := bWakeShakeWindow AND NOT bWakeShakeWindowLast;
 bWakeShakeClosed := bWakeShakeWindowLast AND NOT bWakeShakeWindow;
 bWakeShakeWindowLast := bWakeShakeWindow;
-IF F_BrakeMustClose(bElevationEnabled := fbElevation.bEnable, bWakeShakeWindow := bWakeShakeWindow) THEN
+// #155: in the window the brake still closes while E-stop, a hydraulics error, a safety error or closed covers hold.
+IF F_BrakeMustClose(bElevationEnabled := fbElevation.bEnable, bWakeShakeWindow := bWakeShakeWindow,
+		bEstop := bEstopTriggered, bHydraulicsError := fbHydraulics.Error, bSafetyError := bSafetyError,
+		bCoversOpen := fbCovers.Opened) THEN
+	bWakeShakeBrakeBlocked := bWakeShakeWindow AND fbBrake.BrakeOpen;
+	IF bWakeShakeBrakeBlocked THEN
+		IF bEstopTriggered THEN
+			sWakeShakeBlockMessage := 'brake closed in the Wake&Shake window: E-stop';
+		ELSIF fbHydraulics.Error THEN
+			sWakeShakeBlockMessage := 'brake closed in the Wake&Shake window: hydraulics error';
+		ELSIF bSafetyError THEN
+			sWakeShakeBlockMessage := 'brake closed in the Wake&Shake window: safety error';
+		ELSE
+			sWakeShakeBlockMessage := 'brake closed in the Wake&Shake window: covers not open';
+		END_IF
+	END_IF
 	fbBrake.CloseBrake();
+ELSE
+	bWakeShakeBrakeBlocked := FALSE;
 END_IF
  
 bSlewing := NOT bTracking AND (aAxis[2].bInMotion OR aAxis[2].bInRamp OR
@@ -1656,6 +1687,11 @@ ErrorParkExemptEvent(	Trigger := bErrorParkExempt,
 				OnMessage := 'axis error in the first power-on after a PLC restart (Wake&Shake?): no emergency park, covers stay open; reset, Wake&Shake and power=1, or park=1',
 				Comm := fbComm);
 bErrorParkExempt := FALSE;
+WakeShakeBlockEvent(	Trigger := bWakeShakeBrakeBlocked,
+				Level := ADSLOG_MSGTYPE_WARN,
+				FormatString := '%s',
+				OnMessage := sWakeShakeBlockMessage,
+				Comm := fbComm);
 WakeShakeOpenEvent(	Trigger := bWakeShakeOpened,
 				Level := ADSLOG_MSGTYPE_WARN,
 				FormatString := '%s',

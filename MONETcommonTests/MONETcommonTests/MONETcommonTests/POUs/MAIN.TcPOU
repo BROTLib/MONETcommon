@@ -40,6 +40,7 @@ VAR
 	fbMonetResetUnderMotionTests	: MonetResetUnderMotion_Tests;
 	fbMonetSuspendUnderMotionTests	: MonetSuspendUnderMotion_Tests;
 	fbMonetErrorParkTests	: MonetErrorPark_Tests;
+	fbMonetBrakeReleaseTests	: MonetBrakeRelease_Tests;
 	fbMonetTimeoutsTests : MonetTimeouts_Tests;
 END_VAR
 ]]></Declaration>

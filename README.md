@@ -78,6 +78,9 @@ covers stay open for the manual Wake&Shake (a WARN is logged). From then on a
 (otherwise it is closed whenever the elevation is disabled, #121). The window
 closes, and the brake with it, on park, E-stop, a focus/derotator error, closed
 covers, a new `power=1` or the timeout (#151).
+The brake can be opened in the window with the elevation error latched, without `reset=1` first: the error closes
+the brake once, and while the window is open the brake is closed again only by an E-stop, a hydraulics error, a safety
+error (input `bSafetyError`, wire it to `SafetyHandling.error`; FALSE = not enforced) or covers that are not open (#155).
 
 `bIsParked` means *secured* (covers closed, brake closed, hydraulics off, axes disabled), not *at the park
 position*: the emergency park, and a park after a reset or an aborted power-on, secure the telescope where it stands.

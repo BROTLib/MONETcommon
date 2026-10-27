@@ -1,0 +1,498 @@
+<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="MonetBrakeRelease_Tests" Id="{656dc42c-bd65-4565-a5d8-291ed0409d1e}" SpecialFunc="None">
+    <Declaration><![CDATA[// The brake can be opened in the Wake&Shake window with an elevation error latched (#155) on mock axes: the error closes the
+// brake once, not in every scan; E-stop, safety error and hydraulics error close it again; outside the window it stays closed (#121, #86).
+// Every test owns a rig and runs over many PLC cycles (VAR_INST of the method, one Scan() per cycle). Failed checks are also noted in
+// GVL_Diag.sFailures (printed by Run-Tests.ps1).
+FUNCTION_BLOCK MonetBrakeRelease_Tests EXTENDS TcUnit.FB_TestSuite
+VAR
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[Elevation_Error_Brake_Can_Be_Opened();
+Window_Brake_Closes_On_Estop();
+Window_Brake_Closes_On_Safety_Error();
+Window_Brake_Closes_On_Hydraulics_Error();
+Error_After_Completed_PowerOn_Still_Closes();
+Window_Timeout_Then_Open_Is_Closed();
+]]></ST>
+    </Implementation>
+    <Method Name="Elevation_Error_Brake_Can_Be_Opened" Id="{7351ce75-46d1-48c6-b99e-9c035a2a0b48}">
+      <Declaration><![CDATA[// #155: after the elevation error of the first power-on the operator can open the brake in the Wake&Shake window without
+// reset=1 first. The error closes the brake once (not in every scan), so the opening is not undone.
+METHOD PRIVATE Elevation_Error_Brake_Can_Be_Opened
+VAR_INST
+	rig			: FB_MonetRig;
+	nStep		: INT;
+	nCycles		: UINT;
+	sTest		: STRING(80);
+	nCloseCalls	: UINT;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Elevation_Error_Brake_Can_Be_Opened');
+sTest := 'Elevation_Error_Brake_Can_Be_Opened: ';
+IF nStep >= 90 THEN
+	RETURN;
+END_IF
+rig.Scan();
+nCycles := nCycles + 1;
+CASE nStep OF
+0:	// wait for the clock, then power on
+	IF rig.ClockValid THEN
+		rig.fbTel.Init();
+		nStep := 10;
+		nCycles := 0;
+	ELSIF nCycles > 2000 THEN
+		AssertTrue(Condition := FALSE, Message := 'the astronomical clock never became valid');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the astronomical clock never became valid'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+10:	// the power-on has commanded the covers: the elevation reports an error (the Wake&Shake fault of the first power-on)
+	IF rig.fbCovers.nOpenCalls >= 1 THEN
+		rig.InjectElevationError(16#4650);
+		nStep := 20;
+		nCycles := 0;
+	ELSIF nCycles > 300 THEN
+		AssertTrue(Condition := FALSE, Message := 'the power-on never commanded the covers');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the power-on never commanded the covers'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+20:	// the Wake&Shake window is open, the error is latched, the telescope did not park: the operator opens the brake
+	IF nCycles >= 60 THEN
+		AssertTrue(Condition := rig.fbTel.bWakeShakeWindow, Message := 'the Wake&Shake window is open');
+		F_Note(bFailed := NOT (rig.fbTel.bWakeShakeWindow), sText := CONCAT(sTest, 'the Wake&Shake window is open'));
+		AssertFalse(Condition := rig.fbTel.bPark OR rig.fbTel.bIsParked, Message := 'no emergency park');
+		F_Note(bFailed := (rig.fbTel.bPark OR rig.fbTel.bIsParked), sText := CONCAT(sTest, 'no emergency park'));
+		AssertTrue(Condition := rig.fbTel.bError, Message := 'the elevation error is latched');
+		F_Note(bFailed := NOT (rig.fbTel.bError), sText := CONCAT(sTest, 'the elevation error is latched'));
+		AssertTrue(Condition := rig.fbBrakeHyd.nCloseCalls >= 1, Message := 'the error closed the brake');
+		F_Note(bFailed := NOT (rig.fbBrakeHyd.nCloseCalls >= 1), sText := CONCAT(sTest, 'the error closed the brake'));
+		nCloseCalls := rig.fbBrakeHyd.nCloseCalls;
+		rig.fbBrakeHyd.OpenBrake();
+		nStep := 30;
+		nCycles := 0;
+	END_IF
+30:	// the brake stays open, the error stays latched, nothing was reset
+	IF nCycles >= 30 THEN
+		AssertTrue(Condition := rig.fbBrakeHyd.BrakeOpen, Message := 'the brake stays open');
+		F_Note(bFailed := NOT (rig.fbBrakeHyd.BrakeOpen), sText := CONCAT(sTest, 'the brake stays open'));
+		AssertTrue(Condition := rig.fbTel.bError, Message := 'the error is still latched');
+		F_Note(bFailed := NOT (rig.fbTel.bError), sText := CONCAT(sTest, 'the error is still latched'));
+		AssertTrue(Condition := rig.fbElev.nResetEdges = 0, Message := 'no reset was sent');
+		F_Note(bFailed := NOT (rig.fbElev.nResetEdges = 0), sText := CONCAT(sTest, 'no reset was sent'));
+		AssertTrue(Condition := rig.fbBrakeHyd.nCloseCalls = nCloseCalls, Message := 'the brake was not closed again');
+		F_Note(bFailed := NOT (rig.fbBrakeHyd.nCloseCalls = nCloseCalls), sText := CONCAT(sTest, 'the brake was not closed again'));
+		AssertTrue(Condition := rig.fbTel.bWakeShakeWindow, Message := 'the window is still open');
+		F_Note(bFailed := NOT (rig.fbTel.bWakeShakeWindow), sText := CONCAT(sTest, 'the window is still open'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+END_CASE
+
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Window_Brake_Closes_On_Estop" Id="{b1a4dd06-77a4-46c7-b737-35f76f1c56d7}">
+      <Declaration><![CDATA[// #155: the E-stop closes the brake that was opened in the window (and ends the window, #151).
+METHOD PRIVATE Window_Brake_Closes_On_Estop
+VAR_INST
+	rig			: FB_MonetRig;
+	nStep		: INT;
+	nCycles		: UINT;
+	sTest		: STRING(80);
+	nCloseCalls	: UINT;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Window_Brake_Closes_On_Estop');
+sTest := 'Window_Brake_Closes_On_Estop: ';
+IF nStep >= 90 THEN
+	RETURN;
+END_IF
+rig.Scan();
+nCycles := nCycles + 1;
+CASE nStep OF
+0:	// wait for the clock, then power on
+	IF rig.ClockValid THEN
+		rig.fbTel.Init();
+		nStep := 10;
+		nCycles := 0;
+	ELSIF nCycles > 2000 THEN
+		AssertTrue(Condition := FALSE, Message := 'the astronomical clock never became valid');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the astronomical clock never became valid'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+10:	// the power-on has commanded the covers: the elevation reports an error (the Wake&Shake fault of the first power-on)
+	IF rig.fbCovers.nOpenCalls >= 1 THEN
+		rig.InjectElevationError(16#4650);
+		nStep := 20;
+		nCycles := 0;
+	ELSIF nCycles > 300 THEN
+		AssertTrue(Condition := FALSE, Message := 'the power-on never commanded the covers');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the power-on never commanded the covers'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+20:	// the Wake&Shake window is open, the error is latched, the telescope did not park: the operator opens the brake
+	IF nCycles >= 60 THEN
+		AssertTrue(Condition := rig.fbTel.bWakeShakeWindow, Message := 'the Wake&Shake window is open');
+		F_Note(bFailed := NOT (rig.fbTel.bWakeShakeWindow), sText := CONCAT(sTest, 'the Wake&Shake window is open'));
+		AssertFalse(Condition := rig.fbTel.bPark OR rig.fbTel.bIsParked, Message := 'no emergency park');
+		F_Note(bFailed := (rig.fbTel.bPark OR rig.fbTel.bIsParked), sText := CONCAT(sTest, 'no emergency park'));
+		AssertTrue(Condition := rig.fbTel.bError, Message := 'the elevation error is latched');
+		F_Note(bFailed := NOT (rig.fbTel.bError), sText := CONCAT(sTest, 'the elevation error is latched'));
+		AssertTrue(Condition := rig.fbBrakeHyd.nCloseCalls >= 1, Message := 'the error closed the brake');
+		F_Note(bFailed := NOT (rig.fbBrakeHyd.nCloseCalls >= 1), sText := CONCAT(sTest, 'the error closed the brake'));
+		nCloseCalls := rig.fbBrakeHyd.nCloseCalls;
+		rig.fbBrakeHyd.OpenBrake();
+		nStep := 30;
+		nCycles := 0;
+	END_IF
+30:	// the brake is open: the block comes
+	IF nCycles >= 10 THEN
+		AssertTrue(Condition := rig.fbBrakeHyd.BrakeOpen, Message := 'the operator opened the brake');
+		F_Note(bFailed := NOT (rig.fbBrakeHyd.BrakeOpen), sText := CONCAT(sTest, 'the operator opened the brake'));
+		rig.SetEstop(TRUE);
+		nStep := 40;
+		nCycles := 0;
+	END_IF
+40:	// the brake is closed while the block holds
+	IF nCycles >= 10 THEN
+		AssertFalse(Condition := rig.fbBrakeHyd.BrakeOpen, Message := 'the E-stop closed the brake');
+		F_Note(bFailed := (rig.fbBrakeHyd.BrakeOpen), sText := CONCAT(sTest, 'the E-stop closed the brake'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+END_CASE
+
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Window_Brake_Closes_On_Safety_Error" Id="{66a6abfe-465c-4934-a542-9d9d6bacbf62}">
+      <Declaration><![CDATA[// #155: a safety error closes the brake that was opened in the window; the window stays, so the operator can open it again
+// once the error is gone.
+METHOD PRIVATE Window_Brake_Closes_On_Safety_Error
+VAR_INST
+	rig			: FB_MonetRig;
+	nStep		: INT;
+	nCycles		: UINT;
+	sTest		: STRING(80);
+	nCloseCalls	: UINT;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Window_Brake_Closes_On_Safety_Error');
+sTest := 'Window_Brake_Closes_On_Safety_Error: ';
+IF nStep >= 90 THEN
+	RETURN;
+END_IF
+rig.Scan();
+nCycles := nCycles + 1;
+CASE nStep OF
+0:	// wait for the clock, then power on
+	IF rig.ClockValid THEN
+		rig.fbTel.Init();
+		nStep := 10;
+		nCycles := 0;
+	ELSIF nCycles > 2000 THEN
+		AssertTrue(Condition := FALSE, Message := 'the astronomical clock never became valid');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the astronomical clock never became valid'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+10:	// the power-on has commanded the covers: the elevation reports an error (the Wake&Shake fault of the first power-on)
+	IF rig.fbCovers.nOpenCalls >= 1 THEN
+		rig.InjectElevationError(16#4650);
+		nStep := 20;
+		nCycles := 0;
+	ELSIF nCycles > 300 THEN
+		AssertTrue(Condition := FALSE, Message := 'the power-on never commanded the covers');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the power-on never commanded the covers'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+20:	// the Wake&Shake window is open, the error is latched, the telescope did not park: the operator opens the brake
+	IF nCycles >= 60 THEN
+		AssertTrue(Condition := rig.fbTel.bWakeShakeWindow, Message := 'the Wake&Shake window is open');
+		F_Note(bFailed := NOT (rig.fbTel.bWakeShakeWindow), sText := CONCAT(sTest, 'the Wake&Shake window is open'));
+		AssertFalse(Condition := rig.fbTel.bPark OR rig.fbTel.bIsParked, Message := 'no emergency park');
+		F_Note(bFailed := (rig.fbTel.bPark OR rig.fbTel.bIsParked), sText := CONCAT(sTest, 'no emergency park'));
+		AssertTrue(Condition := rig.fbTel.bError, Message := 'the elevation error is latched');
+		F_Note(bFailed := NOT (rig.fbTel.bError), sText := CONCAT(sTest, 'the elevation error is latched'));
+		AssertTrue(Condition := rig.fbBrakeHyd.nCloseCalls >= 1, Message := 'the error closed the brake');
+		F_Note(bFailed := NOT (rig.fbBrakeHyd.nCloseCalls >= 1), sText := CONCAT(sTest, 'the error closed the brake'));
+		nCloseCalls := rig.fbBrakeHyd.nCloseCalls;
+		rig.fbBrakeHyd.OpenBrake();
+		nStep := 30;
+		nCycles := 0;
+	END_IF
+30:	// the brake is open: the block comes
+	IF nCycles >= 10 THEN
+		AssertTrue(Condition := rig.fbBrakeHyd.BrakeOpen, Message := 'the operator opened the brake');
+		F_Note(bFailed := NOT (rig.fbBrakeHyd.BrakeOpen), sText := CONCAT(sTest, 'the operator opened the brake'));
+		rig.SetSafetyError(TRUE);
+		nStep := 40;
+		nCycles := 0;
+	END_IF
+40:	// the brake is closed while the block holds
+	IF nCycles >= 10 THEN
+		AssertFalse(Condition := rig.fbBrakeHyd.BrakeOpen, Message := 'the safety error closed the brake');
+		F_Note(bFailed := (rig.fbBrakeHyd.BrakeOpen), sText := CONCAT(sTest, 'the safety error closed the brake'));
+		rig.SetSafetyError(FALSE);
+		rig.fbBrakeHyd.OpenBrake();
+		nStep := 50;
+		nCycles := 0;
+	END_IF
+50:	// the block is gone, the window is still open: the operator can open the brake again
+	IF nCycles >= 10 THEN
+		AssertTrue(Condition := rig.fbTel.bWakeShakeWindow, Message := 'the window is still open');
+		F_Note(bFailed := NOT (rig.fbTel.bWakeShakeWindow), sText := CONCAT(sTest, 'the window is still open'));
+		AssertTrue(Condition := rig.fbBrakeHyd.BrakeOpen, Message := 'the brake opens again');
+		F_Note(bFailed := NOT (rig.fbBrakeHyd.BrakeOpen), sText := CONCAT(sTest, 'the brake opens again'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+END_CASE
+
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Window_Brake_Closes_On_Hydraulics_Error" Id="{f308d336-d09c-47d1-91c3-880b785c02b4}">
+      <Declaration><![CDATA[// #155: a hydraulics error closes the brake that was opened in the window.
+METHOD PRIVATE Window_Brake_Closes_On_Hydraulics_Error
+VAR_INST
+	rig			: FB_MonetRig;
+	nStep		: INT;
+	nCycles		: UINT;
+	sTest		: STRING(80);
+	nCloseCalls	: UINT;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Window_Brake_Closes_On_Hydraulics_Error');
+sTest := 'Window_Brake_Closes_On_Hydraulics_Error: ';
+IF nStep >= 90 THEN
+	RETURN;
+END_IF
+rig.Scan();
+nCycles := nCycles + 1;
+CASE nStep OF
+0:	// wait for the clock, then power on
+	IF rig.ClockValid THEN
+		rig.fbTel.Init();
+		nStep := 10;
+		nCycles := 0;
+	ELSIF nCycles > 2000 THEN
+		AssertTrue(Condition := FALSE, Message := 'the astronomical clock never became valid');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the astronomical clock never became valid'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+10:	// the power-on has commanded the covers: the elevation reports an error (the Wake&Shake fault of the first power-on)
+	IF rig.fbCovers.nOpenCalls >= 1 THEN
+		rig.InjectElevationError(16#4650);
+		nStep := 20;
+		nCycles := 0;
+	ELSIF nCycles > 300 THEN
+		AssertTrue(Condition := FALSE, Message := 'the power-on never commanded the covers');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the power-on never commanded the covers'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+20:	// the Wake&Shake window is open, the error is latched, the telescope did not park: the operator opens the brake
+	IF nCycles >= 60 THEN
+		AssertTrue(Condition := rig.fbTel.bWakeShakeWindow, Message := 'the Wake&Shake window is open');
+		F_Note(bFailed := NOT (rig.fbTel.bWakeShakeWindow), sText := CONCAT(sTest, 'the Wake&Shake window is open'));
+		AssertFalse(Condition := rig.fbTel.bPark OR rig.fbTel.bIsParked, Message := 'no emergency park');
+		F_Note(bFailed := (rig.fbTel.bPark OR rig.fbTel.bIsParked), sText := CONCAT(sTest, 'no emergency park'));
+		AssertTrue(Condition := rig.fbTel.bError, Message := 'the elevation error is latched');
+		F_Note(bFailed := NOT (rig.fbTel.bError), sText := CONCAT(sTest, 'the elevation error is latched'));
+		AssertTrue(Condition := rig.fbBrakeHyd.nCloseCalls >= 1, Message := 'the error closed the brake');
+		F_Note(bFailed := NOT (rig.fbBrakeHyd.nCloseCalls >= 1), sText := CONCAT(sTest, 'the error closed the brake'));
+		nCloseCalls := rig.fbBrakeHyd.nCloseCalls;
+		rig.fbBrakeHyd.OpenBrake();
+		nStep := 30;
+		nCycles := 0;
+	END_IF
+30:	// the brake is open: the block comes
+	IF nCycles >= 10 THEN
+		AssertTrue(Condition := rig.fbBrakeHyd.BrakeOpen, Message := 'the operator opened the brake');
+		F_Note(bFailed := NOT (rig.fbBrakeHyd.BrakeOpen), sText := CONCAT(sTest, 'the operator opened the brake'));
+		rig.fbBrakeHyd.bFailed := TRUE;
+		nStep := 40;
+		nCycles := 0;
+	END_IF
+40:	// the brake is closed while the block holds
+	IF nCycles >= 10 THEN
+		AssertFalse(Condition := rig.fbBrakeHyd.BrakeOpen, Message := 'the hydraulics error closed the brake');
+		F_Note(bFailed := (rig.fbBrakeHyd.BrakeOpen), sText := CONCAT(sTest, 'the hydraulics error closed the brake'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+END_CASE
+
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Error_After_Completed_PowerOn_Still_Closes" Id="{aa9d3010-ef22-4c78-a8a1-a7a0661f864c}">
+      <Declaration><![CDATA[// #155 does not change #86: an elevation error after a completed power-on parks the telescope, and a brake the operator opens
+// afterwards is closed again at once (no Wake&Shake window).
+METHOD PRIVATE Error_After_Completed_PowerOn_Still_Closes
+VAR_INST
+	rig			: FB_MonetRig;
+	nStep		: INT;
+	nCycles		: UINT;
+	sTest		: STRING(80);
+	nCloseCalls	: UINT;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Error_After_Completed_PowerOn_Still_Closes');
+sTest := 'Error_After_Completed_PowerOn_Still_Closes: ';
+IF nStep >= 90 THEN
+	RETURN;
+END_IF
+rig.Scan();
+nCycles := nCycles + 1;
+CASE nStep OF
+0:	// wait for the clock, then power on
+	IF rig.ClockValid THEN
+		rig.fbTel.Init();
+		nStep := 10;
+		nCycles := 0;
+	ELSIF nCycles > 2000 THEN
+		AssertTrue(Condition := FALSE, Message := 'the astronomical clock never became valid');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the astronomical clock never became valid'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+10:	// online: the elevation reports an error
+	IF rig.Online THEN
+		rig.InjectElevationError(16#4650);
+		nStep := 20;
+		nCycles := 0;
+	ELSIF nCycles > 1500 THEN
+		AssertTrue(Condition := FALSE, Message := 'the mock telescope did not reach READY_STATE 1.0');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the mock telescope did not reach READY_STATE 1.0'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+20:	// parked: the operator opens the brake
+	IF rig.fbTel.bIsParked AND nCycles > 5 THEN
+		AssertFalse(Condition := rig.fbTel.bWakeShakeWindow, Message := 'no Wake&Shake window');
+		F_Note(bFailed := (rig.fbTel.bWakeShakeWindow), sText := CONCAT(sTest, 'no Wake&Shake window'));
+		rig.fbBrakeHyd.OpenBrake();
+		nStep := 30;
+		nCycles := 0;
+	ELSIF nCycles > 600 THEN
+		AssertTrue(Condition := FALSE, Message := 'the emergency park did not finish');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the emergency park did not finish'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+30:
+	IF nCycles >= 5 THEN
+		AssertFalse(Condition := rig.fbBrakeHyd.BrakeOpen, Message := 'the brake is closed again');
+		F_Note(bFailed := (rig.fbBrakeHyd.BrakeOpen), sText := CONCAT(sTest, 'the brake is closed again'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+END_CASE
+
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Window_Timeout_Then_Open_Is_Closed" Id="{f23bdddd-5c41-4e75-be8b-f9c560d97ab5}">
+      <Declaration><![CDATA[// #155 is window-scoped: when the window times out the brake closes, and an opening afterwards is undone (#121).
+METHOD PRIVATE Window_Timeout_Then_Open_Is_Closed
+VAR_INST
+	rig			: FB_MonetRig;
+	nStep		: INT;
+	nCycles		: UINT;
+	sTest		: STRING(80);
+	nCloseCalls	: UINT;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Window_Timeout_Then_Open_Is_Closed');
+sTest := 'Window_Timeout_Then_Open_Is_Closed: ';
+IF nStep >= 90 THEN
+	RETURN;
+END_IF
+rig.Scan();
+nCycles := nCycles + 1;
+CASE nStep OF
+0:	// wait for the clock, then power on
+	IF rig.ClockValid THEN
+		rig.fbTel.Init();
+		nStep := 10;
+		nCycles := 0;
+	ELSIF nCycles > 2000 THEN
+		AssertTrue(Condition := FALSE, Message := 'the astronomical clock never became valid');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the astronomical clock never became valid'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+10:	// the power-on has commanded the covers: the elevation reports an error (the Wake&Shake fault of the first power-on)
+	IF rig.fbCovers.nOpenCalls >= 1 THEN
+		rig.InjectElevationError(16#4650);
+		nStep := 20;
+		nCycles := 0;
+	ELSIF nCycles > 300 THEN
+		AssertTrue(Condition := FALSE, Message := 'the power-on never commanded the covers');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the power-on never commanded the covers'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+20:	// the Wake&Shake window is open, the error is latched, the telescope did not park: the operator opens the brake
+	IF nCycles >= 60 THEN
+		AssertTrue(Condition := rig.fbTel.bWakeShakeWindow, Message := 'the Wake&Shake window is open');
+		F_Note(bFailed := NOT (rig.fbTel.bWakeShakeWindow), sText := CONCAT(sTest, 'the Wake&Shake window is open'));
+		AssertFalse(Condition := rig.fbTel.bPark OR rig.fbTel.bIsParked, Message := 'no emergency park');
+		F_Note(bFailed := (rig.fbTel.bPark OR rig.fbTel.bIsParked), sText := CONCAT(sTest, 'no emergency park'));
+		AssertTrue(Condition := rig.fbTel.bError, Message := 'the elevation error is latched');
+		F_Note(bFailed := NOT (rig.fbTel.bError), sText := CONCAT(sTest, 'the elevation error is latched'));
+		AssertTrue(Condition := rig.fbBrakeHyd.nCloseCalls >= 1, Message := 'the error closed the brake');
+		F_Note(bFailed := NOT (rig.fbBrakeHyd.nCloseCalls >= 1), sText := CONCAT(sTest, 'the error closed the brake'));
+		nCloseCalls := rig.fbBrakeHyd.nCloseCalls;
+		rig.fbBrakeHyd.OpenBrake();
+		nStep := 30;
+		nCycles := 0;
+	END_IF
+30:	// the brake is open; the window times out (time seam)
+	IF nCycles >= 10 THEN
+		AssertTrue(Condition := rig.fbBrakeHyd.BrakeOpen, Message := 'the operator opened the brake');
+		F_Note(bFailed := NOT (rig.fbBrakeHyd.BrakeOpen), sText := CONCAT(sTest, 'the operator opened the brake'));
+		rig.SetTimeDivisor(1000000);
+		nStep := 40;
+		nCycles := 0;
+	END_IF
+40:	// the window has ended and closed the brake: opening it again is undone
+	IF nCycles >= 20 THEN
+		AssertFalse(Condition := rig.fbTel.bWakeShakeWindow, Message := 'the window ended');
+		F_Note(bFailed := (rig.fbTel.bWakeShakeWindow), sText := CONCAT(sTest, 'the window ended'));
+		AssertFalse(Condition := rig.fbBrakeHyd.BrakeOpen, Message := 'the brake is closed');
+		F_Note(bFailed := (rig.fbBrakeHyd.BrakeOpen), sText := CONCAT(sTest, 'the brake is closed'));
+		rig.fbBrakeHyd.OpenBrake();
+		nStep := 50;
+		nCycles := 0;
+	END_IF
+50:
+	IF nCycles >= 5 THEN
+		AssertFalse(Condition := rig.fbBrakeHyd.BrakeOpen, Message := 'the opening is undone');
+		F_Note(bFailed := (rig.fbBrakeHyd.BrakeOpen), sText := CONCAT(sTest, 'the opening is undone'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+END_CASE
+
+]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>
