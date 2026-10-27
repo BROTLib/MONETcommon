@@ -28,6 +28,7 @@ VAR
 	fbFocusTargetInitSimTests	: FocusTargetInit_Sim_Tests;
 	fbOilLevelValidTests	: F_OilLevelValid_Tests;
 	fbOilSuctionLatchTests	: F_OilSuctionLatch_Tests;
+	fbPumpResetPulseTests	: FB_PumpResetPulse_Tests;
 	fbGotoTargetCheckTests	: F_GotoTargetCheck_Tests;
 	fbStopTransactionTests	: FB_MonetStopTransaction_Tests;
 	fbStopLoopSimTests	: StopLoop_Sim_Tests;

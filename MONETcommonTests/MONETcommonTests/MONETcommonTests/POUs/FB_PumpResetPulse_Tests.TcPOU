@@ -1,0 +1,480 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="FB_PumpResetPulse_Tests" Id="{883a883a-6775-42ee-9964-8908e66844a1}" SpecialFunc="None">
+    <Declaration><![CDATA[// Tests for HalfBROT.FB_PumpResetPulse (HalfBROT#120): reset pulse for the starters of the main oil pump and the suction pump,
+// sent on a reset request, before the first start after a PLC start and after a pump failure; the pump enable is held during it. The sequences
+// span many PLC cycles (the pulse is a TP of 100 ms), one VAR_INST state machine per test; the last one needs no time.
+FUNCTION_BLOCK FB_PumpResetPulse_Tests EXTENDS TcUnit.FB_TestSuite
+VAR
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[First_Request_Pulses_And_Holds();
+Second_Request_Without_Failure_Gets_No_Pulse();
+Pulse_Is_Due_Again_After_A_Pump_Failure();
+One_Cycle_Request_Gives_The_Full_Pulse();
+Held_Request_Gives_One_Pulse();
+Reset_With_The_Pump_Running_Does_Not_Reset_Or_Hold_It();
+Running_Pump_Never_Gets_An_Automatic_Pulse();
+Zero_Pulse_Time_Is_The_Old_Behaviour();
+]]></ST>
+    </Implementation>
+    <Method Name="First_Request_Pulses_And_Holds" Id="{4dc89bbc-b7e1-4b29-b39f-f2e6e9ce467f}">
+      <Declaration><![CDATA[// After a PLC start the first pump request gets one reset pulse of tPulse on both starters, the enable is held during it and one cycle after it, then released.
+METHOD PRIVATE First_Request_Pulses_And_Holds
+VAR_INST
+	fb			: HalfBROT.FB_PumpResetPulse;
+	nStep		: INT;
+	nCycles		: UINT;
+	nTotal		: UINT;
+	bReset		: BOOL;
+	bPumpReq	: BOOL := TRUE;
+	bFail		: BOOL;
+	bRun		: BOOL;
+	bSuc		: BOOL;
+	tPulse		: TIME := T#100MS;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('First_Request_Pulses_And_Holds');
+IF nStep >= 90 THEN
+	RETURN;
+END_IF
+nTotal := nTotal + 1;
+IF nTotal > 20000 THEN
+	AssertTrue(Condition := FALSE, Message := 'the sequence did not finish');
+	nStep := 90;
+	TEST_FINISHED();
+	RETURN;
+END_IF
+nCycles := nCycles + 1;
+fb(bResetRequest := bReset, bPumpRequest := bPumpReq, bPumpFailure := bFail, bPumpRunning := bRun, bSuctionRunning := bSuc, tPulse := tPulse);
+CASE nStep OF
+0:
+	AssertTrue(Condition := fb.bActive, Message := 'the pulse starts in the first cycle of the request');
+	AssertTrue(Condition := fb.bResetPump, Message := 'main pump reset');
+	AssertTrue(Condition := fb.bResetSuction, Message := 'suction pump reset');
+	AssertTrue(Condition := fb.bHoldPump, Message := 'enable held');
+	AssertEquals_STRING(Expected := 'before first start', Actual := fb.sReason, Message := 'reason');
+	nStep := 10;
+10:
+	IF fb.bActive THEN
+		AssertTrue(Condition := fb.bHoldPump, Message := 'enable held during the pulse');
+		AssertTrue(Condition := fb.bResetPump, Message := 'reset during the pulse');
+	ELSE
+		AssertTrue(Condition := fb.bHoldPump, Message := 'enable still held in the cycle after the pulse');
+		AssertFalse(Condition := fb.bResetPump, Message := 'no reset after the pulse');
+		AssertFalse(Condition := fb.bResetSuction, Message := 'no suction reset after the pulse');
+		nStep := 20;
+	END_IF
+20:
+	AssertFalse(Condition := fb.bHoldPump, Message := 'enable released one cycle later');
+	AssertFalse(Condition := fb.bActive, Message := 'pulse over');
+	nCycles := 0;
+	nStep := 30;
+30:
+	AssertFalse(Condition := fb.bActive, Message := 'no second pulse for the same request');
+	AssertFalse(Condition := fb.bHoldPump, Message := 'enable stays released');
+	IF nCycles >= 20 THEN
+		nStep := 90;
+		TEST_FINISHED();
+	END_IF
+END_CASE
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Second_Request_Without_Failure_Gets_No_Pulse" Id="{7ac301e2-b996-4bcc-babe-e73df0b4d0ca}">
+      <Declaration><![CDATA[// After the first pulse a pump that is requested again (stop and start, no failure) gets no pulse.
+METHOD PRIVATE Second_Request_Without_Failure_Gets_No_Pulse
+VAR_INST
+	fb			: HalfBROT.FB_PumpResetPulse;
+	nStep		: INT;
+	nCycles		: UINT;
+	nTotal		: UINT;
+	bReset		: BOOL;
+	bPumpReq	: BOOL := TRUE;
+	bFail		: BOOL;
+	bRun		: BOOL;
+	bSuc		: BOOL;
+	tPulse		: TIME := T#100MS;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Second_Request_Without_Failure_Gets_No_Pulse');
+IF nStep >= 90 THEN
+	RETURN;
+END_IF
+nTotal := nTotal + 1;
+IF nTotal > 20000 THEN
+	AssertTrue(Condition := FALSE, Message := 'the sequence did not finish');
+	nStep := 90;
+	TEST_FINISHED();
+	RETURN;
+END_IF
+nCycles := nCycles + 1;
+fb(bResetRequest := bReset, bPumpRequest := bPumpReq, bPumpFailure := bFail, bPumpRunning := bRun, bSuctionRunning := bSuc, tPulse := tPulse);
+CASE nStep OF
+0:
+	nStep := 10;
+10:
+	IF NOT fb.bActive THEN
+		nStep := 20;
+	END_IF
+20:
+	AssertFalse(Condition := fb.bHoldPump, Message := 'first pulse and hold are over');
+	bPumpReq := FALSE;
+	nCycles := 0;
+	nStep := 30;
+30:
+	AssertFalse(Condition := fb.bActive, Message := 'no pulse while the pump is not requested');
+	IF nCycles >= 5 THEN
+		bPumpReq := TRUE;
+		nCycles := 0;
+		nStep := 40;
+	END_IF
+40:
+	AssertFalse(Condition := fb.bActive, Message := 'no pulse for the second request');
+	AssertFalse(Condition := fb.bHoldPump, Message := 'no hold for the second request');
+	IF nCycles >= 30 THEN
+		nStep := 90;
+		TEST_FINISHED();
+	END_IF
+END_CASE
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Pulse_Is_Due_Again_After_A_Pump_Failure" Id="{1d8728f4-a107-42f7-b9e8-bf69993b4eeb}">
+      <Declaration><![CDATA[// A running pump needs no pulse. After a failure edge of the pump watchdog the next request without run feedback gets one (reason after pump failure).
+METHOD PRIVATE Pulse_Is_Due_Again_After_A_Pump_Failure
+VAR_INST
+	fb			: HalfBROT.FB_PumpResetPulse;
+	nStep		: INT;
+	nCycles		: UINT;
+	nTotal		: UINT;
+	bReset		: BOOL;
+	bPumpReq	: BOOL := TRUE;
+	bFail		: BOOL;
+	bRun		: BOOL;
+	bSuc		: BOOL;
+	tPulse		: TIME := T#100MS;
+	bRunning	: BOOL;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Pulse_Is_Due_Again_After_A_Pump_Failure');
+IF nStep >= 90 THEN
+	RETURN;
+END_IF
+nTotal := nTotal + 1;
+IF nTotal > 20000 THEN
+	AssertTrue(Condition := FALSE, Message := 'the sequence did not finish');
+	nStep := 90;
+	TEST_FINISHED();
+	RETURN;
+END_IF
+nCycles := nCycles + 1;
+fb(bResetRequest := bReset, bPumpRequest := bPumpReq, bPumpFailure := bFail, bPumpRunning := bRun, bSuctionRunning := bSuc, tPulse := tPulse);
+CASE nStep OF
+0:
+	bRun := TRUE;
+	nStep := 5;
+5:
+	AssertFalse(Condition := fb.bActive, Message := 'a running pump needs no pulse');
+	bFail := TRUE;
+	bPumpReq := FALSE;
+	bRun := FALSE;
+	nStep := 10;
+10:
+	AssertFalse(Condition := fb.bActive, Message := 'no pulse in the failure cycle');
+	bFail := FALSE;
+	nCycles := 0;
+	nStep := 20;
+20:
+	AssertFalse(Condition := fb.bActive, Message := 'no pulse while the pump is not requested');
+	IF nCycles >= 3 THEN
+		bPumpReq := TRUE;
+		nStep := 30;
+	END_IF
+30:
+	AssertTrue(Condition := fb.bActive, Message := 'pulse before the next start');
+	AssertTrue(Condition := fb.bHoldPump, Message := 'enable held');
+	AssertEquals_STRING(Expected := 'after pump failure', Actual := fb.sReason, Message := 'reason');
+		nStep := 90;
+		TEST_FINISHED();
+END_CASE
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="One_Cycle_Request_Gives_The_Full_Pulse" Id="{957ed93a-dcb2-4878-91b2-2e4ee0d8f4ab}">
+      <Declaration><![CDATA[// bReset is one cycle long (no error latched): the pulse still lasts tPulse. The wait for the request is the running-pump case, which clears the cold start pulse.
+METHOD PRIVATE One_Cycle_Request_Gives_The_Full_Pulse
+VAR_INST
+	fb			: HalfBROT.FB_PumpResetPulse;
+	nStep		: INT;
+	nCycles		: UINT;
+	nTotal		: UINT;
+	bReset		: BOOL;
+	bPumpReq	: BOOL := TRUE;
+	bFail		: BOOL;
+	bRun		: BOOL;
+	bSuc		: BOOL;
+	tPulse		: TIME := T#100MS;
+	tonLong		: TON;
+	bLong		: BOOL;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('One_Cycle_Request_Gives_The_Full_Pulse');
+IF nStep >= 90 THEN
+	RETURN;
+END_IF
+nTotal := nTotal + 1;
+IF nTotal > 20000 THEN
+	AssertTrue(Condition := FALSE, Message := 'the sequence did not finish');
+	nStep := 90;
+	TEST_FINISHED();
+	RETURN;
+END_IF
+nCycles := nCycles + 1;
+fb(bResetRequest := bReset, bPumpRequest := bPumpReq, bPumpFailure := bFail, bPumpRunning := bRun, bSuctionRunning := bSuc, tPulse := tPulse);
+tonLong(IN := fb.bActive, PT := T#80MS);
+IF tonLong.Q THEN
+	bLong := TRUE;
+END_IF
+CASE nStep OF
+0:
+	bRun := TRUE;
+	nStep := 5;
+5:
+	AssertFalse(Condition := fb.bActive, Message := 'a running pump needs no pulse');
+	bRun := FALSE;
+	bPumpReq := FALSE;
+	bReset := TRUE;
+	nStep := 10;
+10:
+	AssertTrue(Condition := fb.bActive, Message := 'pulse in the cycle of the request');
+	AssertTrue(Condition := fb.bResetPump, Message := 'main pump reset');
+	AssertTrue(Condition := fb.bResetSuction, Message := 'suction pump reset');
+	AssertTrue(Condition := fb.bHoldPump, Message := 'enable held');
+	AssertEquals_STRING(Expected := 'requested', Actual := fb.sReason, Message := 'reason');
+	bReset := FALSE;
+	nStep := 20;
+20:
+	IF NOT fb.bActive THEN
+		AssertTrue(Condition := bLong, Message := 'the pulse outlasts the one-cycle request by far');
+		AssertTrue(Condition := fb.bHoldPump, Message := 'enable still held in the cycle after the pulse');
+		nStep := 30;
+	END_IF
+30:
+	AssertFalse(Condition := fb.bHoldPump, Message := 'enable released');
+		nStep := 90;
+		TEST_FINISHED();
+END_CASE
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Held_Request_Gives_One_Pulse" Id="{d26deb7b-09d9-4015-a9de-43b44bd86227}">
+      <Declaration><![CDATA[// bReset stays TRUE for much longer than the pulse (error latched, button held): one pulse, no retrigger.
+METHOD PRIVATE Held_Request_Gives_One_Pulse
+VAR_INST
+	fb			: HalfBROT.FB_PumpResetPulse;
+	nStep		: INT;
+	nCycles		: UINT;
+	nTotal		: UINT;
+	bReset		: BOOL;
+	bPumpReq	: BOOL := TRUE;
+	bFail		: BOOL;
+	bRun		: BOOL;
+	bSuc		: BOOL;
+	tPulse		: TIME := T#100MS;
+	tonWindow	: TON;
+	rtActive	: R_TRIG;
+	nPulses		: INT;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Held_Request_Gives_One_Pulse');
+IF nStep >= 90 THEN
+	RETURN;
+END_IF
+nTotal := nTotal + 1;
+IF nTotal > 20000 THEN
+	AssertTrue(Condition := FALSE, Message := 'the sequence did not finish');
+	nStep := 90;
+	TEST_FINISHED();
+	RETURN;
+END_IF
+nCycles := nCycles + 1;
+fb(bResetRequest := bReset, bPumpRequest := bPumpReq, bPumpFailure := bFail, bPumpRunning := bRun, bSuctionRunning := bSuc, tPulse := tPulse);
+rtActive(CLK := fb.bActive);
+IF rtActive.Q THEN
+	nPulses := nPulses + 1;
+END_IF
+CASE nStep OF
+0:
+	bRun := TRUE;
+	nStep := 5;
+5:
+	AssertFalse(Condition := fb.bActive, Message := 'a running pump needs no pulse');
+	bRun := FALSE;
+	bPumpReq := FALSE;
+	bReset := TRUE;
+	nStep := 10;
+10:
+	tonWindow(IN := TRUE, PT := T#450MS);
+	IF tonWindow.Q THEN
+		AssertEquals_INT(Expected := 1, Actual := nPulses, Message := 'one pulse in 4.5 pulse lengths');
+		bReset := FALSE;
+		nStep := 90;
+		TEST_FINISHED();
+	END_IF
+END_CASE
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Reset_With_The_Pump_Running_Does_Not_Reset_Or_Hold_It" Id="{44129047-a742-4bd2-8da8-f64624f01842}">
+      <Declaration><![CDATA[// A reset while the main pump runs resets neither it nor holds its enable (the brake would close); the suction pump without feedback is reset.
+METHOD PRIVATE Reset_With_The_Pump_Running_Does_Not_Reset_Or_Hold_It
+VAR_INST
+	fb			: HalfBROT.FB_PumpResetPulse;
+	nStep		: INT;
+	nCycles		: UINT;
+	nTotal		: UINT;
+	bReset		: BOOL;
+	bPumpReq	: BOOL := TRUE;
+	bFail		: BOOL;
+	bRun		: BOOL;
+	bSuc		: BOOL;
+	tPulse		: TIME := T#100MS;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Reset_With_The_Pump_Running_Does_Not_Reset_Or_Hold_It');
+IF nStep >= 90 THEN
+	RETURN;
+END_IF
+nTotal := nTotal + 1;
+IF nTotal > 20000 THEN
+	AssertTrue(Condition := FALSE, Message := 'the sequence did not finish');
+	nStep := 90;
+	TEST_FINISHED();
+	RETURN;
+END_IF
+nCycles := nCycles + 1;
+fb(bResetRequest := bReset, bPumpRequest := bPumpReq, bPumpFailure := bFail, bPumpRunning := bRun, bSuctionRunning := bSuc, tPulse := tPulse);
+CASE nStep OF
+0:
+	bRun := TRUE;
+	nStep := 5;
+5:
+	AssertFalse(Condition := fb.bActive, Message := 'a running pump needs no pulse');
+	bReset := TRUE;
+	nStep := 10;
+10:
+	AssertTrue(Condition := fb.bActive, Message := 'the reset request starts a pulse');
+	bReset := FALSE;
+	nStep := 20;
+20:
+	IF fb.bActive THEN
+		AssertFalse(Condition := fb.bResetPump, Message := 'running main pump is not reset');
+		AssertFalse(Condition := fb.bHoldPump, Message := 'running main pump is not held');
+		AssertTrue(Condition := fb.bResetSuction, Message := 'suction pump without feedback is reset');
+	ELSE
+		AssertFalse(Condition := fb.bHoldPump, Message := 'no hold after the pulse');
+		nStep := 90;
+		TEST_FINISHED();
+	END_IF
+END_CASE
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Running_Pump_Never_Gets_An_Automatic_Pulse" Id="{e758a620-15aa-4396-94e7-097c77553a47}">
+      <Declaration><![CDATA[// A pump that is requested while it already runs clears the cold start pulse; losing the feedback later without a failure edge or a reset gives no pulse.
+METHOD PRIVATE Running_Pump_Never_Gets_An_Automatic_Pulse
+VAR_INST
+	fb			: HalfBROT.FB_PumpResetPulse;
+	nStep		: INT;
+	nCycles		: UINT;
+	nTotal		: UINT;
+	bReset		: BOOL;
+	bPumpReq	: BOOL := TRUE;
+	bFail		: BOOL;
+	bRun		: BOOL;
+	bSuc		: BOOL;
+	tPulse		: TIME := T#100MS;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Running_Pump_Never_Gets_An_Automatic_Pulse');
+IF nStep >= 90 THEN
+	RETURN;
+END_IF
+nTotal := nTotal + 1;
+IF nTotal > 20000 THEN
+	AssertTrue(Condition := FALSE, Message := 'the sequence did not finish');
+	nStep := 90;
+	TEST_FINISHED();
+	RETURN;
+END_IF
+nCycles := nCycles + 1;
+fb(bResetRequest := bReset, bPumpRequest := bPumpReq, bPumpFailure := bFail, bPumpRunning := bRun, bSuctionRunning := bSuc, tPulse := tPulse);
+CASE nStep OF
+0:
+	bRun := TRUE;
+	nStep := 10;
+10:
+	AssertFalse(Condition := fb.bActive, Message := 'no pulse for a running pump');
+	IF nCycles >= 20 THEN
+		bRun := FALSE;
+		nCycles := 0;
+		nStep := 20;
+	END_IF
+20:
+	AssertFalse(Condition := fb.bActive, Message := 'no pulse when the feedback drops without a failure or a reset');
+	AssertFalse(Condition := fb.bHoldPump, Message := 'no hold');
+	IF nCycles >= 20 THEN
+		nStep := 90;
+		TEST_FINISHED();
+	END_IF
+END_CASE
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Zero_Pulse_Time_Is_The_Old_Behaviour" Id="{1a17a748-fb39-4423-8b65-cdd6e86f78a6}">
+      <Declaration><![CDATA[// tPulse = T#0S: the reset outputs follow the request, no hold, no automatic pulse (a cold start with a requested pump included).
+METHOD PRIVATE Zero_Pulse_Time_Is_The_Old_Behaviour
+VAR_INST
+	fb			: HalfBROT.FB_PumpResetPulse;
+	nStep		: INT;
+	nCycles		: UINT;
+	nTotal		: UINT;
+	bReset		: BOOL;
+	bPumpReq	: BOOL := TRUE;
+	bFail		: BOOL;
+	bRun		: BOOL;
+	bSuc		: BOOL;
+	tPulse		: TIME := T#100MS;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Zero_Pulse_Time_Is_The_Old_Behaviour');
+tPulse := T#0S;
+fb(bResetRequest := FALSE, bPumpRequest := TRUE, bPumpFailure := FALSE, bPumpRunning := FALSE, bSuctionRunning := FALSE, tPulse := T#0S);
+AssertFalse(Condition := fb.bResetPump, Message := 'no automatic pulse at the first start');
+AssertFalse(Condition := fb.bHoldPump, Message := 'no hold');
+AssertFalse(Condition := fb.bActive, Message := 'not active');
+fb(bResetRequest := TRUE, bPumpRequest := FALSE, bPumpFailure := FALSE, bPumpRunning := FALSE, bSuctionRunning := FALSE, tPulse := T#0S);
+AssertTrue(Condition := fb.bResetPump, Message := 'main reset follows the request');
+AssertTrue(Condition := fb.bResetSuction, Message := 'suction reset follows the request');
+AssertFalse(Condition := fb.bHoldPump, Message := 'no hold');
+fb(bResetRequest := FALSE, bPumpRequest := FALSE, bPumpFailure := TRUE, bPumpRunning := FALSE, bSuctionRunning := FALSE, tPulse := T#0S);
+AssertFalse(Condition := fb.bResetPump, Message := 'request gone, reset gone');
+fb(bResetRequest := FALSE, bPumpRequest := TRUE, bPumpFailure := FALSE, bPumpRunning := FALSE, bSuctionRunning := FALSE, tPulse := T#0S);
+AssertFalse(Condition := fb.bResetPump, Message := 'no automatic pulse after a failure');
+AssertFalse(Condition := fb.bHoldPump, Message := 'no hold after a failure');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>
