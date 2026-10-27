@@ -191,6 +191,13 @@ VAR
 	bWakeShakeBrakeBlocked	: BOOL;	// logged on its rising edge
 	sWakeShakeBlockMessage	: STRING(80);
 	WakeShakeBlockEvent		: FB_EventLog;
+	// #72: manual mode since the last completed startup. Set on the first manual scan, cleared only by a completed
+	// startup (not by reset, stop, park, E-stop or an aborted startup). While set, moves are rejected (init_required).
+	bInitRequired			: BOOL;
+	bInitRequiredLog		: BOOL;	// logged once, on the first scan back in automatic
+	sInitRequiredMessage	: STRING(80);
+	nInitRequiredLevel		: UDINT;
+	InitRequiredEvent		: FB_EventLog;
 END_VAR
 VAR CONSTANT
 	tWakeShakeWindow	: TIME := T#15M;	// #151: longest time the brake stays open for the Wake&Shake
@@ -464,7 +471,7 @@ hor2eq(alt := fElevationCurrentSky,
 IF fbElevation.Calibrated AND fElevationCurrent < (fHorizon + fHorizonMargin) THEN
 	IF NOT bStopped AND NOT bGoHome THEN
 		bStop := TRUE;
-	ELSIF NOT bHomeBelowHorizon THEN
+	ELSIF NOT bHomeBelowHorizon AND NOT bInitRequired THEN	// #72: no automatic motion before the Init that follows manual mode
 		bGoHome := TRUE;
 	END_IF
 END_IF
@@ -1274,6 +1281,7 @@ CASE nStage OF
         // while bPower is already FALSE and the startup would stay at 0.8. Wait one more scan instead.
         IF bReady AND bMainReady AND bStopped AND NOT bBusy AND NOT bError AND NOT bEstopTriggered THEN
             fbStartup.MarkCompleted();
+            bInitRequired := FALSE;			// #72
             bFirstPowerOnPending := FALSE;	// #113
             bPower := FALSE;
             fElevation := fElevationCurrent;
@@ -1293,12 +1301,18 @@ END_CASE]]></ST>
 // per moving axis, FB_MonetStopTransaction, the abort stop of #84/#56) and then the axes are released to the pendant. Queued moves
 // are dropped, tracking ends, bPark is kept (it restarts in automatic). Only this one stop is driven here; a stop that arrives
 // during manual (Stop()) is processed after the return, it must not brake an axis the operator is jogging.
+// #72: the first manual scan also sets bInitRequired: after any manual interval a new Init (power=1) is always required before
+// a move is accepted, a startup is never resumed and nothing queued replays. Stop, park, reset and Init stay accepted.
 METHOD SuspendAutomatic
 ]]></Declaration>
       <Implementation><ST><![CDATA[_ReadAxes();
 _StopTxInputs();
 IF fbStartup.EnterSuspend() THEN
     bHwErrorLast := TRUE;	// #86: an error already present when switching back to automatic does not park
+    // #72: after any manual interval only a new Init makes the telescope movable again. Set in the first manual scan, so a
+    // move sent during manual is rejected too (bReady is not recomputed in manual) and the horizon guard cannot home before the Init.
+    bInitRequired := TRUE;
+    bInitRequiredLog := TRUE;
     IF fbStartup.Initializing OR bPower THEN
         bPower := FALSE;
         bInterrupted := TRUE;
@@ -1790,6 +1804,22 @@ InitRefusedEvent(	Trigger := bInitRefused,
 				OnMessage := sInitRefusedReason,
 				Comm := fbComm);
 bInitRefused := FALSE;
+// #72: logged on the first scan back in automatic (the manual scans do not run this method)
+IF bInitRequiredLog THEN
+	IF bPark OR bParkAfterStop THEN
+		nInitRequiredLevel := ADSLOG_MSGTYPE_WARN;
+		sInitRequiredMessage := 'automatic mode: init required (manual mode), pending park resumes';
+	ELSE
+		nInitRequiredLevel := ADSLOG_MSGTYPE_HINT;
+		sInitRequiredMessage := 'automatic mode: init required (manual mode since last startup)';
+	END_IF
+END_IF
+InitRequiredEvent(	Trigger := bInitRequiredLog,
+				Level := nInitRequiredLevel,
+				FormatString := '%s',
+				OnMessage := sInitRequiredMessage,
+				Comm := fbComm);
+bInitRequiredLog := FALSE;
 ]]></ST>
       </Implementation>
     </Method>
@@ -2298,6 +2328,19 @@ Park := TRUE;]]></ST>
         <ST><![CDATA[bReset := TRUE;]]></ST>
       </Implementation>
     </Method>
+    <Property Name="InitRequired" Id="{72a1c0de-4b6e-4f2a-9d38-5e0c7b1a4f72}">
+      <Declaration><![CDATA[// #72: manual mode since the last completed startup; moves are rejected until a new Init completes
+PROPERTY InitRequired : BOOL
+]]></Declaration>
+      <Get Name="Get" Id="{72a1c0de-4b6e-4f2a-9d38-5e0c7b1a4f73}">
+        <Declaration><![CDATA[VAR
+END_VAR
+]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[InitRequired := THIS^.bInitRequired;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
     <Property Name="RightAscension" Id="{11e4e9e9-9e18-4d9f-ab19-1c208929d2bc}">
       <Declaration><![CDATA[PROPERTY RightAscension : LREAL
 ]]></Declaration>
@@ -2440,6 +2483,7 @@ _CommandState.bPowering		:= bPower OR fbStartup.Initializing;
 _CommandState.bParkPending	:= bPark OR bParkAfterStop;
 _CommandState.bIsParked		:= bIsParked;
 _CommandState.bReady		:= bReady;
+_CommandState.bInitRequired	:= bInitRequired;
 _CommandState.bGoHomeActive	:= (bGoHome AND eExcludeOwn <> E_TCSCommand.gohome) OR TCS_command = E_TCSCommand.gohome;
 _CommandState.bMoveActive	:= (bGoto AND eExcludeOwn <> E_TCSCommand.goto) OR
 	(bSlew AND eExcludeOwn <> E_TCSCommand.slew) OR
