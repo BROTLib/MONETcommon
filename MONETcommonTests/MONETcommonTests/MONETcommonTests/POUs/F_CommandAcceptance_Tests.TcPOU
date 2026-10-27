@@ -240,7 +240,7 @@ TEST_FINISHED();
 ]]></ST>
       </Implementation>
     </Method>
-    <Method Name="Parked_Park_Is_Accepted"Id="{5b1d2a10-7c3e-4d52-9a61-0e4f8c2b7a2c}">
+    <Method Name="Parked_Park_Is_Accepted" Id="{5b1d2a10-7c3e-4d52-9a61-0e4f8c2b7a2c}">
       <Declaration><![CDATA[METHOD PRIVATE Parked_Park_Is_Accepted
 VAR
 	stState	: MONETcommon.ST_CommandState;
