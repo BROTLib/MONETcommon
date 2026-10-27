@@ -2341,7 +2341,7 @@ END_VAR
         </Implementation>
       </Get>
     </Property>
-    <Property Name="RightAscension"Id="{11e4e9e9-9e18-4d9f-ab19-1c208929d2bc}">
+    <Property Name="RightAscension" Id="{11e4e9e9-9e18-4d9f-ab19-1c208929d2bc}">
       <Declaration><![CDATA[PROPERTY RightAscension : LREAL
 ]]></Declaration>
       <Get Name="Get" Id="{b17aa26c-317b-4e3f-8426-b76a55e02df1}">
