@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
   <POU Name="FB_FocusMock" Id="{a35603b3-030a-4de3-a67d-dbbefdf04315}" SpecialFunc="None">
     <Declaration><![CDATA[// Mock of FB_FocusControl (an I_Focus) for the telescope state machine tests (MONETcommon#36). Status only: the real focus
@@ -45,7 +45,7 @@ bError := bInjected;
 nErrorID := nInjectedId;
 ]]></ST>
     </Implementation>
-    <Method Name="InjectError" Id="{15ab52cd-e3f6-45c9-9382-610dfdf8ff67}">
+    <Method Name="InjectError" Id="{5d1887e1-3dbd-44f6-ba4b-460d34da292d}">
       <Declaration><![CDATA[// the axis reports an error with this id until the telescope resets it (bError/nErrorID are what the telescope reads)
 METHOD InjectError
 VAR_INPUT
@@ -58,5 +58,13 @@ nInjectedId := nId;
 ]]></ST>
       </Implementation>
     </Method>
+    <LineIds Name="FB_FocusMock">
+      <LineId Id="3" Count="29" />
+      <LineId Id="2" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_FocusMock.InjectError">
+      <LineId Id="3" Count="1" />
+      <LineId Id="2" Count="0" />
+    </LineIds>
   </POU>
 </TcPlcObject>

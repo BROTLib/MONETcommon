@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
   <POU Name="FB_DerotatorMock" Id="{a5fdee77-15ca-44ee-96da-486af34b10eb}" SpecialFunc="None">
     <Declaration><![CDATA[// Mock of FB_DerotatorControl for the telescope state machine tests (MONETcommon#36, BROTLib plan 2026-10-21-telescope-state-machine-unification D1).
@@ -75,7 +75,7 @@ bError := bInjected;
 nErrorID := nInjectedId;
 ]]></ST>
     </Implementation>
-    <Method Name="InjectError" Id="{15ab52cd-e3f6-45c9-9382-610dfdf8ff67}">
+    <Method Name="InjectError" Id="{f3174222-c827-415b-80b2-2ee0e91adc54}">
       <Declaration><![CDATA[// the axis reports an error with this id until the telescope resets it (bError/nErrorID are what the telescope reads)
 METHOD InjectError
 VAR_INPUT
@@ -88,5 +88,13 @@ nInjectedId := nId;
 ]]></ST>
       </Implementation>
     </Method>
+    <LineIds Name="FB_DerotatorMock">
+      <LineId Id="3" Count="49" />
+      <LineId Id="2" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_DerotatorMock.InjectError">
+      <LineId Id="3" Count="1" />
+      <LineId Id="2" Count="0" />
+    </LineIds>
   </POU>
 </TcPlcObject>
