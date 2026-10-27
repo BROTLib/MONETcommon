@@ -16,6 +16,12 @@ VAR_INPUT
 
 	bBrakeClearing		: BOOL	:= TRUE;
 
+	// BROTLib#33: use the live weather (MQTT, pybrotlib.weather) in the refraction of eq2hor/hor2eq. FALSE (default) keeps
+	// the estimate from the site altitude. A value is used only if it is valid (not stale) and plausible for the site
+	// (BROTLib.F_RefractionWeather); anything else falls back to the estimate, pressure and temperature independently.
+	// Switch on per site after the on-sky check (MONETcommon#30).
+	bLiveWeatherRefraction	: BOOL := FALSE;
+
 	// #155: SafetyHandling.error, wired in MAIN. FALSE (default) means the safety block of the brake is not enforced.
 	bSafetyError		: BOOL;
 
@@ -51,9 +57,19 @@ VAR_OUTPUT
 	fDerotatorVelocity	: LREAL;	// rotational velocity of the derotator
 	fElevationVelocity	: LREAL;	// rotational velocity of the elevation
 	fAzimuthVelocity	: LREAL;	// rotational velocity of the elevation
+
+	// weather handed to the refraction of eq2hor and both hor2eq calls (BROTLib#33); published as WEATHER.REFRACTION.*
+	fRefractionPressure		: LREAL;	// hPa, 0.0 = estimate from altitude
+	fRefractionTemperature	: LREAL;	// deg C, only meaningful if bRefractionTemperatureSet
+	bRefractionTemperatureSet	: BOOL;	// FALSE = estimate from altitude
 END_VAR
 VAR
     fbStartup : BROTLib.FB_StartupControl;
+	bRefractionLive				: BOOL;	// at least one live value is used
+	bRefractionPressureRejected	: BOOL;	// live pressure valid but implausible for the site (logged on the rising edge)
+	bRefractionTemperatureRejected	: BOOL;
+	rtrigPressureRejected	: R_TRIG;
+	rtrigTemperatureRejected	: R_TRIG;
 	bTargetBelowHorizonWarn	: BOOL;	// #94: goto/track requested with the RA/Dec target below fHorizon, taken before the dispatch can clear bGoto
 	// M1: internal (non-axis) errors from the Goto/Home/Slew state machines, latched
 	// until bReset since bError/nErrorID are otherwise recomputed from the axes every
@@ -312,12 +328,43 @@ IF fbElevation.bError THEN
 	END_IF
 END_IF
 
+// One weather for the commanded position (eq2hor) and for the reported RA/Dec (both hor2eq below): with different
+// weather the reported coordinates would differ from the commanded ones by the refraction difference.
+IF bLiveWeatherRefraction THEN
+	bRefractionLive := BROTLib.F_RefractionWeather(
+		stWeather := Weather,
+		fSiteAltitude := telescopeConfig.altitude,
+		fPressure => fRefractionPressure,
+		fTemperature => fRefractionTemperature,
+		bTemperatureSet => bRefractionTemperatureSet,
+		bPressureRejected => bRefractionPressureRejected,
+		bTemperatureRejected => bRefractionTemperatureRejected);
+ELSE
+	bRefractionLive := FALSE;
+	fRefractionPressure := 0.0;
+	fRefractionTemperature := 0.0;
+	bRefractionTemperatureSet := FALSE;
+	bRefractionPressureRejected := FALSE;
+	bRefractionTemperatureRejected := FALSE;
+END_IF
+rtrigPressureRejected(CLK := bRefractionPressureRejected);
+IF rtrigPressureRejected.Q THEN
+	ADSLOGSTR( ADSLOG_MSGTYPE_WARN OR ADSLOG_MSGTYPE_LOG, 'Live weather: %s does not fit the site, the estimate is used', 'pressure');
+END_IF
+rtrigTemperatureRejected(CLK := bRefractionTemperatureRejected);
+IF rtrigTemperatureRejected.Q THEN
+	ADSLOGSTR( ADSLOG_MSGTYPE_WARN OR ADSLOG_MSGTYPE_LOG, 'Live weather: %s does not fit the site, the estimate is used', 'temperature');
+END_IF
+
 eq2hor(
 	ra := fRightAscension,
 	dec := fDeclination,
 	lon := telescopeConfig.longitude,
 	lat := telescopeConfig.latitude,
 	altitude := telescopeConfig.altitude,
+	pressure := fRefractionPressure,
+	temperature := fRefractionTemperature,
+	temperature_set := bRefractionTemperatureSet,
 	JD := fJd + fTimeOffset,
 	dut1 := fDut1,
 	refract_to_observed := TRUE,
@@ -391,6 +438,9 @@ hor2eq(alt := fElevationCurrentSky - fElevationOffset,
 		lat := telescopeConfig.latitude,
 		lon := telescopeConfig.longitude,
 		altitude := telescopeConfig.altitude,
+		pressure := fRefractionPressure,
+		temperature := fRefractionTemperature,
+		temperature_set := bRefractionTemperatureSet,
 		alt_is_observed := TRUE,
 		// refract := FALSE,
 		ra => fRightAscensionCurrent,
@@ -403,6 +453,9 @@ hor2eq(alt := fElevationCurrentSky,
 		lat := telescopeConfig.latitude,
 		lon := telescopeConfig.longitude,
 		altitude := telescopeConfig.altitude,
+		pressure := fRefractionPressure,
+		temperature := fRefractionTemperature,
+		temperature_set := bRefractionTemperatureSet,
 		alt_is_observed := TRUE,
 		ra => fRightAscensionCurrentSky,
 		dec => fDeclinationCurrentSky);
@@ -1361,6 +1414,13 @@ END_VAR
 fbComm.Publish('telescope', 'dome', 'TELESCOPE.READY_STATE',	LREAL_TO_STRING(fReadyState));
 fbComm.Publish('telescope', 'dome', 'TELESCOPE.MOTION_STATE',	LREAL_TO_STRING(nMotionState));
 fbComm.Publish('telescope', 'dome', 'TELESCOPE.INTERRUPTED_AUTO_CLEAR_COUNT', UDINT_TO_STRING(nInterruptedAutoClearCount));
+
+// the weather the refraction actually used (BROTLib#33); *_LIVE is 0 while the estimate is in use (switch off, value
+// stale, missing or implausible), so the values alone cannot be mistaken for a measurement
+fbComm.Publish('telescope', 'dome', 'WEATHER.REFRACTION.PRESSURE', LREAL_TO_STRING(fRefractionPressure));
+fbComm.Publish('telescope', 'dome', 'WEATHER.REFRACTION.TEMPERATURE', LREAL_TO_STRING(fRefractionTemperature));
+fbComm.Publish('telescope', 'dome', 'WEATHER.REFRACTION.PRESSURE_LIVE', BOOL_TO_STRING(fRefractionPressure <> 0.0));
+fbComm.Publish('telescope', 'dome', 'WEATHER.REFRACTION.TEMPERATURE_LIVE', BOOL_TO_STRING(bRefractionTemperatureSet));
 
 // INFO, CONFIG.MOUNTOPTIONS/MOUNT, STATUS.GLOBAL, OBJECT.INSTRUMENTAL.ALT/AZ and the static
 // OBJECT.EQUATORIAL.EPOCH/EQUINOX/RA_PM/DEC_PM/RA_RATE/DEC_RATE fields used to be republished
