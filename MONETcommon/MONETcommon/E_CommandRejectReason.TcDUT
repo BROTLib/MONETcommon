@@ -15,7 +15,8 @@ TYPE E_CommandRejectReason :
 	parking,
 	parked,
 	not_ready,
-	gohome_active
+	gohome_active,
+	init_required		// #72: manual mode since the last completed startup, send power=1 first
 );
 END_TYPE
 ]]></Declaration>

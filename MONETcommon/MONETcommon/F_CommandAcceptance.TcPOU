@@ -49,6 +49,9 @@ ELSIF stState.bParkPending THEN
 ELSIF stState.bIsParked THEN
 	F_CommandAcceptance := E_CommandDecision.reject;
 	eReason := E_CommandRejectReason.parked;
+ELSIF stState.bInitRequired THEN
+	F_CommandAcceptance := E_CommandDecision.reject;
+	eReason := E_CommandRejectReason.init_required;				// #72: after manual mode only a new Init makes the telescope movable
 ELSIF NOT stState.bReady THEN
 	F_CommandAcceptance := E_CommandDecision.reject;
 	eReason := E_CommandRejectReason.not_ready;

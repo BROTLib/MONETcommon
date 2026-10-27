@@ -15,6 +15,7 @@ Suspend_At_Rest_Sends_No_Stop();
 Suspend_During_Park_Stops_The_Park_And_Keeps_bPark();
 Suspend_Blocks_The_Jog_While_The_Stop_Runs();
 Back_To_Automatic_With_An_Error_Does_Not_Park();
+Back_To_Automatic_Requires_Init_Before_Any_Move();
 ]]></ST>
     </Implementation>
     <Method Name="Suspend_While_Slewing_Stops_Each_Moving_Axis_Once" Id="{88ce4633-9cab-43b1-ad84-da63f2946a81}">
@@ -369,6 +370,110 @@ CASE nStep OF
 		F_Note(bFailed := (rig.fbTel.bPark OR rig.fbTel.bIsParked), sText := CONCAT(sTest, 'no emergency park'));
 		AssertTrue(Condition := rig.fbCovers.nCloseCalls = 0, Message := 'the covers were not closed');
 		F_Note(bFailed := NOT (rig.fbCovers.nCloseCalls = 0), sText := CONCAT(sTest, 'the covers were not closed'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+END_CASE
+
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Back_To_Automatic_Requires_Init_Before_Any_Move" Id="{72b3d6f1-8a4c-4e17-b5d9-3c0a91e7f272}">
+      <Declaration><![CDATA[// #72: a completed startup that only visited manual mode needs a new Init: back in automatic moves are rejected (init_required),
+// nothing moves, READY_STATE stays -2.0; after the Init the latch is cleared and a slew is accepted again.
+METHOD PRIVATE Back_To_Automatic_Requires_Init_Before_Any_Move
+VAR_INST
+	rig			: FB_MonetRig;
+	nStep		: INT;
+	nCycles		: UINT;
+	sTest		: STRING(80);
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Back_To_Automatic_Requires_Init_Before_Any_Move');
+sTest := 'Back_To_Automatic_Requires_Init_Before_Any_Move: ';
+IF nStep >= 90 THEN
+	RETURN;
+END_IF
+rig.Scan();
+nCycles := nCycles + 1;
+CASE nStep OF
+0:	// wait for the clock, then power on
+	IF rig.ClockValid THEN
+		rig.fbTel.Init();
+		nStep := 10;
+		nCycles := 0;
+	ELSIF nCycles > 2000 THEN
+		AssertTrue(Condition := FALSE, Message := 'the astronomical clock never became valid');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the astronomical clock never became valid'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+10:	// online: switch to manual
+	IF rig.Online THEN
+		AssertFalse(Condition := rig.fbTel.InitRequired, Message := 'no init required after a completed startup');
+		F_Note(bFailed := (rig.fbTel.InitRequired), sText := CONCAT(sTest, 'no init required after a completed startup'));
+		rig.SetManual(TRUE);
+		nStep := 20;
+		nCycles := 0;
+	ELSIF nCycles > 1500 THEN
+		AssertTrue(Condition := FALSE, Message := 'the mock telescope did not reach READY_STATE 1.0');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the mock telescope did not reach READY_STATE 1.0'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+20:	// in manual: the latch is set at once, back to automatic
+	IF nCycles >= 10 THEN
+		AssertTrue(Condition := rig.fbTel.InitRequired, Message := 'init required in manual');
+		F_Note(bFailed := NOT (rig.fbTel.InitRequired), sText := CONCAT(sTest, 'init required in manual'));
+		rig.SetManual(FALSE);
+		nStep := 30;
+		nCycles := 0;
+	END_IF
+30:	// back in automatic: moves are rejected
+	IF nCycles >= 5 THEN
+		AssertTrue(Condition := rig.fbTel.InitRequired, Message := 'init still required in automatic');
+		F_Note(bFailed := NOT (rig.fbTel.InitRequired), sText := CONCAT(sTest, 'init still required in automatic'));
+		AssertTrue(Condition := rig.fbTel.ReadyState = -2.0, Message := 'READY_STATE is -2.0 before the Init');
+		F_Note(bFailed := NOT (rig.fbTel.ReadyState = -2.0), sText := CONCAT(sTest, 'READY_STATE is -2.0 before the Init'));
+		rig.fbTel.Slew(fAzimuth := 180.0, fAltitude := 45.0);
+		AssertFalse(Condition := rig.fbTel.bSlew, Message := 'the slew method is rejected');
+		F_Note(bFailed := (rig.fbTel.bSlew), sText := CONCAT(sTest, 'the slew method is rejected'));
+		AssertTrue(Condition := rig.fbTel.eLastRejectReason = MONETcommon.E_CommandRejectReason.init_required, Message := 'reason init_required');
+		F_Note(bFailed := NOT (rig.fbTel.eLastRejectReason = MONETcommon.E_CommandRejectReason.init_required), sText := CONCAT(sTest, 'reason init_required'));
+		nStep := 40;
+		nCycles := 0;
+	END_IF
+40:	// nothing moves
+	IF nCycles >= 30 THEN
+		AssertFalse(Condition := rig.fbTel.bGoto OR rig.fbTel.bSlew, Message := 'no move flag survives');
+		F_Note(bFailed := (rig.fbTel.bGoto OR rig.fbTel.bSlew), sText := CONCAT(sTest, 'no move flag survives'));
+		AssertFalse(Condition := rig.fbElev.MoveAxis OR rig.fbAzim.MoveAxis OR rig.fbDero.MoveAxis, Message := 'no axis moves');
+		F_Note(bFailed := (rig.fbElev.MoveAxis OR rig.fbAzim.MoveAxis OR rig.fbDero.MoveAxis), sText := CONCAT(sTest, 'no axis moves'));
+		rig.fbTel.Init();
+		nStep := 50;
+		nCycles := 0;
+	END_IF
+50:	// the new Init completes: the latch is cleared and a slew is accepted again
+	IF rig.Online THEN
+		AssertFalse(Condition := rig.fbTel.InitRequired, Message := 'init no longer required after the new startup');
+		F_Note(bFailed := (rig.fbTel.InitRequired), sText := CONCAT(sTest, 'init no longer required after the new startup'));
+		rig.fbTel.Slew(fAzimuth := 180.0, fAltitude := 45.0);
+		nStep := 60;
+		nCycles := 0;
+	ELSIF nCycles > 1500 THEN
+		AssertTrue(Condition := FALSE, Message := 'the new startup did not reach READY_STATE 1.0');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the new startup did not reach READY_STATE 1.0'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+60:
+	IF rig.fbElev.MoveAxis AND rig.fbAzim.MoveAxis AND rig.fbDero.MoveAxis THEN
+		nStep := 99;
+		TEST_FINISHED();
+	ELSIF nCycles > 300 THEN
+		AssertTrue(Condition := FALSE, Message := 'the slew after the new Init was not accepted');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the slew after the new Init was not accepted'));
 		nStep := 99;
 		TEST_FINISHED();
 	END_IF

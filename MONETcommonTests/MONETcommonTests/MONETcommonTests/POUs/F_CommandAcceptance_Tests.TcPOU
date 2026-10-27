@@ -18,6 +18,7 @@ Powering_Rejects_Moves_Park_Aborts_Power();
 Parking_Rejects_Moves();
 Parked_Rejects_Moves_With_Reason_Parked();
 Parked_Park_Is_Accepted();
+InitRequired_Rejects_Moves_Accepts_Park();
 NotReady_Rejects_Moves_Accepts_Park();
 GoHome_Active_Rejects_Slew_Goto_Track();
 Moving_Replaces();
@@ -205,6 +206,40 @@ TEST_FINISHED();
 ]]></ST>
       </Implementation>
     </Method>
+    <Method Name="InitRequired_Rejects_Moves_Accepts_Park" Id="{72b3d6f1-8a4c-4e17-b5d9-3c0a91e7f274}">
+      <Declaration><![CDATA[// #72: after manual mode every move is rejected with init_required, park stays accepted, the earlier rows keep their reason
+// and a FALSE latch changes nothing.
+METHOD PRIVATE InitRequired_Rejects_Moves_Accepts_Park
+VAR
+	stState	: MONETcommon.ST_CommandState;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('InitRequired_Rejects_Moves_Accepts_Park');
+stState := Ready_State();
+stState.bInitRequired := TRUE;
+AssertTrue(Condition := Decide(BROTLib.E_TCSCommand.slew, stState) = MONETcommon.E_CommandDecision.reject, Message := 'slew rejected');
+AssertTrue(Condition := eLastReason = MONETcommon.E_CommandRejectReason.init_required, Message := 'reason init_required (slew)');
+AssertTrue(Condition := Decide(BROTLib.E_TCSCommand.goto, stState) = MONETcommon.E_CommandDecision.reject, Message := 'goto rejected');
+AssertTrue(Condition := Decide(BROTLib.E_TCSCommand.track, stState) = MONETcommon.E_CommandDecision.reject, Message := 'track rejected');
+AssertTrue(Condition := Decide(BROTLib.E_TCSCommand.gohome, stState) = MONETcommon.E_CommandDecision.reject, Message := 'gohome rejected');
+AssertTrue(Condition := eLastReason = MONETcommon.E_CommandRejectReason.init_required, Message := 'reason init_required (gohome)');
+AssertTrue(Condition := Decide(BROTLib.E_TCSCommand.park, stState) = MONETcommon.E_CommandDecision.accept, Message := 'park accepted');
+// the rows above it keep their reason
+stState.bEstop := TRUE;
+AssertTrue(Condition := Decide(BROTLib.E_TCSCommand.slew, stState) = MONETcommon.E_CommandDecision.reject, Message := 'estop: rejected');
+AssertTrue(Condition := eLastReason = MONETcommon.E_CommandRejectReason.estop, Message := 'estop keeps precedence');
+stState.bEstop := FALSE;
+stState.bIsParked := TRUE;
+AssertTrue(Condition := Decide(BROTLib.E_TCSCommand.slew, stState) = MONETcommon.E_CommandDecision.reject, Message := 'parked: rejected');
+AssertTrue(Condition := eLastReason = MONETcommon.E_CommandRejectReason.parked, Message := 'parked keeps precedence');
+// without the latch nothing changes
+stState := Ready_State();
+AssertTrue(Condition := Decide(BROTLib.E_TCSCommand.slew, stState) = MONETcommon.E_CommandDecision.accept, Message := 'no latch: accepted');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
     <Method Name="Parked_Park_Is_Accepted" Id="{5b1d2a10-7c3e-4d52-9a61-0e4f8c2b7a2c}">
       <Declaration><![CDATA[METHOD PRIVATE Parked_Park_Is_Accepted
 VAR
@@ -310,6 +345,8 @@ eReason := MONETcommon.E_CommandRejectReason.not_ready;
 AssertTrue(Condition := LEN(MONETcommon.F_CommandRejectText(eReason)) > 0, Message := 'not_ready');
 eReason := MONETcommon.E_CommandRejectReason.gohome_active;
 AssertTrue(Condition := LEN(MONETcommon.F_CommandRejectText(eReason)) > 0, Message := 'gohome_active');
+eReason := MONETcommon.E_CommandRejectReason.init_required;
+AssertEquals_STRING(Expected := 'init required after manual mode, send power=1 first', Actual := MONETcommon.F_CommandRejectText(eReason), Message := 'init_required text (#72)');
 AssertEquals_STRING(Expected := 'telescope parked, send power=1 first', Actual := MONETcommon.F_CommandRejectText(MONETcommon.E_CommandRejectReason.parked), Message := 'parked text (#83)');
 TEST_FINISHED();
 ]]></ST>
