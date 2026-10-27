@@ -16,6 +16,7 @@ First_Standstill_Sample_Does_Not_Settle();
 Settles_After_Done_And_Three_Scans();
 Done_In_Different_Scans_Settles();
 Disabled_Axis_Counts_As_Done();
+Disabled_Axis_Gets_No_Stop();
 No_Transaction_Settles_On_Standstill();
 Cancel_Rearms_Next_Transaction();
 Restart_Resends_Only_To_Moving_Axes();
@@ -421,6 +422,37 @@ tx.Monitor();
 AssertFalse(Condition := tx.bStuck, Message := 'only once');
 AssertTrue(Condition := tx.bActive, Message := 'the stop is kept');
 AssertFalse(Condition := tx.bSettled, Message := 'not settled');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Disabled_Axis_Gets_No_Stop" Id="{e2358618-74a6-4939-bd49-0652a433bf8b}">
+      <Declaration><![CDATA[// #150: a stop before the axes are enabled (power-on at 27 s). A disabled axis is not at StandStill, so the transaction sends it
+// StopAxis; FB_Axis.StopAllowed is FALSE there, the stop request stays latched in FB_AxisCommand and starts when the next
+// power-on enables the axis (NC 0x42EF "locked ... stop command is still active"). Expected to FAIL until the transaction
+// skips disabled axes (red test first).
+METHOD PRIVATE Disabled_Axis_Gets_No_Stop
+VAR
+	tx	: MONETcommon.FB_MonetStopTransaction;
+	i	: UINT;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Disabled_Axis_Gets_No_Stop');
+FOR i := 1 TO 3 DO
+	tx.abEnabled[i] := TRUE;
+	tx.abStandStill[i] := TRUE;
+END_FOR
+// azimuth and elevation not enabled yet: not StandStill either
+tx.abEnabled[1] := FALSE;
+tx.abStandStill[1] := FALSE;
+tx.abEnabled[2] := FALSE;
+tx.abStandStill[2] := FALSE;
+tx.Begin();
+tx();
+AssertFalse(Condition := tx.abWriteHigh[1], Message := 'no stop for the disabled azimuth');
+AssertFalse(Condition := tx.abWriteHigh[2], Message := 'no stop for the disabled elevation');
+AssertFalse(Condition := tx.abWriteHigh[3], Message := 'derotator at rest: none');
 TEST_FINISHED();
 ]]></ST>
       </Implementation>
