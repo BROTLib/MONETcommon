@@ -218,11 +218,11 @@ END_VAR
 ]]></Declaration>
       <Implementation>
         <ST><![CDATA[IF bAllClosed THEN
-	fbComm.Publish('telescope', 'dome', 'AUXILIARY.COVER.REALPOS', '0.0');
+	fbComm.PublishLREAL('telescope', 'dome', 'AUXILIARY.COVER.REALPOS', 0.0);
 ELSIF bAllOpen THEN
-	fbComm.Publish('telescope', 'dome', 'AUXILIARY.COVER.REALPOS', '1.0');
+	fbComm.PublishLREAL('telescope', 'dome', 'AUXILIARY.COVER.REALPOS', 1.0);
 ELSE
-	fbComm.Publish('telescope', 'dome', 'AUXILIARY.COVER.REALPOS', '0.5');
+	fbComm.PublishLREAL('telescope', 'dome', 'AUXILIARY.COVER.REALPOS', 0.5);
 END_IF
 ]]></ST>
       </Implementation>

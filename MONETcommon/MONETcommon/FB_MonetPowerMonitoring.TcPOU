@@ -58,25 +58,25 @@ mqttTimer(IN:=TRUE);
 IF mqttTimer.Q THEN
 	mqttTimer(IN:=FALSE);
 
-	fbComm.Publish('power', 'power', 'FrequencyGuardWarning',	BOOL_TO_STRING(FrequencyGuardWarning));
-	fbComm.Publish('power', 'power', 'FrequencyGuardError',	BOOL_TO_STRING(FrequencyGuardError));
-	fbComm.Publish('power', 'power', 'QualityGuardWarning',	BOOL_TO_STRING(QualityGuardWarning));
-	fbComm.Publish('power', 'power', 'QualityGuardError',		BOOL_TO_STRING(QualityGuardError));
-	fbComm.Publish('power', 'power', 'UnbalanceGuardWarning',	BOOL_TO_STRING(UnbalanceGuardWarning));
-	fbComm.Publish('power', 'power', 'UnbalanceGuardError',	BOOL_TO_STRING(UnbalanceGuardError));
+	fbComm.PublishBOOL('power', 'power', 'FrequencyGuardWarning',	FrequencyGuardWarning);
+	fbComm.PublishBOOL('power', 'power', 'FrequencyGuardError',	FrequencyGuardError);
+	fbComm.PublishBOOL('power', 'power', 'QualityGuardWarning',	QualityGuardWarning);
+	fbComm.PublishBOOL('power', 'power', 'QualityGuardError',		QualityGuardError);
+	fbComm.PublishBOOL('power', 'power', 'UnbalanceGuardWarning',	UnbalanceGuardWarning);
+	fbComm.PublishBOOL('power', 'power', 'UnbalanceGuardError',	UnbalanceGuardError);
 	fbComm.Publish('power', 'power', 'PowerQuality',			REAL_TO_STRING(PowerQuality));
-	fbComm.Publish('power', 'power', 'L1OverVoltage',			BOOL_TO_STRING(L1OverVoltage));
-	fbComm.Publish('power', 'power', 'L1InaccVoltage',		BOOL_TO_STRING(L1InaccVoltage));
-	fbComm.Publish('power', 'power', 'L1VoltageGuardWarning',	BOOL_TO_STRING(L1VoltageGuardWarning));
-	fbComm.Publish('power', 'power', 'L1VoltageGuardError',	BOOL_TO_STRING(L1VoltageGuardError));
-	fbComm.Publish('power', 'power', 'L2OverVoltage',			BOOL_TO_STRING(L2OverVoltage));
-	fbComm.Publish('power', 'power', 'L2InaccVoltage',		BOOL_TO_STRING(L2InaccVoltage));
-	fbComm.Publish('power', 'power', 'L2VoltageGuardWarning',	BOOL_TO_STRING(L2VoltageGuardWarning));
-	fbComm.Publish('power', 'power', 'L2VoltageGuardError',	BOOL_TO_STRING(L2VoltageGuardError));
-	fbComm.Publish('power', 'power', 'L3OverVoltage',			BOOL_TO_STRING(L3OverVoltage));
-	fbComm.Publish('power', 'power', 'L3InaccVoltage',		BOOL_TO_STRING(L3InaccVoltage));
-	fbComm.Publish('power', 'power', 'L3VoltageGuardWarning',	BOOL_TO_STRING(L3VoltageGuardWarning));
-	fbComm.Publish('power', 'power', 'L3VoltageGuardError',	BOOL_TO_STRING(L3VoltageGuardError));
+	fbComm.PublishBOOL('power', 'power', 'L1OverVoltage',			L1OverVoltage);
+	fbComm.PublishBOOL('power', 'power', 'L1InaccVoltage',		L1InaccVoltage);
+	fbComm.PublishBOOL('power', 'power', 'L1VoltageGuardWarning',	L1VoltageGuardWarning);
+	fbComm.PublishBOOL('power', 'power', 'L1VoltageGuardError',	L1VoltageGuardError);
+	fbComm.PublishBOOL('power', 'power', 'L2OverVoltage',			L2OverVoltage);
+	fbComm.PublishBOOL('power', 'power', 'L2InaccVoltage',		L2InaccVoltage);
+	fbComm.PublishBOOL('power', 'power', 'L2VoltageGuardWarning',	L2VoltageGuardWarning);
+	fbComm.PublishBOOL('power', 'power', 'L2VoltageGuardError',	L2VoltageGuardError);
+	fbComm.PublishBOOL('power', 'power', 'L3OverVoltage',			L3OverVoltage);
+	fbComm.PublishBOOL('power', 'power', 'L3InaccVoltage',		L3InaccVoltage);
+	fbComm.PublishBOOL('power', 'power', 'L3VoltageGuardWarning',	L3VoltageGuardWarning);
+	fbComm.PublishBOOL('power', 'power', 'L3VoltageGuardError',	L3VoltageGuardError);
 END_IF
 
 // EventLog section
