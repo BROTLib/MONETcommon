@@ -34,6 +34,7 @@ VAR
 	fbStopLoopSimTests	: StopLoop_Sim_Tests;
 	fbTempSensorTests	: FB_MonetTempSensor_Tests;
 	fbMethodVarProbeTests	: FB_MethodVarProbe_Tests;
+	fbPendantControlTests	: FB_MonetPendantControl_Tests;
 	fbMonetRigTests	: FB_MonetRig_Tests;
 	fbMonetStopDuringSlewTests	: MonetStopDuringSlew_Tests;
 	fbMonetStopWhileTrackingTests	: MonetStopWhileTracking_Tests;
