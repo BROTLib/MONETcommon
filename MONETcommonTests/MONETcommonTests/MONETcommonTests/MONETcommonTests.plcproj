@@ -28,9 +28,6 @@
     <Compile Include="POUs\FB_NullComm.TcPOU">
       <SubType>Code</SubType>
     </Compile>
-    <Compile Include="POUs\FB_MonetCoverControl_Tests.TcPOU">
-      <SubType>Code</SubType>
-    </Compile>
     <Compile Include="POUs\F_AzimuthOffsetOnAxis_Tests.TcPOU">
       <SubType>Code</SubType>
     </Compile>

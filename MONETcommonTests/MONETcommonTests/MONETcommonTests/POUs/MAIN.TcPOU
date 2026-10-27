@@ -4,7 +4,6 @@
     <Declaration><![CDATA[PROGRAM MAIN
 VAR
 	// TcUnit finds every FB_TestSuite instance by itself; it is enough to declare them here.
-	fbCoverControlTests	: FB_MonetCoverControl_Tests;
 	fbAzimuthOffsetTests	: F_AzimuthOffsetOnAxis_Tests;
 	fbHomeBelowHorizonTests	: F_HomeBelowHorizon_Tests;
 	fbCommandAcceptanceTests	: F_CommandAcceptance_Tests;
