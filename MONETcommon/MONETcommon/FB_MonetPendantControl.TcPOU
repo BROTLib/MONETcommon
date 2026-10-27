@@ -4,7 +4,7 @@
     <Declaration><![CDATA[FUNCTION_BLOCK FB_MonetPendantControl
 VAR_INPUT
 	eTelescopeMode		: E_TelescopeMode;
-	fbCovers			: REFERENCE TO FB_MonetCoverControl;
+	fbCovers			: REFERENCE TO HalfBROT.FB_CoverControl;
 	fbBrake				: REFERENCE TO FB_HydraulicsControl;
 	fbHydraulics		: REFERENCE TO FB_HydraulicsControl;
 	fbFocus		 		: REFERENCE TO FB_FocusControl;
@@ -24,6 +24,12 @@ VAR
 	fbUpTrigger			: R_TRIG;
 	fbDownTrigger		: R_TRIG;	
 	fbResetTrigger		: R_TRIG;
+	// covers, key on: hold-to-run of the whole sequence (HalfBROT cover plan 2026-10-12)
+	bCoverJogUp			: BOOL;
+	bCoverJogDown		: BOOL;
+	bCoverJogActive		: BOOL;		// the pendant started the running open/close and stops it on release
+	fbCoverUpTrigger	: R_TRIG;
+	fbCoverDownTrigger	: R_TRIG;
 
 	//DIN17 2.0
 	// AT%I*/AT%Q* below are mapped directly on this FB: only one instance per PLC is
@@ -77,6 +83,26 @@ fbDownTrigger(CLK := IbDirectionDown);
 // the error lamp is the same as the error lamp of the main panel
 ObLampError := ObLampError;
 
+// covers, key on, selection 1-3: hold-to-run of the whole sequence (open 1->3->2, close 2->3->1); the cover block does
+// the order, interlock, timeout and dead time. A run the pendant started stops when the button is released, the key
+// goes off or the selector leaves 1-3 (#10, #3 for the covers). After an error a new press is needed (edge, not level).
+bCoverJogUp := IbEnableKey AND nSelection >= 1 AND nSelection <= 3 AND IbDirectionUp AND NOT IbDirectionDown;
+bCoverJogDown := IbEnableKey AND nSelection >= 1 AND nSelection <= 3 AND IbDirectionDown AND NOT IbDirectionUp;
+fbCoverUpTrigger(CLK := bCoverJogUp);
+fbCoverDownTrigger(CLK := bCoverJogDown);
+IF __ISVALIDREF(fbCovers) THEN
+	IF fbCoverDownTrigger.Q THEN
+		fbCovers.Close();
+		bCoverJogActive := TRUE;
+	ELSIF fbCoverUpTrigger.Q THEN
+		fbCovers.Open();
+		bCoverJogActive := TRUE;
+	ELSIF bCoverJogActive AND NOT bCoverJogUp AND NOT bCoverJogDown THEN
+		fbCovers.Stop();
+		bCoverJogActive := FALSE;
+	END_IF
+END_IF
+
 // enabled?
 bEnable := IbEnableKey;
 IF NOT bEnable THEN
@@ -94,21 +120,11 @@ END_IF
 
 // enable only the selected item and connect lamps and buttons accordingly
 CASE nSelection OF
-	1, 2, 3:	// reserved for Cover 1-3 control
+	1, 2, 3:	// covers: lamps only; the hold-to-run is above the RETURN
 		ObLampUp := fbCovers.Opened;
 		ObLampDown := fbCovers.Closed;
-		IF IbEnableKey THEN
-			fbCovers.bOpen := IbDirectionUp AND fbCovers.Opened;
-			fbCovers.bClose := IbDirectionDown AND fbCovers.Closed;
-			ObLampError := fbCovers.bError;	
-		ELSE
-			IF IbDirectionDown THEN 
-				fbCovers.Close();
-			ELSIF IbDirectionUp THEN
-				fbCovers.Open();
-			END_IF		
-		END_IF
-		
+		ObLampError := fbCovers.bError;
+
 	4:	// Nasmyth / mirror M3 control
 		
 	5:	// Focus Control
