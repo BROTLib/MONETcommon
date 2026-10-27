@@ -50,7 +50,7 @@ were orphaned forks of HalfBROT's actively-maintained versions.
 | `FB_MonetPendantControl` | Manual hand pendant (BCD selector + buttons) |
 | `FB_MonetCabinetControl` | Cabinet physical I/O — buttons, switches, lamps, temperature |
 | `FB_MonetPowerMonitoring` | Three-phase power-quality monitoring |
-| `FB_MonetCoverControl` | Three mirror covers, sequenced open **1→3→2**, close **2→3→1** (`I_MirrorCovers`) |
+| `FB_MonetPendantControl` covers | Selection 1-3 with the key on: hold-to-run open/close of all covers via `HalfBROT.FB_CoverControl` (one copy since 0.10.0, needs HalfBROT with `Stop()`) |
 | `FB_MonetMqttWatchdog` | Parks the telescope and closes the roof after 30 s without an MQTT broker connection (armed after the first connect) |
 | `FB_MonetDiagnostics` | `diagnostics/base/*` telemetry: telescope interrupted/ready/busy/stopped, per-axis error/error ID/enable, safety error/estop/state; on change plus a 30 s heartbeat |
 
@@ -91,7 +91,8 @@ with the cover command of a power-on and is FALSE after a normal park and after 
 
 - `FB_MonetSafetyHandling` — handles the TwinSAFE startup sequence and the
   safe-torque-off (STO) reset handshake for all three drive axes.
-- `FB_MonetPendantControl` — BCD-selector manual hand pendant.
+- `FB_MonetPendantControl` — BCD-selector manual hand pendant. The error lamp shows the selected function's error;
+  selector 0 (pendant disconnected) lights it and does nothing else. The horn variable is not wired (nothing sounds).
 - `FB_MonetCabinetControl` — cabinet buttons/switches/lamps and temperature
   monitoring.
 - `FB_MonetPowerMonitoring` — monitors the three-phase supply quality.
