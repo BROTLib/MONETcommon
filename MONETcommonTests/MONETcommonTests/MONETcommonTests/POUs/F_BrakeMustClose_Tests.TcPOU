@@ -8,9 +8,9 @@ VAR
 END_VAR
 ]]></Declaration>
     <Implementation>
-      <ST><![CDATA[Disabled_Closes();
+      <ST><![CDATA[Elevation_Not_Enabled_Closes();
 Enabled_Keeps();
-Disabled_Window_Keeps();
+Not_Enabled_Window_Keeps();
 Enabled_Window_Keeps();
 Window_Estop_Closes();
 Window_HydraulicsError_Closes();
@@ -19,14 +19,14 @@ Window_CoversNotOpen_Closes();
 Enabled_Block_Keeps();
 ]]></ST>
     </Implementation>
-    <Method Name="Disabled_Closes" Id="{c46c572f-85fd-4982-94a7-7d1488620124}">
+    <Method Name="Elevation_Not_Enabled_Closes" Id="{c46c572f-85fd-4982-94a7-7d1488620124}">
       <Declaration><![CDATA[// Elevation disabled: the brake must be commanded closed.
-METHOD PRIVATE Disabled_Closes
+METHOD PRIVATE Elevation_Not_Enabled_Closes
 VAR
 END_VAR
 ]]></Declaration>
       <Implementation>
-        <ST><![CDATA[TEST('Disabled_Closes');
+        <ST><![CDATA[TEST('Elevation_Not_Enabled_Closes');
 AssertTrue(Condition := MONETcommon.F_BrakeMustClose(bElevationEnabled := FALSE, bWakeShakeWindow := FALSE, bEstop := FALSE, bHydraulicsError := FALSE, bSafetyError := FALSE, bCoversOpen := TRUE), Message := 'elevation disabled');
 TEST_FINISHED();
 ]]></ST>
@@ -45,14 +45,14 @@ TEST_FINISHED();
 ]]></ST>
       </Implementation>
     </Method>
-    <Method Name="Disabled_Window_Keeps" Id="{4f3535ab-bb30-4d3f-9f8b-023e64cbb9ae}">
+    <Method Name="Not_Enabled_Window_Keeps" Id="{4f3535ab-bb30-4d3f-9f8b-023e64cbb9ae}">
       <Declaration><![CDATA[// Elevation disabled in the Wake&Shake window (#151): the brake that the operator opened stays open.
-METHOD PRIVATE Disabled_Window_Keeps
+METHOD PRIVATE Not_Enabled_Window_Keeps
 VAR
 END_VAR
 ]]></Declaration>
       <Implementation>
-        <ST><![CDATA[TEST('Disabled_Window_Keeps');
+        <ST><![CDATA[TEST('Not_Enabled_Window_Keeps');
 AssertFalse(Condition := MONETcommon.F_BrakeMustClose(bElevationEnabled := FALSE, bWakeShakeWindow := TRUE, bEstop := FALSE, bHydraulicsError := FALSE, bSafetyError := FALSE, bCoversOpen := TRUE), Message := 'wake&shake window');
 TEST_FINISHED();
 ]]></ST>

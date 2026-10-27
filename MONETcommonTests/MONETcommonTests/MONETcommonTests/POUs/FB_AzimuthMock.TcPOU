@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
   <POU Name="FB_AzimuthMock" Id="{f2ffd774-8a4d-4067-a41a-a990b1c8eab7}" SpecialFunc="None">
     <Declaration><![CDATA[// Mock of FB_AzimuthControl for the telescope state machine tests (MONETcommon#36, BROTLib plan 2026-10-21-telescope-state-machine-unification D1).
@@ -75,7 +75,7 @@ bError := bInjected;
 nErrorID := nInjectedId;
 ]]></ST>
     </Implementation>
-    <Method Name="InjectError" Id="{15ab52cd-e3f6-45c9-9382-610dfdf8ff67}">
+    <Method Name="InjectError" Id="{7b5ffe42-4f43-4d92-9ec6-dd005695327d}">
       <Declaration><![CDATA[// the axis reports an error with this id until the telescope resets it (bError/nErrorID are what the telescope reads)
 METHOD InjectError
 VAR_INPUT
@@ -88,5 +88,13 @@ nInjectedId := nId;
 ]]></ST>
       </Implementation>
     </Method>
+    <LineIds Name="FB_AzimuthMock">
+      <LineId Id="3" Count="49" />
+      <LineId Id="2" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_AzimuthMock.InjectError">
+      <LineId Id="3" Count="1" />
+      <LineId Id="2" Count="0" />
+    </LineIds>
   </POU>
 </TcPlcObject>
