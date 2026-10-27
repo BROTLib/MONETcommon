@@ -176,7 +176,7 @@ again. There is no silent recovery, a startup is never resumed and nothing queue
 `InitRequired` (read-only property, `bInitRequired`); only a completed startup clears it (not reset, stop, park, E-stop or an
 aborted startup). While it is set, slew, goto, track and gohome are rejected with the log text
 `init required after manual mode, send power=1 first` (`E_CommandRejectReason.init_required`), also when they were sent
-during manual or written directly to the flags, and the horizon guard does not start a home. Stop, park, reset and Init stay
+during manual (the direct flag-write gate uses the same check), and the horizon guard does not start a home. Stop, park, reset and Init stay
 accepted. READY_STATE stays -2.0 (0.0 if secured, -1.0 on error) until the Init completes.
 
 The Init **homes the telescope**: it opens the covers, enables the drives, homes only the axes that are not calibrated

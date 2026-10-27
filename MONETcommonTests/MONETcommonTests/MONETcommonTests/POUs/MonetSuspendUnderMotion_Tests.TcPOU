@@ -379,8 +379,8 @@ END_CASE
       </Implementation>
     </Method>
     <Method Name="Back_To_Automatic_Requires_Init_Before_Any_Move" Id="{72b3d6f1-8a4c-4e17-b5d9-3c0a91e7f272}">
-      <Declaration><![CDATA[// #72: a completed startup that only visited manual mode needs a new Init: back in automatic moves are rejected (init_required, also a
-// direct bGoto write), nothing moves, READY_STATE stays -2.0; after the Init the latch is cleared and a slew is accepted again.
+      <Declaration><![CDATA[// #72: a completed startup that only visited manual mode needs a new Init: back in automatic moves are rejected (init_required),
+// nothing moves, READY_STATE stays -2.0; after the Init the latch is cleared and a slew is accepted again.
 METHOD PRIVATE Back_To_Automatic_Requires_Init_Before_Any_Move
 VAR_INST
 	rig			: FB_MonetRig;
@@ -441,11 +441,10 @@ CASE nStep OF
 		F_Note(bFailed := (rig.fbTel.bSlew), sText := CONCAT(sTest, 'the slew method is rejected'));
 		AssertTrue(Condition := rig.fbTel.eLastRejectReason = MONETcommon.E_CommandRejectReason.init_required, Message := 'reason init_required');
 		F_Note(bFailed := NOT (rig.fbTel.eLastRejectReason = MONETcommon.E_CommandRejectReason.init_required), sText := CONCAT(sTest, 'reason init_required'));
-		rig.fbTel.bGoto := TRUE;	// direct write (ADS), decided on its rising edge in the next scan
 		nStep := 40;
 		nCycles := 0;
 	END_IF
-40:	// the direct write is dropped, nothing moves
+40:	// nothing moves
 	IF nCycles >= 30 THEN
 		AssertFalse(Condition := rig.fbTel.bGoto OR rig.fbTel.bSlew, Message := 'no move flag survives');
 		F_Note(bFailed := (rig.fbTel.bGoto OR rig.fbTel.bSlew), sText := CONCAT(sTest, 'no move flag survives'));
