@@ -50,7 +50,7 @@ were orphaned forks of HalfBROT's actively-maintained versions.
 | `FB_MonetPendantControl` | Manual hand pendant (BCD selector + buttons) |
 | `FB_MonetCabinetControl` | Cabinet physical I/O — buttons, switches, lamps, temperature |
 | `FB_MonetPowerMonitoring` | Three-phase power-quality monitoring |
-| `FB_MonetCoverControl` | Three mirror covers, sequenced open **1→3→2**, close **2→3→1** (`I_MirrorCovers`) |
+| `FB_MonetPendantControl` covers | Selection 1-3 with the key on: hold-to-run open/close of all covers via `HalfBROT.FB_CoverControl` (one copy since 0.10.0, needs HalfBROT with `Stop()`) |
 | `FB_MonetMqttWatchdog` | Parks the telescope and closes the roof after 30 s without an MQTT broker connection (armed after the first connect) |
 | `FB_MonetDiagnostics` | `diagnostics/base/*` telemetry: telescope interrupted/ready/busy/stopped, per-axis error/error ID/enable, safety error/estop/state; on change plus a 30 s heartbeat |
 
@@ -78,12 +78,21 @@ covers stay open for the manual Wake&Shake (a WARN is logged). From then on a
 (otherwise it is closed whenever the elevation is disabled, #121). The window
 closes, and the brake with it, on park, E-stop, a focus/derotator error, closed
 covers, a new `power=1` or the timeout (#151).
+The brake can be opened in the window with the elevation error latched, without `reset=1` first: the error closes
+the brake once, and while the window is open the brake is closed again only by an E-stop, a hydraulics error, a safety
+error (input `bSafetyError`, wire it to `SafetyHandling.error`; FALSE = not enforced) or covers that are not open (#155).
+
+`bIsParked` means *secured* (covers closed, brake closed, hydraulics off, axes disabled), not *at the park
+position*: the emergency park, and a park after a reset or an aborted power-on, secure the telescope where it stands.
+`bParkedInPlace` (MQTT `diagnostics/base/ParkedInPlace`, WARN log "parked in place at el .. az ..") is TRUE then; it drops
+with the cover command of a power-on and is FALSE after a normal park and after a PLC restart (#158).
 
 ### Safety and auxiliary systems
 
 - `FB_MonetSafetyHandling` — handles the TwinSAFE startup sequence and the
   safe-torque-off (STO) reset handshake for all three drive axes.
-- `FB_MonetPendantControl` — BCD-selector manual hand pendant.
+- `FB_MonetPendantControl` — BCD-selector manual hand pendant. The error lamp shows the selected function's error;
+  selector 0 (pendant disconnected) lights it and does nothing else. The horn variable is not wired (nothing sounds).
 - `FB_MonetCabinetControl` — cabinet buttons/switches/lamps and temperature
   monitoring.
 - `FB_MonetPowerMonitoring` — monitors the three-phase supply quality.

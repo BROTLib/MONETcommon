@@ -54,7 +54,7 @@ blinkPowerLamp(Q => outLampPower);
 commTimer(IN:=TRUE);
 IF commTimer.Q THEN
 	commTimer(IN:=FALSE);
-	fbComm.Publish('electronics', 'base', 'MainCabinetTemperature', LREAL_TO_FMTSTR(cabinetTemp, 2, TRUE));
+	fbComm.PublishLREAL('electronics', 'base', 'MainCabinetTemperature', cabinetTemp);
 END_IF
 
 // events

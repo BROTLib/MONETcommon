@@ -4,7 +4,6 @@
     <Declaration><![CDATA[PROGRAM MAIN
 VAR
 	// TcUnit finds every FB_TestSuite instance by itself; it is enough to declare them here.
-	fbCoverControlTests	: FB_MonetCoverControl_Tests;
 	fbAzimuthOffsetTests	: F_AzimuthOffsetOnAxis_Tests;
 	fbHomeBelowHorizonTests	: F_HomeBelowHorizon_Tests;
 	fbCommandAcceptanceTests	: F_CommandAcceptance_Tests;
@@ -23,6 +22,9 @@ VAR
 	fbFocusTrackStoredPositionTests	: F_FocusTrackStoredPosition_Tests;
 	fbFocusJogLatchTests	: FB_FocusJogLatch_Tests;
 	fbFocusModeSwitchSimTests	: FocusModeSwitch_Sim_Tests;
+	fbFocusTargetInitTests	: FB_FocusTargetInit_Tests;
+	fbFocusHomingReferenceTests	: F_FocusHomingReference_Tests;
+	fbFocusTargetInitSimTests	: FocusTargetInit_Sim_Tests;
 	fbOilLevelValidTests	: F_OilLevelValid_Tests;
 	fbOilSuctionLatchTests	: F_OilSuctionLatch_Tests;
 	fbGotoTargetCheckTests	: F_GotoTargetCheck_Tests;
@@ -30,6 +32,7 @@ VAR
 	fbStopLoopSimTests	: StopLoop_Sim_Tests;
 	fbTempSensorTests	: FB_MonetTempSensor_Tests;
 	fbMethodVarProbeTests	: FB_MethodVarProbe_Tests;
+	fbPendantControlTests	: FB_MonetPendantControl_Tests;
 	fbMonetRigTests	: FB_MonetRig_Tests;
 	fbMonetStopDuringSlewTests	: MonetStopDuringSlew_Tests;
 	fbMonetStopWhileTrackingTests	: MonetStopWhileTracking_Tests;
@@ -37,6 +40,7 @@ VAR
 	fbMonetResetUnderMotionTests	: MonetResetUnderMotion_Tests;
 	fbMonetSuspendUnderMotionTests	: MonetSuspendUnderMotion_Tests;
 	fbMonetErrorParkTests	: MonetErrorPark_Tests;
+	fbMonetBrakeReleaseTests	: MonetBrakeRelease_Tests;
 	fbMonetTimeoutsTests : MonetTimeouts_Tests;
 END_VAR
 ]]></Declaration>

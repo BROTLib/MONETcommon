@@ -10,7 +10,7 @@ results); this one only covers what's specific to MONETcommon.
 
 | Suite | What it checks |
 |---|---|
-| `FB_MonetCoverControl_Tests` | `FB_MonetCoverControl` actually compiles and runs with no linked hardware, and that the inverted limit-switch polarity correctly reports `bError` when both switches read as active (the default state of an unlinked `AT%I*` input) |
+| `FB_MonetPendantControl_Tests` | with no linked hardware (selector 0, key off) the error lamp is on, `bEnable` is FALSE and no direction lamp is lit (HalfBROT #12). The selector, key and buttons are `AT%I*`, so only this unlinked state can be tested |
 | `F_CommandAcceptance_Tests` | `F_CommandAcceptance` / `F_CommandRejectText` (#83, #87): one test per row of the command-acceptance table (reject reasons, park wins over power-on, park deferred during a stop, latest move replaces) |
 | `F_AxisTurn_Tests` | the turn of an azimuth/derotator target inside the axis limits (#2): MONETS/MONETN limits, inclusive endpoints, no valid turn, longest track time with the 4 h cap, nearest turn without velocity, the margin, and that a tracking axis keeps its turn and stops at the margin instead of jumping 360 deg |
 | `F_TargetBelowHorizonWarning_Tests` | the 'Target below safe horizon' condition (#94): only a requested goto/track below `fHorizon` warns, an idle or parked telescope with a stale RA/Dec target does not, the comparison is strict |
@@ -33,6 +33,7 @@ results); this one only covers what's specific to MONETcommon.
 | `MonetResetUnderMotion_Tests` | `FB_MonetTelescopeControl` | step 1 of the unification plan, on the mock rig: a reset during a slew drops the slew, keeps the abort stop until the axes have stopped (one stop each) and resets no moving axis (#56, #84, #85); the reset aborts the startup, so an online telescope drops to READY_STATE -2.0; a reset during a park keeps the park and sends no abort stop; a reset at rest drops an accepted slew that has not started |
 | `MonetSuspendUnderMotion_Tests` | `FB_MonetTelescopeControl.SuspendAutomatic` | step 1 of the unification plan, on the mock rig: the switch to manual (#118) while a slew or a park moves the axes stops each moving axis once, drops the slew and keeps `bPark`; at rest it stops nothing; in manual the telescope is never online (READY_STATE -2.0); the jog requests are forced off while the suspend stop runs; an axis error that appears in manual does not start the emergency park when automatic comes back (#86) |
 | `MonetErrorPark_Tests` | `FB_MonetTelescopeControl` | step 1 of the unification plan, on the mock rig: a new elevation or focus error on a telescope that is not parked starts the emergency park (brake closed, axes disabled, covers closed, parked, READY_STATE -1.0, #86); no park for an error on a parked telescope, with the E-stop pressed, or for an azimuth/elevation error of the first power-on (#113); a persisting error does not park a second time |
+| `MonetBrakeRelease_Tests` | `FB_MonetTelescopeControl` | on the mock rig (#155): after the elevation error of the first power-on the brake can be opened in the Wake&Shake window without `reset=1` (the error closes it once, not in every scan); E-stop, safety error and hydraulics error close it again (the window stays after a safety error); an elevation error after a completed power-on and the window timeout keep the brake closed (#86, #121) |
 | `MonetTimeouts_Tests` | `FB_MonetTelescopeControl` | step 3 of the unification plan, through the time seam (`FB_MonetTelescopeControl.nTimeDivisor`, set per rig, shortens every `FB_TimeoutTimer`): a slew still running after 600 s is error 16#40; an online telescope without a command parks after 12 h; a stop that never settles under the switch to manual is handed to the pendant after 15 s and keeps the abort stop |
 
 This is a first, deliberately small slice -- see
@@ -42,15 +43,8 @@ takes `REFERENCE TO FB_ElevationControl`/`FB_AzimuthControl`/`FB_DerotatorContro
 HalfBROT types built on `AXIS_REF` -- whether those run against an unlinked/virtual axis on this
 target, or need something more, is not yet confirmed).
 
-### Why `FB_MonetCoverControl`'s new movement timeout (#9) isn't tested yet
 
-`IabCoverOpen`/`IabCoverClosed` are `AT%I*`, mapped *inside* the FB itself -- a test in a different
-FB instance has no way to force them from ST code (that needs an ADS force list, or restructuring
-the limit switches into inputs the caller controls). Confirmed instead, as a first step, that the
-FB runs at all without hardware, and that its *existing* both-switches-read-true-by-default
-behavior is what it should be. Forcing specific switch states (to actually exercise the "never
-reaches the limit switch" timeout path) is follow-up work, likely via `Run-Tests.ps1` scripting an
-ADS force list after deploy, since that's outside what a self-contained ST test can do.
+The cover block lives in HalfBROT now (`HalfBROT.FB_CoverControl`, one copy since MONETcommon 0.10.0); its tests belong to HalfBROT (cover plan 2026-10-12, step 0).
 
 ## Running the tests
 

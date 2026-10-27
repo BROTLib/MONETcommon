@@ -16,6 +16,15 @@ VAR_INPUT
 
 	bBrakeClearing		: BOOL	:= TRUE;
 
+	// BROTLib#33: use the live weather (MQTT, pybrotlib.weather) in the refraction of eq2hor/hor2eq. FALSE (default) keeps
+	// the estimate from the site altitude. A value is used only if it is valid (not stale) and plausible for the site
+	// (BROTLib.F_RefractionWeather); anything else falls back to the estimate, pressure and temperature independently.
+	// Switch on per site after the on-sky check (MONETcommon#30).
+	bLiveWeatherRefraction	: BOOL := FALSE;
+
+	// #155: SafetyHandling.error, wired in MAIN. FALSE (default) means the safety block of the brake is not enforced.
+	bSafetyError		: BOOL;
+
 	// Test seam (plan decision 4): every long timeout of this telescope (600 s, 2 min, 12 h) is divided by it. Production
 	// leaves it at 1. Per instance, because TcUnit runs all suites in the same PLC cycles.
 	nTimeDivisor		: UDINT := 1;
@@ -48,9 +57,19 @@ VAR_OUTPUT
 	fDerotatorVelocity	: LREAL;	// rotational velocity of the derotator
 	fElevationVelocity	: LREAL;	// rotational velocity of the elevation
 	fAzimuthVelocity	: LREAL;	// rotational velocity of the elevation
+
+	// weather handed to the refraction of eq2hor and both hor2eq calls (BROTLib#33); published as WEATHER.REFRACTION.*
+	fRefractionPressure		: LREAL;	// hPa, 0.0 = estimate from altitude
+	fRefractionTemperature	: LREAL;	// deg C, only meaningful if bRefractionTemperatureSet
+	bRefractionTemperatureSet	: BOOL;	// FALSE = estimate from altitude
 END_VAR
 VAR
     fbStartup : BROTLib.FB_StartupControl;
+	bRefractionLive				: BOOL;	// at least one live value is used
+	bRefractionPressureRejected	: BOOL;	// live pressure valid but implausible for the site (logged on the rising edge)
+	bRefractionTemperatureRejected	: BOOL;
+	rtrigPressureRejected	: R_TRIG;
+	rtrigTemperatureRejected	: R_TRIG;
 	bTargetBelowHorizonWarn	: BOOL;	// #94: goto/track requested with the RA/Dec target below fHorizon, taken before the dispatch can clear bGoto
 	// M1: internal (non-axis) errors from the Goto/Home/Slew state machines, latched
 	// until bReset since bError/nErrorID are otherwise recomputed from the axes every
@@ -115,6 +134,12 @@ VAR
 	bSuspendStop		: BOOL;
 	bSuspendStopStarted	: BOOL;	// one scan, logged
 	SuspendStopEvent	: FB_EventLog;
+	// #158: bIsParked means "secured" (covers closed, brake closed, hydraulics off, axes disabled), not "at the park position".
+	// bParkedInPlace is TRUE when the park ended where the telescope stood (error, or axes could not move, #86/#87). Not
+	// persistent: FALSE after a PLC restart, where the pose is unknown.
+	bParkedInPlace		: BOOL;
+	ParkedInPlaceEvent	: FB_EventLog;
+	bParkedInPlaceLogged: BOOL;	// one scan, logged
 
 	// #83: command acceptance. Methods and the direct-write gate decide at arrival (F_CommandAcceptance);
 	// a rejection is logged and counted, never queued.
@@ -160,6 +185,12 @@ VAR
 	WakeShakeOpenEvent		: FB_EventLog;
 	WakeShakeCloseEvent		: FB_EventLog;
 	sWakeShakeCloseMessage	: STRING(80);
+	// #155: the elevation error closes the brake once; the operator may open it again in the window
+	rtrigElevationError		: R_TRIG;
+	// #155: a block (E-stop, hydraulics error, safety error, covers not open) closed an open brake in the window
+	bWakeShakeBrakeBlocked	: BOOL;	// logged on its rising edge
+	sWakeShakeBlockMessage	: STRING(80);
+	WakeShakeBlockEvent		: FB_EventLog;
 END_VAR
 VAR CONSTANT
 	tWakeShakeWindow	: TIME := T#15M;	// #151: longest time the brake stays open for the Wake&Shake
@@ -285,11 +316,44 @@ ELSE
 	nErrorID := 0;
 END_IF
 
+// #155: the brake is closed once when the elevation error appears, not in every scan: a level close would undo the
+// opening from the Visu in the Wake&Shake window (F_BrakeMustClose keeps the brake closed outside the window).
+rtrigElevationError(CLK := fbElevation.bError);
 IF fbElevation.bError THEN
 	fbElevation.Enable := FALSE;
 	fbAzimuth.Enable := FALSE;
 	fbDerotator.Enable := FALSE;
-	fbBrake.CloseBrake();
+	IF rtrigElevationError.Q THEN
+		fbBrake.CloseBrake();
+	END_IF
+END_IF
+
+// One weather for the commanded position (eq2hor) and for the reported RA/Dec (both hor2eq below): with different
+// weather the reported coordinates would differ from the commanded ones by the refraction difference.
+IF bLiveWeatherRefraction THEN
+	bRefractionLive := BROTLib.F_RefractionWeather(
+		stWeather := Weather,
+		fSiteAltitude := telescopeConfig.altitude,
+		fPressure => fRefractionPressure,
+		fTemperature => fRefractionTemperature,
+		bTemperatureSet => bRefractionTemperatureSet,
+		bPressureRejected => bRefractionPressureRejected,
+		bTemperatureRejected => bRefractionTemperatureRejected);
+ELSE
+	bRefractionLive := FALSE;
+	fRefractionPressure := 0.0;
+	fRefractionTemperature := 0.0;
+	bRefractionTemperatureSet := FALSE;
+	bRefractionPressureRejected := FALSE;
+	bRefractionTemperatureRejected := FALSE;
+END_IF
+rtrigPressureRejected(CLK := bRefractionPressureRejected);
+IF rtrigPressureRejected.Q THEN
+	ADSLOGSTR( ADSLOG_MSGTYPE_WARN OR ADSLOG_MSGTYPE_LOG, 'Live weather: %s does not fit the site, the estimate is used', 'pressure');
+END_IF
+rtrigTemperatureRejected(CLK := bRefractionTemperatureRejected);
+IF rtrigTemperatureRejected.Q THEN
+	ADSLOGSTR( ADSLOG_MSGTYPE_WARN OR ADSLOG_MSGTYPE_LOG, 'Live weather: %s does not fit the site, the estimate is used', 'temperature');
 END_IF
 
 eq2hor(
@@ -298,6 +362,9 @@ eq2hor(
 	lon := telescopeConfig.longitude,
 	lat := telescopeConfig.latitude,
 	altitude := telescopeConfig.altitude,
+	pressure := fRefractionPressure,
+	temperature := fRefractionTemperature,
+	temperature_set := bRefractionTemperatureSet,
 	JD := fJd + fTimeOffset,
 	dut1 := fDut1,
 	refract_to_observed := TRUE,
@@ -371,6 +438,9 @@ hor2eq(alt := fElevationCurrentSky - fElevationOffset,
 		lat := telescopeConfig.latitude,
 		lon := telescopeConfig.longitude,
 		altitude := telescopeConfig.altitude,
+		pressure := fRefractionPressure,
+		temperature := fRefractionTemperature,
+		temperature_set := bRefractionTemperatureSet,
 		alt_is_observed := TRUE,
 		// refract := FALSE,
 		ra => fRightAscensionCurrent,
@@ -383,6 +453,9 @@ hor2eq(alt := fElevationCurrentSky,
 		lat := telescopeConfig.latitude,
 		lon := telescopeConfig.longitude,
 		altitude := telescopeConfig.altitude,
+		pressure := fRefractionPressure,
+		temperature := fRefractionTemperature,
+		temperature_set := bRefractionTemperatureSet,
 		alt_is_observed := TRUE,
 		ra => fRightAscensionCurrentSky,
 		dec => fDeclinationCurrentSky);
@@ -667,8 +740,25 @@ bWakeShakePowerLast := bPower;
 bWakeShakeOpened := bWakeShakeWindow AND NOT bWakeShakeWindowLast;
 bWakeShakeClosed := bWakeShakeWindowLast AND NOT bWakeShakeWindow;
 bWakeShakeWindowLast := bWakeShakeWindow;
-IF F_BrakeMustClose(bElevationEnabled := fbElevation.bEnable, bWakeShakeWindow := bWakeShakeWindow) THEN
+// #155: in the window the brake still closes while E-stop, a hydraulics error, a safety error or closed covers hold.
+IF F_BrakeMustClose(bElevationEnabled := fbElevation.bEnable, bWakeShakeWindow := bWakeShakeWindow,
+		bEstop := bEstopTriggered, bHydraulicsError := fbHydraulics.Error, bSafetyError := bSafetyError,
+		bCoversOpen := fbCovers.Opened) THEN
+	bWakeShakeBrakeBlocked := bWakeShakeWindow AND fbBrake.BrakeOpen;
+	IF bWakeShakeBrakeBlocked THEN
+		IF bEstopTriggered THEN
+			sWakeShakeBlockMessage := 'brake closed in the Wake&Shake window: E-stop';
+		ELSIF fbHydraulics.Error THEN
+			sWakeShakeBlockMessage := 'brake closed in the Wake&Shake window: hydraulics error';
+		ELSIF bSafetyError THEN
+			sWakeShakeBlockMessage := 'brake closed in the Wake&Shake window: safety error';
+		ELSE
+			sWakeShakeBlockMessage := 'brake closed in the Wake&Shake window: covers not open';
+		END_IF
+	END_IF
 	fbBrake.CloseBrake();
+ELSE
+	bWakeShakeBrakeBlocked := FALSE;
 END_IF
  
 bSlewing := NOT bTracking AND (aAxis[2].bInMotion OR aAxis[2].bInRamp OR
@@ -732,7 +822,7 @@ END_IF
 // send telemetry
 // The readiness field uses its existing topic and numeric format.
 IF fbStartup.PublishDue(CommValid := fbComm <> 0, Heartbeat := FALSE) THEN
-    fbComm.Publish('telescope', 'dome', 'TELESCOPE.READY_STATE', LREAL_TO_STRING(fReadyState));
+    fbComm.PublishLREAL('telescope', 'dome', 'TELESCOPE.READY_STATE', fReadyState);
 END_IF
 IF bSlewing OR bTrack OR bTracking THEN
 	tonMQTTTimer.PT := T#500MS; // M13: was "every second", actually twice a second while moving
@@ -954,7 +1044,8 @@ rtrigError(CLK := bError);
 IF rtrigError.Q THEN
 	nStage := 0;
 END_IF
-// parked means: nothing opened since the last park (#113: bIsParked drops with the cover command of a power-on)
+// parked means: nothing opened since the last park (#113: bIsParked drops with the cover command of a power-on).
+// #158: that is "secured", not "at the park position"; see bParkedInPlace.
 IF bIsParked THEN
 	nStage := 100;
 END_IF
@@ -977,8 +1068,11 @@ CASE nStage OF
 			fbAzimuth.Enable := FALSE;
 			fbDerotator.Enable := FALSE;	
 			fbCovers.Close();	
+			bParkedInPlace := TRUE;
+			bParkedInPlaceLogged := TRUE;
 			nStage := 80;
 		ELSE
+			bParkedInPlace := FALSE;
 			nStage := 10;
 		END_IF
 	10:
@@ -1109,6 +1203,7 @@ CASE nStage OF
 		// #113: from the cover command on, a park must close what the power-on opens (with bIsParked TRUE it would only
 		// clear bPark). A power-on that fails before this line (checks above) has opened nothing and stays parked.
 		bIsParked := FALSE;
+		bParkedInPlace := FALSE;
 		fbCovers.Open();
 		IF bMainReady AND fbCovers.Opened THEN
 			nStage := 10;
@@ -1185,6 +1280,7 @@ CASE nStage OF
             fAzimuth := fAzimuthCurrent;
             _PowerOn := TRUE;
             bIsParked := FALSE;
+            bParkedInPlace := FALSE;
             nStage := 0;
         END_IF
 
@@ -1286,6 +1382,13 @@ SuspendStopEvent(	Trigger := bSuspendStopStarted,
 					OnMessage := 'switch to manual under motion: stopping axes',
 					Comm := fbComm);
 bSuspendStopStarted := FALSE;
+ParkedInPlaceEvent(	Trigger := bParkedInPlaceLogged,
+					Level := ADSLOG_MSGTYPE_WARN,
+					FormatString := '%s',
+					OnMessage := CONCAT(CONCAT(CONCAT('parked in place at el ', LREAL_TO_STRING(fElevationCurrent)), ' az '),
+										CONCAT(LREAL_TO_STRING(fAzimuthCurrent), ' (not the park position)')),
+					Comm := fbComm);
+bParkedInPlaceLogged := FALSE;
 _StopEvents();
 IF NOT bSuspendStop THEN
     tonCommandTimeout(IN := FALSE);
@@ -1295,7 +1398,7 @@ fReadyState := fbStartup.Suspend(Error := bError OR bSoftwareError OR bPowerFail
 // Continue the existing readiness heartbeat without replaying a frozen ONLINE value.
 tonMQTTTimer(IN := TRUE, PT := T#1S);
 IF fbStartup.PublishDue(CommValid := fbComm <> 0, Heartbeat := tonMQTTTimer.Q) THEN
-    fbComm.Publish('telescope', 'dome', 'TELESCOPE.READY_STATE', LREAL_TO_STRING(fReadyState));
+    fbComm.PublishLREAL('telescope', 'dome', 'TELESCOPE.READY_STATE', fReadyState);
     tonMQTTTimer(IN := FALSE);
 END_IF
 ]]></ST></Implementation>
@@ -1308,9 +1411,16 @@ END_VAR
       <Implementation>
         <ST><![CDATA[SUPER^._PublishTelemetry();
 
-fbComm.Publish('telescope', 'dome', 'TELESCOPE.READY_STATE',	LREAL_TO_STRING(fReadyState));
-fbComm.Publish('telescope', 'dome', 'TELESCOPE.MOTION_STATE',	LREAL_TO_STRING(nMotionState));
-fbComm.Publish('telescope', 'dome', 'TELESCOPE.INTERRUPTED_AUTO_CLEAR_COUNT', UDINT_TO_STRING(nInterruptedAutoClearCount));
+fbComm.PublishLREAL('telescope', 'dome', 'TELESCOPE.READY_STATE',	fReadyState);
+fbComm.PublishLREAL('telescope', 'dome', 'TELESCOPE.MOTION_STATE',	nMotionState);
+fbComm.PublishINT('telescope', 'dome', 'TELESCOPE.INTERRUPTED_AUTO_CLEAR_COUNT', nInterruptedAutoClearCount);
+
+// the weather the refraction actually used (BROTLib#33); *_LIVE is 0 while the estimate is in use (switch off, value
+// stale, missing or implausible), so the values alone cannot be mistaken for a measurement
+fbComm.Publish('telescope', 'dome', 'WEATHER.REFRACTION.PRESSURE', LREAL_TO_STRING(fRefractionPressure));
+fbComm.Publish('telescope', 'dome', 'WEATHER.REFRACTION.TEMPERATURE', LREAL_TO_STRING(fRefractionTemperature));
+fbComm.Publish('telescope', 'dome', 'WEATHER.REFRACTION.PRESSURE_LIVE', BOOL_TO_STRING(fRefractionPressure <> 0.0));
+fbComm.Publish('telescope', 'dome', 'WEATHER.REFRACTION.TEMPERATURE_LIVE', BOOL_TO_STRING(bRefractionTemperatureSet));
 
 // INFO, CONFIG.MOUNTOPTIONS/MOUNT, STATUS.GLOBAL, OBJECT.INSTRUMENTAL.ALT/AZ and the static
 // OBJECT.EQUATORIAL.EPOCH/EQUINOX/RA_PM/DEC_PM/RA_RATE/DEC_RATE fields used to be republished
@@ -1333,110 +1443,110 @@ fbComm.Publish('telescope', 'dome', 'TELESCOPE.INTERRUPTED_AUTO_CLEAR_COUNT', UD
 
 // EQUATORIAL
 // all angles in the telemetry are degrees, RA included, like the rightascension command (BROTLib#37)
-fbComm.Publish('telescope', 'dome', 'OBJECT.EQUATORIAL.RA_ICRS', LREAL_TO_STRING(fRightAscension));
-fbComm.Publish('telescope', 'dome', 'OBJECT.EQUATORIAL.DEC_ICRS', LREAL_TO_STRING(fDeclination));
+fbComm.PublishLREAL('telescope', 'dome', 'OBJECT.EQUATORIAL.RA_ICRS', fRightAscension);
+fbComm.PublishLREAL('telescope', 'dome', 'OBJECT.EQUATORIAL.DEC_ICRS', fDeclination);
 
 // HORIZONTAL
-fbComm.Publish('telescope', 'dome', 'OBJECT.HORIZONTAL.ALT', LREAL_TO_STRING(fElevationCalc));
-fbComm.Publish('telescope', 'dome', 'OBJECT.HORIZONTAL.AZ', LREAL_TO_STRING(fAzimuthCalc));
+fbComm.PublishLREAL('telescope', 'dome', 'OBJECT.HORIZONTAL.ALT', fElevationCalc);
+fbComm.PublishLREAL('telescope', 'dome', 'OBJECT.HORIZONTAL.AZ', fAzimuthCalc);
 
 (* POINTING *)
-fbComm.Publish('telescope', 'dome', 'POINTING.SLEWTIME', LREAL_TO_STRING(fSlewtime));
-fbComm.Publish('telescope', 'dome', 'POINTING.OFFSETS.ALT', LREAL_TO_STRING(fElevationPointingOffset));
-fbComm.Publish('telescope', 'dome', 'POINTING.OFFSETS.AZ', LREAL_TO_STRING(fAzimuthPointingOffset));
+fbComm.PublishLREAL('telescope', 'dome', 'POINTING.SLEWTIME', fSlewtime);
+fbComm.PublishLREAL('telescope', 'dome', 'POINTING.OFFSETS.ALT', fElevationPointingOffset);
+fbComm.PublishLREAL('telescope', 'dome', 'POINTING.OFFSETS.AZ', fAzimuthPointingOffset);
 
 (*POSITION*)
 //LOCAL
-fbComm.Publish('telescope', 'dome', 'POSITION.LOCAL.SIDEREAL_TIME', LREAL_TO_STRING(fLst));
-fbComm.Publish('telescope', 'dome', 'POSITION.LOCAL.JD', LREAL_TO_STRING(fJd));
-fbComm.Publish('telescope', 'dome', 'POSITION.LOCAL.LATITUDE', LREAL_TO_STRING(telescopeConfig.latitude));
-fbComm.Publish('telescope', 'dome', 'POSITION.LOCAL.LONGITUDE', LREAL_TO_STRING(telescopeConfig.longitude));
-fbComm.Publish('telescope', 'dome', 'POSITION.LOCAL.HEIGHT', LREAL_TO_STRING(telescopeConfig.altitude));
+fbComm.PublishLREAL('telescope', 'dome', 'POSITION.LOCAL.SIDEREAL_TIME', fLst);
+fbComm.PublishLREAL('telescope', 'dome', 'POSITION.LOCAL.JD', fJd);
+fbComm.PublishLREAL('telescope', 'dome', 'POSITION.LOCAL.LATITUDE', telescopeConfig.latitude);
+fbComm.PublishLREAL('telescope', 'dome', 'POSITION.LOCAL.LONGITUDE', telescopeConfig.longitude);
+fbComm.PublishLREAL('telescope', 'dome', 'POSITION.LOCAL.HEIGHT', telescopeConfig.altitude);
 
 // INSTRUMENTAL
 // > ALT
 // POWER_STATE
 IF fbElevation.Enable THEN
-	fbComm.Publish('telescope', 'dome', 'POSITION.INSTRUMENTAL.ALT.POWER_STATE', '1.0');
+	fbComm.PublishLREAL('telescope', 'dome', 'POSITION.INSTRUMENTAL.ALT.POWER_STATE', 1.0);
 ELSE
-	fbComm.Publish('telescope', 'dome', 'POSITION.INSTRUMENTAL.ALT.POWER_STATE', '0.0');
+	fbComm.PublishLREAL('telescope', 'dome', 'POSITION.INSTRUMENTAL.ALT.POWER_STATE', 0.0);
 END_IF
 //REFERENCED
 IF fbElevation.Calibrated THEN
-	fbComm.Publish('telescope', 'dome', 'POSITION.INSTRUMENTAL.ALT.REFERENCED', '1.0');
+	fbComm.PublishLREAL('telescope', 'dome', 'POSITION.INSTRUMENTAL.ALT.REFERENCED', 1.0);
 ELSE
-	fbComm.Publish('telescope', 'dome', 'POSITION.INSTRUMENTAL.ALT.REFERENCED', '0.0');
+	fbComm.PublishLREAL('telescope', 'dome', 'POSITION.INSTRUMENTAL.ALT.REFERENCED', 0.0);
 END_IF
 //ERROR_STATE
 IF fbElevation.Error THEN
-	fbComm.Publish('telescope', 'dome', 'POSITION.INSTRUMENTAL.ALT.ERROR_STATE', UDINT_TO_STRING(fbElevation.ErrorID));
+	fbComm.PublishINT('telescope', 'dome', 'POSITION.INSTRUMENTAL.ALT.ERROR_STATE', fbElevation.ErrorID);
 ELSE
-	fbComm.Publish('telescope', 'dome', 'POSITION.INSTRUMENTAL.ALT.ERROR_STATE', '0');
+	fbComm.PublishINT('telescope', 'dome', 'POSITION.INSTRUMENTAL.ALT.ERROR_STATE', 0);
 END_IF
 //MOTION_STATE
 IF fbElevation.Busy THEN
 	IF fbElevation.isTracking THEN
-		fbComm.Publish('telescope', 'dome', 'POSITION.INSTRUMENTAL.ALT.MOTION_STATE', '8');
+		fbComm.PublishINT('telescope', 'dome', 'POSITION.INSTRUMENTAL.ALT.MOTION_STATE', 8);
 	ELSE
-		fbComm.Publish('telescope', 'dome', 'POSITION.INSTRUMENTAL.ALT.MOTION_STATE', '1');
+		fbComm.PublishINT('telescope', 'dome', 'POSITION.INSTRUMENTAL.ALT.MOTION_STATE', 1);
 	END_IF
 ELSE
-	fbComm.Publish('telescope', 'dome', 'POSITION.INSTRUMENTAL.ALT.MOTION_STATE', '0');
+	fbComm.PublishINT('telescope', 'dome', 'POSITION.INSTRUMENTAL.ALT.MOTION_STATE', 0);
 END_IF
-fbComm.Publish('telescope', 'dome', 'POSITION.INSTRUMENTAL.ALT.REALPOS', LREAL_TO_STRING(fElevationCurrent-fElevationOffset));
-fbComm.Publish('telescope', 'dome', 'POSITION.INSTRUMENTAL.ALT.CURRPOS', LREAL_TO_STRING(fElevationCurrent));
-fbComm.Publish('telescope', 'dome', 'POSITION.INSTRUMENTAL.ALT.TARGETPOS', LREAL_TO_STRING(fbElevation.Position));
-fbComm.Publish('telescope', 'dome', 'POSITION.INSTRUMENTAL.ALT.CURRSPEED', LREAL_TO_STRING(fbElevation.Velocity));
-fbComm.Publish('telescope', 'dome', 'POSITION.INSTRUMENTAL.ALT.TARGETDISTANCE', LREAL_TO_STRING(ABS(fElevationCurrent-fbElevation.Position)));
-fbComm.Publish('telescope', 'dome', 'POSITION.INSTRUMENTAL.ALT.OFFSET', LREAL_TO_STRING(fElevationOffset));
+fbComm.PublishLREAL('telescope', 'dome', 'POSITION.INSTRUMENTAL.ALT.REALPOS', fElevationCurrent-fElevationOffset);
+fbComm.PublishLREAL('telescope', 'dome', 'POSITION.INSTRUMENTAL.ALT.CURRPOS', fElevationCurrent);
+fbComm.PublishLREAL('telescope', 'dome', 'POSITION.INSTRUMENTAL.ALT.TARGETPOS', fbElevation.Position);
+fbComm.PublishLREAL('telescope', 'dome', 'POSITION.INSTRUMENTAL.ALT.CURRSPEED', fbElevation.Velocity);
+fbComm.PublishLREAL('telescope', 'dome', 'POSITION.INSTRUMENTAL.ALT.TARGETDISTANCE', ABS(fElevationCurrent-fbElevation.Position));
+fbComm.PublishLREAL('telescope', 'dome', 'POSITION.INSTRUMENTAL.ALT.OFFSET', fElevationOffset);
 
 // > AZ
 // POWER_STATE
 IF fbAzimuth.Enable THEN
-	fbComm.Publish('telescope', 'dome', 'POSITION.INSTRUMENTAL.AZ.POWER_STATE', '1.0');
+	fbComm.PublishLREAL('telescope', 'dome', 'POSITION.INSTRUMENTAL.AZ.POWER_STATE', 1.0);
 ELSE
-	fbComm.Publish('telescope', 'dome', 'POSITION.INSTRUMENTAL.AZ.POWER_STATE', '0.0');
+	fbComm.PublishLREAL('telescope', 'dome', 'POSITION.INSTRUMENTAL.AZ.POWER_STATE', 0.0);
 END_IF
 //REFERENCED
 IF fbAzimuth.Calibrated THEN
-	fbComm.Publish('telescope', 'dome', 'POSITION.INSTRUMENTAL.AZ.REFERENCED', '1.0');
+	fbComm.PublishLREAL('telescope', 'dome', 'POSITION.INSTRUMENTAL.AZ.REFERENCED', 1.0);
 ELSE
-	fbComm.Publish('telescope', 'dome', 'POSITION.INSTRUMENTAL.AZ.REFERENCED', '0.0');
+	fbComm.PublishLREAL('telescope', 'dome', 'POSITION.INSTRUMENTAL.AZ.REFERENCED', 0.0);
 END_IF
 //ERROR_STATE
 IF fbAzimuth.Error THEN
-	fbComm.Publish('telescope', 'dome', 'POSITION.INSTRUMENTAL.AZ.ERROR_STATE', UDINT_TO_STRING(fbAzimuth.ErrorID));
+	fbComm.PublishINT('telescope', 'dome', 'POSITION.INSTRUMENTAL.AZ.ERROR_STATE', fbAzimuth.ErrorID);
 ELSE
-	fbComm.Publish('telescope', 'dome', 'POSITION.INSTRUMENTAL.AZ.ERROR_STATE', '0');
+	fbComm.PublishINT('telescope', 'dome', 'POSITION.INSTRUMENTAL.AZ.ERROR_STATE', 0);
 END_IF
 //MOTION_STATE
 IF fbAzimuth.Busy THEN
 	IF fbAzimuth.isTracking THEN
-		fbComm.Publish('telescope', 'dome', 'POSITION.INSTRUMENTAL.AZ.MOTION_STATE', '8');
+		fbComm.PublishINT('telescope', 'dome', 'POSITION.INSTRUMENTAL.AZ.MOTION_STATE', 8);
 	ELSE
-		fbComm.Publish('telescope', 'dome', 'POSITION.INSTRUMENTAL.AZ.MOTION_STATE', '1');
+		fbComm.PublishINT('telescope', 'dome', 'POSITION.INSTRUMENTAL.AZ.MOTION_STATE', 1);
 	END_IF
 ELSE
-	fbComm.Publish('telescope', 'dome', 'POSITION.INSTRUMENTAL.AZ.MOTION_STATE', '0');
+	fbComm.PublishINT('telescope', 'dome', 'POSITION.INSTRUMENTAL.AZ.MOTION_STATE', 0);
 END_IF
 
-fbComm.Publish('telescope', 'dome', 'POSITION.INSTRUMENTAL.AZ.CURRPOS', LREAL_TO_STRING(fAzimuthCurrent));
-fbComm.Publish('telescope', 'dome', 'POSITION.INSTRUMENTAL.AZ.REALPOS', LREAL_TO_STRING(fAzimuthCurrent-F_AzimuthOffsetOnAxis(fAzimuthOffset, fElevationCurrent)));	// M7: was fElevation (stale)
-fbComm.Publish('telescope', 'dome', 'POSITION.INSTRUMENTAL.AZ.TARGETPOS', LREAL_TO_STRING(fbAzimuth.Position));
-fbComm.Publish('telescope', 'dome', 'POSITION.INSTRUMENTAL.AZ.CURRSPEED', LREAL_TO_STRING(fbAzimuth.Velocity));
-fbComm.Publish('telescope', 'dome', 'POSITION.INSTRUMENTAL.AZ.TARGETDISTANCE', LREAL_TO_STRING(ABS(fAzimuthCurrent-fbAzimuth.Position)));
-fbComm.Publish('telescope', 'dome', 'POSITION.INSTRUMENTAL.AZ.OFFSET', LREAL_TO_STRING(fAzimuthOffset));
+fbComm.PublishLREAL('telescope', 'dome', 'POSITION.INSTRUMENTAL.AZ.CURRPOS', fAzimuthCurrent);
+fbComm.PublishLREAL('telescope', 'dome', 'POSITION.INSTRUMENTAL.AZ.REALPOS', fAzimuthCurrent-F_AzimuthOffsetOnAxis(fAzimuthOffset, fElevationCurrent));	// M7: was fElevation (stale)
+fbComm.PublishLREAL('telescope', 'dome', 'POSITION.INSTRUMENTAL.AZ.TARGETPOS', fbAzimuth.Position);
+fbComm.PublishLREAL('telescope', 'dome', 'POSITION.INSTRUMENTAL.AZ.CURRSPEED', fbAzimuth.Velocity);
+fbComm.PublishLREAL('telescope', 'dome', 'POSITION.INSTRUMENTAL.AZ.TARGETDISTANCE', ABS(fAzimuthCurrent-fbAzimuth.Position));
+fbComm.PublishLREAL('telescope', 'dome', 'POSITION.INSTRUMENTAL.AZ.OFFSET', fAzimuthOffset);
 
 
 (*HORIZONTAL*)
-fbComm.Publish('telescope', 'dome', 'POSITION.HORIZONTAL.ALT', LREAL_TO_STRING(fElevationCurrentSky));
-fbComm.Publish('telescope', 'dome', 'POSITION.HORIZONTAL.AZ', LREAL_TO_STRING(fAzimuthCurrentSky));
+fbComm.PublishLREAL('telescope', 'dome', 'POSITION.HORIZONTAL.ALT', fElevationCurrentSky);
+fbComm.PublishLREAL('telescope', 'dome', 'POSITION.HORIZONTAL.AZ', fAzimuthCurrentSky);
 //fbComm.Publish('telescope', 'dome', 'POSITION.HORIZONTAL.DOME', LREAL_TO_STRING(fbDome.Position));
 
 (*EQUITORIAL*)
-fbComm.Publish('telescope', 'dome', 'POSITION.EQUATORIAL.RA_ICRS', LREAL_TO_STRING(fRightAscensionCurrent));	// degrees (BROTLib#37)
-fbComm.Publish('telescope', 'dome', 'POSITION.EQUATORIAL.HA_ICRS', LREAL_TO_STRING(fHourAngleCurrent));
-fbComm.Publish('telescope', 'dome', 'POSITION.EQUATORIAL.DEC_ICRS', LREAL_TO_STRING(fDeclinationCurrent));
+fbComm.PublishLREAL('telescope', 'dome', 'POSITION.EQUATORIAL.RA_ICRS', fRightAscensionCurrent);	// degrees (BROTLib#37)
+fbComm.PublishLREAL('telescope', 'dome', 'POSITION.EQUATORIAL.HA_ICRS', fHourAngleCurrent);
+fbComm.PublishLREAL('telescope', 'dome', 'POSITION.EQUATORIAL.DEC_ICRS', fDeclinationCurrent);
 ]]></ST>
       </Implementation>
     </Method>
@@ -1637,6 +1747,11 @@ ErrorParkExemptEvent(	Trigger := bErrorParkExempt,
 				OnMessage := 'axis error in the first power-on after a PLC restart (Wake&Shake?): no emergency park, covers stay open; reset, Wake&Shake and power=1, or park=1',
 				Comm := fbComm);
 bErrorParkExempt := FALSE;
+WakeShakeBlockEvent(	Trigger := bWakeShakeBrakeBlocked,
+				Level := ADSLOG_MSGTYPE_WARN,
+				FormatString := '%s',
+				OnMessage := sWakeShakeBlockMessage,
+				Comm := fbComm);
 WakeShakeOpenEvent(	Trigger := bWakeShakeOpened,
 				Level := ADSLOG_MSGTYPE_WARN,
 				FormatString := '%s',

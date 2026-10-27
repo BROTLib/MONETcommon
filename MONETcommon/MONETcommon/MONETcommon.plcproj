@@ -19,7 +19,7 @@
     <Company>IAG</Company>
     <Released>false</Released>
     <Title>MONETcommon</Title>
-    <ProjectVersion>0.9.10</ProjectVersion>
+    <ProjectVersion>0.10.0</ProjectVersion>
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="E_CommandDecision.TcDUT">
@@ -47,9 +47,6 @@
       <SubType>Code</SubType>
     </Compile>
     <Compile Include="FB_MonetCabinetControl.TcPOU">
-      <SubType>Code</SubType>
-    </Compile>
-    <Compile Include="FB_MonetCoverControl.TcPOU">
       <SubType>Code</SubType>
     </Compile>
     <Compile Include="FB_MonetDiagnostics.TcPOU">
@@ -124,15 +121,15 @@
   </ItemGroup>
   <ItemGroup>
     <PlaceholderReference Include="AstroBROT">
-      <DefaultResolution>AstroBROT, 0.4.5 (BROT)</DefaultResolution>
+      <DefaultResolution>AstroBROT, 0.5.0 (BROT)</DefaultResolution>
       <Namespace>AstroBROT</Namespace>
     </PlaceholderReference>
     <PlaceholderReference Include="BROTLib">
-      <DefaultResolution>BROTLib, 0.10.4 (BROT)</DefaultResolution>
+      <DefaultResolution>BROTLib, 0.14.0 (BROT)</DefaultResolution>
       <Namespace>BROTLib</Namespace>
     </PlaceholderReference>
     <PlaceholderReference Include="HalfBROT">
-      <DefaultResolution>HalfBROT, 0.7.2 (BROT)</DefaultResolution>
+      <DefaultResolution>HalfBROT, 0.9.0 (BROT)</DefaultResolution>
       <Namespace>HalfBROT</Namespace>
     </PlaceholderReference>
     <PlaceholderReference Include="Tc2_Math">

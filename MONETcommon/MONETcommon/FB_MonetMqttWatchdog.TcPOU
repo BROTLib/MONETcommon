@@ -33,7 +33,7 @@ IF bTriggered THEN
 	IF iRoof <> 0 THEN
 		iRoof.Close();
 	END_IF
-	fbComm.Publish('electronics', 'base', 'MQTTWatchdog', 'TRIGGERED');
+	fbComm.PublishString('electronics', 'base', 'MQTTWatchdog', 'TRIGGERED');
 END_IF
 ]]></ST>
     </Implementation>

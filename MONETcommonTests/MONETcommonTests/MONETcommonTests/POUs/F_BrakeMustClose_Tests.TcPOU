@@ -1,27 +1,33 @@
 <?xml version="1.0" encoding="utf-8"?>
 <TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
   <POU Name="F_BrakeMustClose_Tests" Id="{f1ef2a39-409c-4656-86aa-5812827f5a5e}" SpecialFunc="None">
-    <Declaration><![CDATA[// Tests for MONETcommon.F_BrakeMustClose, the brake close while the elevation is disabled (#121).
+    <Declaration><![CDATA[// Tests for MONETcommon.F_BrakeMustClose, the brake close while the elevation is disabled (#121) and the blocks that close
+// it in the Wake&Shake window (#155).
 FUNCTION_BLOCK F_BrakeMustClose_Tests EXTENDS TcUnit.FB_TestSuite
 VAR
 END_VAR
 ]]></Declaration>
     <Implementation>
-      <ST><![CDATA[Disabled_Closes();
+      <ST><![CDATA[Elevation_Not_Enabled_Closes();
 Enabled_Keeps();
-Disabled_Window_Keeps();
+Not_Enabled_Window_Keeps();
 Enabled_Window_Keeps();
+Window_Estop_Closes();
+Window_HydraulicsError_Closes();
+Window_SafetyError_Closes();
+Window_CoversNotOpen_Closes();
+Enabled_Block_Keeps();
 ]]></ST>
     </Implementation>
-    <Method Name="Disabled_Closes" Id="{c46c572f-85fd-4982-94a7-7d1488620124}">
+    <Method Name="Elevation_Not_Enabled_Closes" Id="{c46c572f-85fd-4982-94a7-7d1488620124}">
       <Declaration><![CDATA[// Elevation disabled: the brake must be commanded closed.
-METHOD PRIVATE Disabled_Closes
+METHOD PRIVATE Elevation_Not_Enabled_Closes
 VAR
 END_VAR
 ]]></Declaration>
       <Implementation>
-        <ST><![CDATA[TEST('Disabled_Closes');
-AssertTrue(Condition := MONETcommon.F_BrakeMustClose(FALSE, FALSE), Message := 'elevation disabled');
+        <ST><![CDATA[TEST('Elevation_Not_Enabled_Closes');
+AssertTrue(Condition := MONETcommon.F_BrakeMustClose(bElevationEnabled := FALSE, bWakeShakeWindow := FALSE, bEstop := FALSE, bHydraulicsError := FALSE, bSafetyError := FALSE, bCoversOpen := TRUE), Message := 'elevation disabled');
 TEST_FINISHED();
 ]]></ST>
       </Implementation>
@@ -34,20 +40,20 @@ END_VAR
 ]]></Declaration>
       <Implementation>
         <ST><![CDATA[TEST('Enabled_Keeps');
-AssertFalse(Condition := MONETcommon.F_BrakeMustClose(TRUE, FALSE), Message := 'elevation enabled');
+AssertFalse(Condition := MONETcommon.F_BrakeMustClose(bElevationEnabled := TRUE, bWakeShakeWindow := FALSE, bEstop := FALSE, bHydraulicsError := FALSE, bSafetyError := FALSE, bCoversOpen := TRUE), Message := 'elevation enabled');
 TEST_FINISHED();
 ]]></ST>
       </Implementation>
     </Method>
-    <Method Name="Disabled_Window_Keeps" Id="{4f3535ab-bb30-4d3f-9f8b-023e64cbb9ae}">
+    <Method Name="Not_Enabled_Window_Keeps" Id="{4f3535ab-bb30-4d3f-9f8b-023e64cbb9ae}">
       <Declaration><![CDATA[// Elevation disabled in the Wake&Shake window (#151): the brake that the operator opened stays open.
-METHOD PRIVATE Disabled_Window_Keeps
+METHOD PRIVATE Not_Enabled_Window_Keeps
 VAR
 END_VAR
 ]]></Declaration>
       <Implementation>
-        <ST><![CDATA[TEST('Disabled_Window_Keeps');
-AssertFalse(Condition := MONETcommon.F_BrakeMustClose(FALSE, TRUE), Message := 'wake&shake window');
+        <ST><![CDATA[TEST('Not_Enabled_Window_Keeps');
+AssertFalse(Condition := MONETcommon.F_BrakeMustClose(bElevationEnabled := FALSE, bWakeShakeWindow := TRUE, bEstop := FALSE, bHydraulicsError := FALSE, bSafetyError := FALSE, bCoversOpen := TRUE), Message := 'wake&shake window');
 TEST_FINISHED();
 ]]></ST>
       </Implementation>
@@ -60,7 +66,72 @@ END_VAR
 ]]></Declaration>
       <Implementation>
         <ST><![CDATA[TEST('Enabled_Window_Keeps');
-AssertFalse(Condition := MONETcommon.F_BrakeMustClose(TRUE, TRUE), Message := 'enabled in the window');
+AssertFalse(Condition := MONETcommon.F_BrakeMustClose(bElevationEnabled := TRUE, bWakeShakeWindow := TRUE, bEstop := FALSE, bHydraulicsError := FALSE, bSafetyError := FALSE, bCoversOpen := TRUE), Message := 'enabled in the window');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Window_Estop_Closes" Id="{c97e2f29-bb2e-4fd3-9e4b-4c9d712be86f}">
+      <Declaration><![CDATA[// #155: elevation disabled in the window, but E-stop in the window: the brake is closed again.
+METHOD PRIVATE Window_Estop_Closes
+VAR
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Window_Estop_Closes');
+AssertTrue(Condition := MONETcommon.F_BrakeMustClose(bElevationEnabled := FALSE, bWakeShakeWindow := TRUE, bEstop := TRUE, bHydraulicsError := FALSE, bSafetyError := FALSE, bCoversOpen := TRUE), Message := 'E-stop in the window');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Window_HydraulicsError_Closes" Id="{4f07b013-602a-46c7-83fb-c1502361387b}">
+      <Declaration><![CDATA[// #155: elevation disabled in the window, but hydraulics error in the window: the brake is closed again.
+METHOD PRIVATE Window_HydraulicsError_Closes
+VAR
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Window_HydraulicsError_Closes');
+AssertTrue(Condition := MONETcommon.F_BrakeMustClose(bElevationEnabled := FALSE, bWakeShakeWindow := TRUE, bEstop := FALSE, bHydraulicsError := TRUE, bSafetyError := FALSE, bCoversOpen := TRUE), Message := 'hydraulics error in the window');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Window_SafetyError_Closes" Id="{262ade72-4107-4d12-995a-0bf2e06f86c2}">
+      <Declaration><![CDATA[// #155: elevation disabled in the window, but safety error in the window: the brake is closed again.
+METHOD PRIVATE Window_SafetyError_Closes
+VAR
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Window_SafetyError_Closes');
+AssertTrue(Condition := MONETcommon.F_BrakeMustClose(bElevationEnabled := FALSE, bWakeShakeWindow := TRUE, bEstop := FALSE, bHydraulicsError := FALSE, bSafetyError := TRUE, bCoversOpen := TRUE), Message := 'safety error in the window');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Window_CoversNotOpen_Closes" Id="{c1f94c02-cdbd-4bf9-af1b-305584c72b76}">
+      <Declaration><![CDATA[// #155: elevation disabled in the window, but covers not open in the window: the brake is closed again.
+METHOD PRIVATE Window_CoversNotOpen_Closes
+VAR
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Window_CoversNotOpen_Closes');
+AssertTrue(Condition := MONETcommon.F_BrakeMustClose(bElevationEnabled := FALSE, bWakeShakeWindow := TRUE, bEstop := FALSE, bHydraulicsError := FALSE, bSafetyError := FALSE, bCoversOpen := FALSE), Message := 'covers not open in the window');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Enabled_Block_Keeps" Id="{3f41893a-1853-45ea-b553-85c1e5ac54e3}">
+      <Declaration><![CDATA[// #155: the blocks only concern a disabled elevation; an enabled one is not touched.
+METHOD PRIVATE Enabled_Block_Keeps
+VAR
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Enabled_Block_Keeps');
+AssertFalse(Condition := MONETcommon.F_BrakeMustClose(bElevationEnabled := TRUE, bWakeShakeWindow := TRUE, bEstop := TRUE, bHydraulicsError := TRUE, bSafetyError := TRUE, bCoversOpen := FALSE), Message := 'enabled, all blocks');
 TEST_FINISHED();
 ]]></ST>
       </Implementation>
