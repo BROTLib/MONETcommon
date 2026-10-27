@@ -37,6 +37,15 @@ CloseBrake := TRUE;
 ]]></ST>
       </Implementation>
     </Method>
+    <Method Name="InjectError" Id="{026406ac-d201-44d8-81fe-06f99e026f89}">
+      <Declaration><![CDATA[// the hydraulics report an error until Reset() (fbHydraulics.Error, #155)
+METHOD InjectError
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[bFailed := TRUE;
+]]></ST>
+      </Implementation>
+    </Method>
     <Method Name="Reset" Id="{16f43ef0-757d-4384-8dfd-12f9d925c432}">
       <Declaration><![CDATA[METHOD Reset : BOOL
 ]]></Declaration>

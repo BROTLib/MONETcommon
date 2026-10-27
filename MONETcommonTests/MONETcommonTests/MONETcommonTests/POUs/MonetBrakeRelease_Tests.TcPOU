@@ -323,7 +323,7 @@ CASE nStep OF
 	IF nCycles >= 10 THEN
 		AssertTrue(Condition := rig.fbBrakeHyd.BrakeOpen, Message := 'the operator opened the brake');
 		F_Note(bFailed := NOT (rig.fbBrakeHyd.BrakeOpen), sText := CONCAT(sTest, 'the operator opened the brake'));
-		rig.fbBrakeHyd.bFailed := TRUE;
+		rig.fbBrakeHyd.InjectError();
 		nStep := 40;
 		nCycles := 0;
 	END_IF
