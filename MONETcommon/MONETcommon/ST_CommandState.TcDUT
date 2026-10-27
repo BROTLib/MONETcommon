@@ -12,6 +12,7 @@ STRUCT
 	bParkPending	: BOOL;		// bPark OR bParkAfterStop
 	bIsParked		: BOOL;
 	bReady			: BOOL;
+	bInitRequired	: BOOL;		// #72: set when the manual mode starts, cleared by a completed startup
 	bGoHomeActive	: BOOL;		// bGoHome OR TCS_command = gohome
 	bMoveActive		: BOOL;		// slew/goto/track flag or command, bTracking or bMoveAbortPending (own flag excluded)
 END_STRUCT

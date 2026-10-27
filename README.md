@@ -167,8 +167,24 @@ axis/controller error, latched software error, power-on failure, or E-stop. A
 power-on failure remains visible through reset until the next clean power-on
 attempt clears `bPowerFailure`; it does not wait for that startup to complete.
 A transient operational interlock gates online without erasing completed startup.
-Explicit suspension still aborts readiness; the manual-to-automatic recovery policy
-is tracked separately and is not changed by the interlock correction.
+Explicit suspension still aborts readiness and is not changed by the interlock correction.
 
-Manual-to-automatic recovery policy: [MONETcommon #72](https://github.com/BROTLib/MONETcommon/issues/72).
-The current explicit mode-suspension invalidation is retained pending that decision.
+### Manual to automatic ([#72](https://github.com/BROTLib/MONETcommon/issues/72))
+
+After **any** manual interval (`manual` or `off`) a new explicit Init (`power=1`) is required before the telescope moves
+again. There is no silent recovery, a startup is never resumed and nothing queued replays. The first manual scan sets
+`InitRequired` (read-only property, `bInitRequired`); only a completed startup clears it (not reset, stop, park, E-stop or an
+aborted startup). While it is set, slew, goto, track and gohome are rejected with the log text
+`init required after manual mode, send power=1 first` (`E_CommandRejectReason.init_required`), also when they were sent
+during manual or written directly to the flags, and the horizon guard does not start a home. Stop, park, reset and Init stay
+accepted. READY_STATE stays -2.0 (0.0 if secured, -1.0 on error) until the Init completes.
+
+The Init **homes the telescope**: it opens the covers, enables the drives, homes only the axes that are not calibrated
+and drives elevation, azimuth and derotator to their configured home positions. It does not park. Park is a separate
+command (`bIsParked` means secured). A park that was pending at the switch is kept (#118) and resumes when automatic
+comes back; this is logged as a warning. Telemetry other than READY_STATE (1 s heartbeat) pauses in manual.
+
+Not part of this change, see the plan `specs/plans/2026-10-27-manual-to-auto-readiness-policy-72.md`: a pose check before
+the move to home (Q4), error and E-stop state in manual (Q5, needs a MAIN line per site) and the redesign of the mode
+handling ([#168](https://github.com/BROTLib/MONETcommon/issues/168)). Hardware acceptance on MONET/N and MONET/S is separate
+(IAG repo, MONET telescope test plan).
