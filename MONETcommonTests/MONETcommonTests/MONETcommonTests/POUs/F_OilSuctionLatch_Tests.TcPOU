@@ -1,0 +1,148 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="F_OilSuctionLatch_Tests" Id="{ef24107f-462f-4bbb-adfa-be14782abd8f}" SpecialFunc="None">
+    <Declaration><![CDATA[// Tests for HalfBROT.F_OilSuctionLatch, the suction pump trigger with an invalid-level fallback (MONETS#32). Limits 15 % / 70 %.
+FUNCTION_BLOCK F_OilSuctionLatch_Tests EXTENDS TcUnit.FB_TestSuite
+VAR
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[Valid_Start_And_Stop();
+Valid_Float_Switch_Starts();
+Valid_Set_Dominates();
+Invalid_Over_Range_Does_Not_Start();
+Invalid_Keeps_A_Running_Suction();
+Invalid_Released_When_Pump_Off();
+Invalid_Float_Switch_Starts();
+Valid_Equals_The_Old_SR();
+]]></ST>
+    </Implementation>
+    <Method Name="Valid_Start_And_Stop" Id="{fdd57ce8-53b9-4d89-bdd7-8100b4d0d4d5}">
+      <Declaration><![CDATA[// Level valid: start above 70 %, stop below 15 %, hold in between (MONET/S: raw 6887 = 70.44 %, raw 2302 = 16.49 %).
+METHOD PRIVATE Valid_Start_And_Stop
+VAR
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Valid_Start_And_Stop');
+AssertTrue(Condition := HalfBROT.F_OilSuctionLatch(bLatched := FALSE, bLevelValid := TRUE, fLevel := 70.44, fMinPercent := 15.0, fMaxPercent := 70.0, bPanMaximum := FALSE, bMainPumpEnabled := TRUE), Message := 'start');
+AssertFalse(Condition := HalfBROT.F_OilSuctionLatch(bLatched := FALSE, bLevelValid := TRUE, fLevel := 60.0, fMinPercent := 15.0, fMaxPercent := 70.0, bPanMaximum := FALSE, bMainPumpEnabled := TRUE), Message := 'between, not latched');
+AssertTrue(Condition := HalfBROT.F_OilSuctionLatch(bLatched := TRUE, bLevelValid := TRUE, fLevel := 16.49, fMinPercent := 15.0, fMaxPercent := 70.0, bPanMaximum := FALSE, bMainPumpEnabled := TRUE), Message := 'hold above the stop level');
+AssertFalse(Condition := HalfBROT.F_OilSuctionLatch(bLatched := TRUE, bLevelValid := TRUE, fLevel := 14.9, fMinPercent := 15.0, fMaxPercent := 70.0, bPanMaximum := FALSE, bMainPumpEnabled := TRUE), Message := 'stop');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Valid_Float_Switch_Starts" Id="{a23db3b9-ba8c-429f-ad0d-1f9220a13d1b}">
+      <Declaration><![CDATA[// The float switch starts the suction at any level.
+METHOD PRIVATE Valid_Float_Switch_Starts
+VAR
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Valid_Float_Switch_Starts');
+AssertTrue(Condition := HalfBROT.F_OilSuctionLatch(bLatched := FALSE, bLevelValid := TRUE, fLevel := 5.0, fMinPercent := 15.0, fMaxPercent := 70.0, bPanMaximum := TRUE, bMainPumpEnabled := TRUE), Message := 'float switch');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Valid_Set_Dominates" Id="{93577283-6c6e-49b9-bb76-3e633141d346}">
+      <Declaration><![CDATA[// Set is dominant as in the old SR, also with the limits swapped.
+METHOD PRIVATE Valid_Set_Dominates
+VAR
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Valid_Set_Dominates');
+AssertTrue(Condition := HalfBROT.F_OilSuctionLatch(bLatched := TRUE, bLevelValid := TRUE, fLevel := 80.0, fMinPercent := 90.0, fMaxPercent := 70.0, bPanMaximum := FALSE, bMainPumpEnabled := TRUE), Message := 'set over reset');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Invalid_Over_Range_Does_Not_Start" Id="{c6dd5cc3-3846-4292-9410-ef87bb4107cd}">
+      <Declaration><![CDATA[// MS-02 step 4: an over-range value scales to 182 % (raw 16383) or 375 % (raw 32767) and must not start the suction.
+METHOD PRIVATE Invalid_Over_Range_Does_Not_Start
+VAR
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Invalid_Over_Range_Does_Not_Start');
+AssertFalse(Condition := HalfBROT.F_OilSuctionLatch(bLatched := FALSE, bLevelValid := FALSE, fLevel := 182.1, fMinPercent := 15.0, fMaxPercent := 70.0, bPanMaximum := FALSE, bMainPumpEnabled := TRUE), Message := '5 V');
+AssertFalse(Condition := HalfBROT.F_OilSuctionLatch(bLatched := FALSE, bLevelValid := FALSE, fLevel := 375.0, fMinPercent := 15.0, fMaxPercent := 70.0, bPanMaximum := FALSE, bMainPumpEnabled := TRUE), Message := 'full scale');
+AssertFalse(Condition := HalfBROT.F_OilSuctionLatch(bLatched := FALSE, bLevelValid := FALSE, fLevel := 182.1, fMinPercent := 15.0, fMaxPercent := 70.0, bPanMaximum := FALSE, bMainPumpEnabled := FALSE), Message := '5 V, pump off');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Invalid_Keeps_A_Running_Suction" Id="{abbbb204-f11f-4d87-83ec-54361c587284}">
+      <Declaration><![CDATA[// Wire break (-10.59 %) or over-range while the suction runs and the main pump is enabled: neither starts nor stops it.
+METHOD PRIVATE Invalid_Keeps_A_Running_Suction
+VAR
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Invalid_Keeps_A_Running_Suction');
+AssertTrue(Condition := HalfBROT.F_OilSuctionLatch(bLatched := TRUE, bLevelValid := FALSE, fLevel := -10.59, fMinPercent := 15.0, fMaxPercent := 70.0, bPanMaximum := FALSE, bMainPumpEnabled := TRUE), Message := 'wire break');
+AssertTrue(Condition := HalfBROT.F_OilSuctionLatch(bLatched := TRUE, bLevelValid := FALSE, fLevel := 182.1, fMinPercent := 15.0, fMaxPercent := 70.0, bPanMaximum := FALSE, bMainPumpEnabled := TRUE), Message := 'over-range');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Invalid_Released_When_Pump_Off" Id="{a1d1d69d-da3c-4472-b77e-921472fc506e}">
+      <Declaration><![CDATA[// The main pump is switched off: the pan does not fill, the suction is released.
+METHOD PRIVATE Invalid_Released_When_Pump_Off
+VAR
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Invalid_Released_When_Pump_Off');
+AssertFalse(Condition := HalfBROT.F_OilSuctionLatch(bLatched := TRUE, bLevelValid := FALSE, fLevel := -10.59, fMinPercent := 15.0, fMaxPercent := 70.0, bPanMaximum := FALSE, bMainPumpEnabled := FALSE), Message := 'pump off');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Invalid_Float_Switch_Starts" Id="{0a419829-1e80-48f2-9dba-79bd00cc75fd}">
+      <Declaration><![CDATA[// The float switch still starts the suction while the level is invalid, also with the main pump off (the switch resets it).
+METHOD PRIVATE Invalid_Float_Switch_Starts
+VAR
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Invalid_Float_Switch_Starts');
+AssertTrue(Condition := HalfBROT.F_OilSuctionLatch(bLatched := FALSE, bLevelValid := FALSE, fLevel := -10.59, fMinPercent := 15.0, fMaxPercent := 70.0, bPanMaximum := TRUE, bMainPumpEnabled := FALSE), Message := 'float switch');
+AssertTrue(Condition := HalfBROT.F_OilSuctionLatch(bLatched := FALSE, bLevelValid := FALSE, fLevel := -10.59, fMinPercent := 15.0, fMaxPercent := 70.0, bPanMaximum := TRUE, bMainPumpEnabled := TRUE), Message := 'float switch, pump on');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Valid_Equals_The_Old_SR" Id="{43a22650-5800-4d55-b6ff-4b0b733e64c9}">
+      <Declaration><![CDATA[// For a valid level all combinations equal the old SR (SET1 := float OR level > max, RESET := level < min, set dominant).
+METHOD PRIVATE Valid_Equals_The_Old_SR
+VAR
+	arrLevel	: ARRAY[1..4] OF REAL := [5.0, 14.9, 50.0, 80.0];
+	iLevel		: INT;
+	iLatched	: INT;
+	iFloat		: INT;
+	bLatched	: BOOL;
+	bFloat		: BOOL;
+	bExpected	: BOOL;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Valid_Equals_The_Old_SR');
+FOR iLevel := 1 TO 4 DO
+	FOR iLatched := 0 TO 1 DO
+		FOR iFloat := 0 TO 1 DO
+			bLatched := iLatched = 1;
+			bFloat := iFloat = 1;
+			bExpected := bFloat OR arrLevel[iLevel] > 70.0 OR (bLatched AND NOT (arrLevel[iLevel] < 15.0));
+			AssertEquals_BOOL(Expected := bExpected, Actual := HalfBROT.F_OilSuctionLatch(bLatched, TRUE, arrLevel[iLevel], 15.0, 70.0, bFloat, TRUE), Message := 'combination');
+		END_FOR
+	END_FOR
+END_FOR
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

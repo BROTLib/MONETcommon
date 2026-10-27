@@ -1,8 +1,8 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
   <POU Name="FB_MonetDiagnostics" Id="{f707e304-f2f9-4451-8558-6affd030d6e9}" SpecialFunc="None">
     <Declaration><![CDATA[// Diagnostics telemetry (measurement 'diagnostics', location 'base'): telescope interrupted/ready/busy/stopped,
-// per-axis error, error ID and enable, safety error/estop/state. Each value is published when it changes, plus a full
+// per-axis error, error ID and enable, Wake&Shake window (#151), safety error/estop/state. Each value is published when it changes, plus a full
 // snapshot every tHeartbeat so a human scanning history can tell the system was actively reporting, not just silent.
 // Booleans are retained by the broker (FB_Comm_MQTT_Influx.Publish). Moved unchanged from MONETS's MAIN so that
 // MONET/S and MONET/N share it (IAG specs/plans/2026-09-09-extended-diagnostics-telemetry-proposal.md).
@@ -34,6 +34,8 @@ VAR
 	bLastTelescopeReady		: BOOL;
 	bLastTelescopeBusy		: BOOL;
 	bLastTelescopeStopped	: BOOL;
+	bLastWakeShakeWindow	: BOOL;
+	bLastParkedInPlace		: BOOL;
 END_VAR
 ]]></Declaration>
     <Implementation>
@@ -111,6 +113,16 @@ END_IF
 IF (fbTelescope.bStopped <> bLastTelescopeStopped) OR bHeartbeatTick THEN
 	fbComm.Publish('diagnostics', 'base', 'TelescopeStopped', BOOL_TO_STRING(fbTelescope.bStopped));
 	bLastTelescopeStopped := fbTelescope.bStopped;
+END_IF
+// #151: the brake may stay open with the elevation disabled for the Wake&Shake (visible in the Visu)
+IF (fbTelescope.bWakeShakeWindow <> bLastWakeShakeWindow) OR bHeartbeatTick THEN
+	fbComm.Publish('diagnostics', 'base', 'WakeShakeWindow', BOOL_TO_STRING(fbTelescope.bWakeShakeWindow));
+	bLastWakeShakeWindow := fbTelescope.bWakeShakeWindow;
+END_IF
+// #158: bIsParked means secured; this tells that the park ended where the telescope stood, not at the park position
+IF (fbTelescope.bParkedInPlace <> bLastParkedInPlace) OR bHeartbeatTick THEN
+	fbComm.Publish('diagnostics', 'base', 'ParkedInPlace', BOOL_TO_STRING(fbTelescope.bParkedInPlace));
+	bLastParkedInPlace := fbTelescope.bParkedInPlace;
 END_IF
 ]]></ST>
     </Implementation>

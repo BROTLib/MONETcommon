@@ -19,13 +19,16 @@
     <Company>IAG</Company>
     <Released>false</Released>
     <Title>MONETcommon</Title>
-    <ProjectVersion>0.9.0</ProjectVersion>
+    <ProjectVersion>0.9.10</ProjectVersion>
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="E_CommandDecision.TcDUT">
       <SubType>Code</SubType>
     </Compile>
     <Compile Include="E_CommandRejectReason.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="ST_AxisStatus.TcDUT">
       <SubType>Code</SubType>
     </Compile>
     <Compile Include="ST_CommandState.TcDUT">
@@ -79,6 +82,33 @@
     <Compile Include="F_TargetBelowHorizonWarning.TcPOU">
       <SubType>Code</SubType>
     </Compile>
+    <Compile Include="F_BrakeMustClose.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="F_ParkAxesCanMove.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="F_ErrorParkRequest.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="F_ResetMoveAbort.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="F_SuspendStop.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="F_WakeShakeErrorExempt.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="F_WakeShakeWindow.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="F_GotoTargetCheck.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="FB_MonetStopTransaction.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
     <Compile Include="FB_MonetTelescopeControl.TcPOU">
       <SubType>Code</SubType>
     </Compile>
@@ -94,15 +124,15 @@
   </ItemGroup>
   <ItemGroup>
     <PlaceholderReference Include="AstroBROT">
-      <DefaultResolution>AstroBROT, * (BROT)</DefaultResolution>
+      <DefaultResolution>AstroBROT, 0.4.5 (BROT)</DefaultResolution>
       <Namespace>AstroBROT</Namespace>
     </PlaceholderReference>
     <PlaceholderReference Include="BROTLib">
-      <DefaultResolution>BROTLib, * (BROT)</DefaultResolution>
+      <DefaultResolution>BROTLib, 0.12.0 (BROT)</DefaultResolution>
       <Namespace>BROTLib</Namespace>
     </PlaceholderReference>
     <PlaceholderReference Include="HalfBROT">
-      <DefaultResolution>HalfBROT, * (BROT)</DefaultResolution>
+      <DefaultResolution>HalfBROT, 0.7.3 (BROT)</DefaultResolution>
       <Namespace>HalfBROT</Namespace>
     </PlaceholderReference>
     <PlaceholderReference Include="Tc2_Math">

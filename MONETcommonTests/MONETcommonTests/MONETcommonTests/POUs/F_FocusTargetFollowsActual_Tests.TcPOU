@@ -1,0 +1,98 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="F_FocusTargetFollowsActual_Tests" Id="{124fa07e-a7a8-4d27-ae7a-5ed8dbb24aca}" SpecialFunc="None">
+    <Declaration><![CDATA[// Tests for HalfBROT.F_FocusTargetFollowsActual (HalfBROT 0.7.2): the focus target follows the actual position after a hand move.
+FUNCTION_BLOCK F_FocusTargetFollowsActual_Tests EXTENDS TcUnit.FB_TestSuite
+VAR
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[Manual_Calibrated_Follows();
+Automatic_Idle_Does_Not_Follow();
+Automatic_Jogging_Follows();
+Not_Calibrated_Never();
+Homing_Never();
+]]></ST>
+    </Implementation>
+    <Method Name="Manual_Calibrated_Follows" Id="{16f0bdbc-9e3f-41cd-97fa-0a533b59b994}">
+      <Declaration><![CDATA[// Manual or off mode: the pendant moves the focus, the target follows it.
+METHOD PRIVATE Manual_Calibrated_Follows
+VAR
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Manual_Calibrated_Follows');
+AssertTrue(Condition := HalfBROT.F_FocusTargetFollowsActual(bAutomatic := FALSE, bManualUnlock := FALSE, bJogging := FALSE, bCalibrated := TRUE, bHoming := FALSE), Message := 'manual or off, calibrated');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Automatic_Idle_Does_Not_Follow" Id="{522384bc-f9d8-4e55-af6f-b3f6066da3a8}">
+      <Declaration><![CDATA[// Automatic positioning owns the target.
+METHOD PRIVATE Automatic_Idle_Does_Not_Follow
+VAR
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Automatic_Idle_Does_Not_Follow');
+AssertFalse(Condition := HalfBROT.F_FocusTargetFollowsActual(bAutomatic := TRUE, bManualUnlock := FALSE, bJogging := FALSE, bCalibrated := TRUE, bHoming := FALSE), Message := 'automatic, idle');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Automatic_Jogging_Follows" Id="{c644cadb-7db0-4aed-a77d-10a74a0e88e4}">
+      <Declaration><![CDATA[// A pendant jog in automatic mode (the pendant is not mode gated) and a manual unlock also move the focus by hand.
+METHOD PRIVATE Automatic_Jogging_Follows
+VAR
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Automatic_Jogging_Follows');
+AssertTrue(Condition := HalfBROT.F_FocusTargetFollowsActual(bAutomatic := TRUE, bManualUnlock := FALSE, bJogging := TRUE, bCalibrated := TRUE, bHoming := FALSE), Message := 'automatic, jogging');
+AssertTrue(Condition := HalfBROT.F_FocusTargetFollowsActual(bAutomatic := TRUE, bManualUnlock := TRUE, bJogging := FALSE, bCalibrated := TRUE, bHoming := FALSE), Message := 'automatic, manual unlock');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Not_Calibrated_Never" Id="{e200a10a-4dcd-4217-ae20-0a7ab579c3e2}">
+      <Declaration><![CDATA[// An uncalibrated focus has no actual position to follow, in any mode.
+METHOD PRIVATE Not_Calibrated_Never
+VAR
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Not_Calibrated_Never');
+AssertFalse(Condition := HalfBROT.F_FocusTargetFollowsActual(bAutomatic := FALSE, bManualUnlock := FALSE, bJogging := FALSE, bCalibrated := FALSE, bHoming := FALSE), Message := 'not calibrated, a=FALSE u=FALSE j=FALSE');
+AssertFalse(Condition := HalfBROT.F_FocusTargetFollowsActual(bAutomatic := FALSE, bManualUnlock := FALSE, bJogging := TRUE, bCalibrated := FALSE, bHoming := FALSE), Message := 'not calibrated, a=FALSE u=FALSE j=TRUE');
+AssertFalse(Condition := HalfBROT.F_FocusTargetFollowsActual(bAutomatic := FALSE, bManualUnlock := TRUE, bJogging := FALSE, bCalibrated := FALSE, bHoming := FALSE), Message := 'not calibrated, a=FALSE u=TRUE j=FALSE');
+AssertFalse(Condition := HalfBROT.F_FocusTargetFollowsActual(bAutomatic := FALSE, bManualUnlock := TRUE, bJogging := TRUE, bCalibrated := FALSE, bHoming := FALSE), Message := 'not calibrated, a=FALSE u=TRUE j=TRUE');
+AssertFalse(Condition := HalfBROT.F_FocusTargetFollowsActual(bAutomatic := TRUE, bManualUnlock := FALSE, bJogging := FALSE, bCalibrated := FALSE, bHoming := FALSE), Message := 'not calibrated, a=TRUE u=FALSE j=FALSE');
+AssertFalse(Condition := HalfBROT.F_FocusTargetFollowsActual(bAutomatic := TRUE, bManualUnlock := FALSE, bJogging := TRUE, bCalibrated := FALSE, bHoming := FALSE), Message := 'not calibrated, a=TRUE u=FALSE j=TRUE');
+AssertFalse(Condition := HalfBROT.F_FocusTargetFollowsActual(bAutomatic := TRUE, bManualUnlock := TRUE, bJogging := FALSE, bCalibrated := FALSE, bHoming := FALSE), Message := 'not calibrated, a=TRUE u=TRUE j=FALSE');
+AssertFalse(Condition := HalfBROT.F_FocusTargetFollowsActual(bAutomatic := TRUE, bManualUnlock := TRUE, bJogging := TRUE, bCalibrated := FALSE, bHoming := FALSE), Message := 'not calibrated, a=TRUE u=TRUE j=TRUE');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Homing_Never" Id="{fd66d9ef-7416-4653-882c-9612fec1989b}">
+      <Declaration><![CDATA[// The homing owns fPosition, in any mode.
+METHOD PRIVATE Homing_Never
+VAR
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Homing_Never');
+AssertFalse(Condition := HalfBROT.F_FocusTargetFollowsActual(bAutomatic := FALSE, bManualUnlock := FALSE, bJogging := FALSE, bCalibrated := TRUE, bHoming := TRUE), Message := 'homing, a=FALSE u=FALSE j=FALSE');
+AssertFalse(Condition := HalfBROT.F_FocusTargetFollowsActual(bAutomatic := FALSE, bManualUnlock := FALSE, bJogging := TRUE, bCalibrated := TRUE, bHoming := TRUE), Message := 'homing, a=FALSE u=FALSE j=TRUE');
+AssertFalse(Condition := HalfBROT.F_FocusTargetFollowsActual(bAutomatic := FALSE, bManualUnlock := TRUE, bJogging := FALSE, bCalibrated := TRUE, bHoming := TRUE), Message := 'homing, a=FALSE u=TRUE j=FALSE');
+AssertFalse(Condition := HalfBROT.F_FocusTargetFollowsActual(bAutomatic := FALSE, bManualUnlock := TRUE, bJogging := TRUE, bCalibrated := TRUE, bHoming := TRUE), Message := 'homing, a=FALSE u=TRUE j=TRUE');
+AssertFalse(Condition := HalfBROT.F_FocusTargetFollowsActual(bAutomatic := TRUE, bManualUnlock := FALSE, bJogging := FALSE, bCalibrated := TRUE, bHoming := TRUE), Message := 'homing, a=TRUE u=FALSE j=FALSE');
+AssertFalse(Condition := HalfBROT.F_FocusTargetFollowsActual(bAutomatic := TRUE, bManualUnlock := FALSE, bJogging := TRUE, bCalibrated := TRUE, bHoming := TRUE), Message := 'homing, a=TRUE u=FALSE j=TRUE');
+AssertFalse(Condition := HalfBROT.F_FocusTargetFollowsActual(bAutomatic := TRUE, bManualUnlock := TRUE, bJogging := FALSE, bCalibrated := TRUE, bHoming := TRUE), Message := 'homing, a=TRUE u=TRUE j=FALSE');
+AssertFalse(Condition := HalfBROT.F_FocusTargetFollowsActual(bAutomatic := TRUE, bManualUnlock := TRUE, bJogging := TRUE, bCalibrated := TRUE, bHoming := TRUE), Message := 'homing, a=TRUE u=TRUE j=TRUE');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

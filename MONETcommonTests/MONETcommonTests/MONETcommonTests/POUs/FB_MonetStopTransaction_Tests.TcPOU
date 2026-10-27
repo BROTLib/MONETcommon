@@ -1,0 +1,429 @@
+<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="FB_MonetStopTransaction_Tests" Id="{cdd6d34e-ec74-48bd-bda9-56f059182b06}" SpecialFunc="None">
+    <Declaration><![CDATA[// Tests for MONETcommon.FB_MonetStopTransaction, the stop of the three axes with one MC_Stop each (#96). Index 1 = azimuth,
+// 2 = elevation, 3 = derotator. Every test starts with all axes enabled and at standstill; one tx() + tx.Monitor() = one scan.
+FUNCTION_BLOCK FB_MonetStopTransaction_Tests EXTENDS TcUnit.FB_TestSuite
+VAR
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[Moving_Axis_Gets_One_Stop();
+Standstill_Axis_Gets_No_Stop();
+Latched_StopAxis_Low_Then_High();
+No_Second_Stop_While_Stopping_After_Done();
+First_Standstill_Sample_Does_Not_Settle();
+Settles_After_Done_And_Three_Scans();
+Done_In_Different_Scans_Settles();
+Disabled_Axis_Counts_As_Done();
+No_Transaction_Settles_On_Standstill();
+Cancel_Rearms_Next_Transaction();
+Restart_Resends_Only_To_Moving_Axes();
+Missing_Done_Settles_Only_On_Timeout();
+Timeout_While_Moving_Raises_Stuck_Once();
+]]></ST>
+    </Implementation>
+    <Method Name="Moving_Axis_Gets_One_Stop" Id="{487b7228-6dc3-4bed-ba63-693469aed6ee}">
+      <Declaration><![CDATA[// The azimuth moves: one write in the first scan, none afterwards; the others get nothing.
+METHOD PRIVATE Moving_Axis_Gets_One_Stop
+VAR
+	tx	: MONETcommon.FB_MonetStopTransaction;
+	i	: UINT;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Moving_Axis_Gets_One_Stop');
+FOR i := 1 TO 3 DO
+	tx.abEnabled[i] := TRUE;
+	tx.abStandStill[i] := TRUE;
+END_FOR
+tx.abStandStill[1] := FALSE;
+tx.Begin();
+tx();
+AssertTrue(Condition := tx.abWriteHigh[1], Message := 'azimuth is sent its stop');
+AssertFalse(Condition := tx.abWriteHigh[2], Message := 'elevation at rest: none');
+AssertFalse(Condition := tx.abWriteHigh[3], Message := 'derotator at rest: none');
+AssertFalse(Condition := tx.abWriteLow[1], Message := 'no low write');
+tx();
+AssertFalse(Condition := tx.abWriteHigh[1], Message := 'never a second stop');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Standstill_Axis_Gets_No_Stop" Id="{011021e1-a8ea-4a04-9a49-0b151afc54b5}">
+      <Declaration><![CDATA[METHOD PRIVATE Standstill_Axis_Gets_No_Stop
+VAR
+	tx	: MONETcommon.FB_MonetStopTransaction;
+	i	: UINT;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Standstill_Axis_Gets_No_Stop');
+FOR i := 1 TO 3 DO
+	tx.abEnabled[i] := TRUE;
+	tx.abStandStill[i] := TRUE;
+END_FOR
+tx.Begin();
+tx();
+FOR i := 1 TO 3 DO
+	AssertFalse(Condition := tx.abWriteHigh[i], Message := 'no stop for an axis at rest');
+	AssertFalse(Condition := tx.abWriteLow[i], Message := 'no low write for an axis at rest');
+END_FOR
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Latched_StopAxis_Low_Then_High" Id="{dbab5c4f-02f8-4b5b-82dc-6d0f71074451}">
+      <Declaration><![CDATA[// A StopAxis level left TRUE from an earlier stop is written low for one scan first (#84), then the one stop follows.
+METHOD PRIVATE Latched_StopAxis_Low_Then_High
+VAR
+	tx	: MONETcommon.FB_MonetStopTransaction;
+	i	: UINT;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Latched_StopAxis_Low_Then_High');
+FOR i := 1 TO 3 DO
+	tx.abEnabled[i] := TRUE;
+	tx.abStandStill[i] := TRUE;
+END_FOR
+tx.abStandStill[1] := FALSE;
+tx.abStopAxis[1] := TRUE;
+tx.Begin();
+tx();
+AssertTrue(Condition := tx.abWriteLow[1], Message := 'first scan: low');
+AssertFalse(Condition := tx.abWriteHigh[1], Message := 'first scan: not high');
+tx.abStopAxis[1] := FALSE;
+tx();
+AssertTrue(Condition := tx.abWriteHigh[1], Message := 'second scan: the stop');
+AssertFalse(Condition := tx.abWriteLow[1], Message := 'second scan: not low');
+tx();
+AssertFalse(Condition := tx.abWriteHigh[1], Message := 'and no more');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="No_Second_Stop_While_Stopping_After_Done" Id="{78887284-9535-4ac1-906f-7364ba21b2fb}">
+      <Declaration><![CDATA[// The #96 guard: StopDone has cleared StopAxis, the axis is still Stopping (not StandStill). The 0.9.0 rule wrote a new edge here.
+METHOD PRIVATE No_Second_Stop_While_Stopping_After_Done
+VAR
+	tx	: MONETcommon.FB_MonetStopTransaction;
+	i	: UINT;
+	n	: UINT;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('No_Second_Stop_While_Stopping_After_Done');
+FOR i := 1 TO 3 DO
+	tx.abEnabled[i] := TRUE;
+	tx.abStandStill[i] := TRUE;
+END_FOR
+tx.abStandStill[1] := FALSE;
+tx.Begin();
+tx();
+tx.bStopped := FALSE;
+tx.Monitor();
+tx.abStopAxis[1] := FALSE;
+tx.abStopDone[1] := TRUE;
+tx();
+tx.Monitor();
+tx.abStopDone[1] := FALSE;
+FOR n := 1 TO 5 DO
+	tx();
+	AssertFalse(Condition := tx.abWriteHigh[1], Message := 'no new stop while Stopping');
+	AssertFalse(Condition := tx.abWriteLow[1], Message := 'no low write either');
+	tx.Monitor();
+END_FOR
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="First_Standstill_Sample_Does_Not_Settle" Id="{8445a5a4-aba7-4694-99e5-d3cd9f1138b5}">
+      <Declaration><![CDATA[// bStopped alone must not settle: the axis was sent a stop and has not reported StopDone (IAG50cm#98).
+METHOD PRIVATE First_Standstill_Sample_Does_Not_Settle
+VAR
+	tx	: MONETcommon.FB_MonetStopTransaction;
+	i	: UINT;
+	n	: UINT;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('First_Standstill_Sample_Does_Not_Settle');
+FOR i := 1 TO 3 DO
+	tx.abEnabled[i] := TRUE;
+	tx.abStandStill[i] := TRUE;
+END_FOR
+tx.abStandStill[1] := FALSE;
+tx.Begin();
+tx();
+tx.bStopped := FALSE;
+tx.Monitor();
+tx.abStandStill[1] := TRUE;
+tx.bStopped := TRUE;
+FOR n := 1 TO 5 DO
+	tx();
+	tx.Monitor();
+	AssertFalse(Condition := tx.bSettled, Message := 'not settled without StopDone');
+END_FOR
+AssertTrue(Condition := tx.bActive, Message := 'still waiting');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Settles_After_Done_And_Three_Scans" Id="{a7581612-5bf8-4779-bc25-c163797df0ec}">
+      <Declaration><![CDATA[METHOD PRIVATE Settles_After_Done_And_Three_Scans
+VAR
+	tx	: MONETcommon.FB_MonetStopTransaction;
+	i	: UINT;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Settles_After_Done_And_Three_Scans');
+FOR i := 1 TO 3 DO
+	tx.abEnabled[i] := TRUE;
+	tx.abStandStill[i] := TRUE;
+END_FOR
+tx.abStandStill[1] := FALSE;
+tx.Begin();
+tx();
+tx.bStopped := FALSE;
+tx.Monitor();
+tx.abStopDone[1] := TRUE;
+tx();
+tx.Monitor();
+tx.abStopDone[1] := FALSE;
+tx.abStandStill[1] := TRUE;
+tx.bStopped := TRUE;
+tx();
+tx.Monitor();
+AssertFalse(Condition := tx.bSettled, Message := 'one scan at rest');
+tx();
+tx.Monitor();
+AssertFalse(Condition := tx.bSettled, Message := 'two scans at rest');
+tx();
+tx.Monitor();
+AssertTrue(Condition := tx.bSettled, Message := 'three scans at rest and StopDone seen');
+AssertFalse(Condition := tx.bActive, Message := 'no longer active');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Done_In_Different_Scans_Settles" Id="{48d93819-18ed-4c2e-bacc-844d8dddb0c6}">
+      <Declaration><![CDATA[// Azimuth and elevation report StopDone in different scans (the case that hung the 0.9.0 release of the stop).
+METHOD PRIVATE Done_In_Different_Scans_Settles
+VAR
+	tx	: MONETcommon.FB_MonetStopTransaction;
+	i	: UINT;
+	n	: UINT;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Done_In_Different_Scans_Settles');
+FOR i := 1 TO 3 DO
+	tx.abEnabled[i] := TRUE;
+	tx.abStandStill[i] := TRUE;
+END_FOR
+tx.abStandStill[1] := FALSE;
+tx.abStandStill[2] := FALSE;
+tx.Begin();
+tx();
+tx.bStopped := FALSE;
+tx.Monitor();
+tx.abStopDone[1] := TRUE;
+tx();
+tx.Monitor();
+tx.abStopDone[1] := FALSE;
+tx.abStandStill[1] := TRUE;
+FOR n := 1 TO 3 DO
+	tx();
+	tx.Monitor();
+END_FOR
+tx.abStopDone[2] := TRUE;
+tx();
+tx.Monitor();
+AssertFalse(Condition := tx.bSettled, Message := 'elevation not at rest yet');
+tx.abStopDone[2] := FALSE;
+tx.abStandStill[2] := TRUE;
+tx.bStopped := TRUE;
+FOR n := 1 TO 3 DO
+	tx();
+	tx.Monitor();
+END_FOR
+AssertTrue(Condition := tx.bSettled, Message := 'settled three scans after both are at rest');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Disabled_Axis_Counts_As_Done" Id="{833dbab7-b7b6-425d-a687-1f0f742e146d}">
+      <Declaration><![CDATA[METHOD PRIVATE Disabled_Axis_Counts_As_Done
+VAR
+	tx	: MONETcommon.FB_MonetStopTransaction;
+	i	: UINT;
+	n	: UINT;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Disabled_Axis_Counts_As_Done');
+FOR i := 1 TO 3 DO
+	tx.abEnabled[i] := TRUE;
+	tx.abStandStill[i] := TRUE;
+END_FOR
+tx.abStandStill[1] := FALSE;
+tx.Begin();
+tx();
+tx.abEnabled[1] := FALSE;
+tx.abStandStill[1] := TRUE;
+tx.bStopped := TRUE;
+FOR n := 1 TO 3 DO
+	tx();
+	tx.Monitor();
+END_FOR
+AssertTrue(Condition := tx.bSettled, Message := 'a disabled axis does not hold the stop');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="No_Transaction_Settles_On_Standstill" Id="{c4030127-e877-47b8-b130-204066afd00b}">
+      <Declaration><![CDATA[// No transaction begun (nothing to wait for): settled as soon as the telescope is at rest, like the old bStopped.
+METHOD PRIVATE No_Transaction_Settles_On_Standstill
+VAR
+	tx	: MONETcommon.FB_MonetStopTransaction;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('No_Transaction_Settles_On_Standstill');
+tx.bStopped := FALSE;
+tx.Monitor();
+AssertFalse(Condition := tx.bSettled, Message := 'moving');
+tx.bStopped := TRUE;
+tx.Monitor();
+AssertTrue(Condition := tx.bSettled, Message := 'at rest');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Cancel_Rearms_Next_Transaction" Id="{1172fe5e-0394-4380-bfda-a687de06119f}">
+      <Declaration><![CDATA[// A stop cut off by another command sends again in the next stop.
+METHOD PRIVATE Cancel_Rearms_Next_Transaction
+VAR
+	tx	: MONETcommon.FB_MonetStopTransaction;
+	i	: UINT;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Cancel_Rearms_Next_Transaction');
+FOR i := 1 TO 3 DO
+	tx.abEnabled[i] := TRUE;
+	tx.abStandStill[i] := TRUE;
+END_FOR
+tx.abStandStill[1] := FALSE;
+tx.Begin();
+tx();
+AssertTrue(Condition := tx.abWriteHigh[1], Message := 'first transaction');
+tx.Cancel();
+tx.Begin();
+tx();
+AssertTrue(Condition := tx.abWriteHigh[1], Message := 'second transaction sends again');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Restart_Resends_Only_To_Moving_Axes" Id="{22767488-48c6-43f9-9f13-49f4abcafa0e}">
+      <Declaration><![CDATA[// D2: a repeated stop. The azimuth moves again, the elevation is still stopping.
+METHOD PRIVATE Restart_Resends_Only_To_Moving_Axes
+VAR
+	tx	: MONETcommon.FB_MonetStopTransaction;
+	i	: UINT;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Restart_Resends_Only_To_Moving_Axes');
+FOR i := 1 TO 3 DO
+	tx.abEnabled[i] := TRUE;
+	tx.abStandStill[i] := TRUE;
+END_FOR
+tx.abStandStill[1] := FALSE;
+tx.abStandStill[2] := FALSE;
+tx.Begin();
+tx();
+tx.Monitor();
+tx.abMoving[1] := TRUE;
+tx.abStopping[1] := FALSE;
+tx.abMoving[2] := TRUE;
+tx.abStopping[2] := TRUE;
+tx.Restart();
+tx();
+AssertTrue(Condition := tx.abWriteHigh[1], Message := 'the moving azimuth is sent a stop again');
+AssertFalse(Condition := tx.abWriteHigh[2], Message := 'the stopping elevation is not');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Missing_Done_Settles_Only_On_Timeout" Id="{4e0c42a0-4c5d-47f9-828f-214804083873}">
+      <Declaration><![CDATA[// D1: at rest, but an issued axis never reported StopDone. Waits, then settles on the timeout and says so once.
+METHOD PRIVATE Missing_Done_Settles_Only_On_Timeout
+VAR
+	tx	: MONETcommon.FB_MonetStopTransaction;
+	i	: UINT;
+	n	: UINT;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Missing_Done_Settles_Only_On_Timeout');
+FOR i := 1 TO 3 DO
+	tx.abEnabled[i] := TRUE;
+	tx.abStandStill[i] := TRUE;
+END_FOR
+tx.abStandStill[1] := FALSE;
+tx.Begin();
+tx();
+tx.abStandStill[1] := TRUE;
+tx.bStopped := TRUE;
+FOR n := 1 TO 5 DO
+	tx();
+	tx.Monitor();
+END_FOR
+AssertFalse(Condition := tx.bSettled, Message := 'waits for StopDone');
+tx.bTimeout := TRUE;
+tx();
+tx.Monitor();
+AssertTrue(Condition := tx.bForced, Message := 'forced on the timeout');
+AssertTrue(Condition := tx.bSettled, Message := 'and settled');
+tx();
+tx.Monitor();
+AssertFalse(Condition := tx.bForced, Message := 'reported once');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Timeout_While_Moving_Raises_Stuck_Once" Id="{11102c3b-7d3a-4315-a703-2406959e7e8e}">
+      <Declaration><![CDATA[// D1: timeout while an axis is still not at standstill: reported once, the stop is kept (the drives stay enabled).
+METHOD PRIVATE Timeout_While_Moving_Raises_Stuck_Once
+VAR
+	tx	: MONETcommon.FB_MonetStopTransaction;
+	i	: UINT;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Timeout_While_Moving_Raises_Stuck_Once');
+FOR i := 1 TO 3 DO
+	tx.abEnabled[i] := TRUE;
+	tx.abStandStill[i] := TRUE;
+END_FOR
+tx.abStandStill[1] := FALSE;
+tx.Begin();
+tx();
+tx.bStopped := FALSE;
+tx.bTimeout := TRUE;
+tx.Monitor();
+AssertTrue(Condition := tx.bStuck, Message := 'reported');
+tx.Monitor();
+AssertFalse(Condition := tx.bStuck, Message := 'only once');
+AssertTrue(Condition := tx.bActive, Message := 'the stop is kept');
+AssertFalse(Condition := tx.bSettled, Message := 'not settled');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

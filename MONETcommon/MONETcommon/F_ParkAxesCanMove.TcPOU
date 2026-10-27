@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="F_ParkAxesCanMove" Id="{6f84c7a8-87a5-4fc8-b3f8-0f1a64f08d40}" SpecialFunc="None">
+    <Declaration><![CDATA[// TRUE if the park may drive the axes to the park position (MONETcommon#87, #121): all three axes calibrated and
+// enabled and the brake open. Otherwise the park parks in place (brake closed, drives off, covers closed), without
+// axis motion, which keeps the brake closed with a disabled elevation.
+FUNCTION F_ParkAxesCanMove : BOOL
+VAR_INPUT
+	bElCalibrated	: BOOL;
+	bAzCalibrated	: BOOL;
+	bDrCalibrated	: BOOL;
+	bElEnabled		: BOOL;
+	bAzEnabled		: BOOL;
+	bDrEnabled		: BOOL;
+	bBrakeOpen		: BOOL;
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[F_ParkAxesCanMove := bElCalibrated AND bAzCalibrated AND bDrCalibrated AND
+	bElEnabled AND bAzEnabled AND bDrEnabled AND bBrakeOpen;
+]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

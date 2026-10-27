@@ -65,6 +65,28 @@ hydraulics and safety, publishes MQTT telemetry and handles error states and
 recovery. Each site passes its own pointing model (`fbPointing`,
 `fbPointingInverse`) from `MAIN`.
 
+A new axis or focus error on a telescope that is not parked starts the
+emergency park by itself (brake closed, covers closed, hydraulics off,
+`bIsParked`); not during an E-stop, not when already parked, and not for
+command-level (software) errors. `power=1` is refused until the park is
+finished, `stop=1` cancels it; recover with `reset=1`, then `power=1`.
+`bIsParked` drops with the cover command of a power-on, so a park during a
+power-on closes the covers again. Exception: an azimuth/elevation error in the
+first power-on after a PLC restart (the Wake&Shake fault) does not park; the
+covers stay open for the manual Wake&Shake (a WARN is logged). From then on a
+15 min Wake&Shake window lets the brake stay open with the elevation disabled
+(otherwise it is closed whenever the elevation is disabled, #121). The window
+closes, and the brake with it, on park, E-stop, a focus/derotator error, closed
+covers, a new `power=1` or the timeout (#151).
+The brake can be opened in the window with the elevation error latched, without `reset=1` first: the error closes
+the brake once, and while the window is open the brake is closed again only by an E-stop, a hydraulics error, a safety
+error (input `bSafetyError`, wire it to `SafetyHandling.error`; FALSE = not enforced) or covers that are not open (#155).
+
+`bIsParked` means *secured* (covers closed, brake closed, hydraulics off, axes disabled), not *at the park
+position*: the emergency park, and a park after a reset or an aborted power-on, secure the telescope where it stands.
+`bParkedInPlace` (MQTT `diagnostics/base/ParkedInPlace`, WARN log "parked in place at el .. az ..") is TRUE then; it drops
+with the cover command of a power-on and is FALSE after a normal park and after a PLC restart (#158).
+
 ### Safety and auxiliary systems
 
 - `FB_MonetSafetyHandling` — handles the TwinSAFE startup sequence and the
@@ -120,7 +142,7 @@ library (`.tspproj`, AmsPort 851; solution platforms Debug/Release × TwinCAT
 RT (x64/x86), TwinCAT CE7 (ARMV7), TwinCAT OS (ARMT2)) and referenced from the
 MONETN / MONETS application projects.
 
-**CI.** `.github/workflows/tcbuild.yml` builds `MONETcommon.sln` with TcBuild on every push (self-hosted runner, never on pull requests). A green run means the project compiles; TcBuild exit code 1 (built with warnings) counts as success. The TcUnit tests are not run there (see below).
+**CI.** `.github/workflows/tcbuild.yml` builds `MONETcommon.sln` with [`tctool`](https://github.com/BROTLib/TcTool) on every push (self-hosted runner, never on pull requests) and runs the TcUnit tests of `MONETcommonTests` on the user-mode runtime (see `MONETcommonTests/README.md`). A green run means the project compiles and the tests passed, or that they were skipped with a warning because the TwinCAT license or runtime is missing; `tctool` exit code 1 (built with warnings) counts as success.
 
 ## Startup readiness (READY_STATE)
 

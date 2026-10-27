@@ -1,0 +1,200 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="FocusTargetInit_Sim_Tests" Id="{021dbb2d-8532-47c2-af06-e53eee3cb961}" SpecialFunc="None">
+    <Declaration><![CDATA[// Scan-level model of the focus body (HalfBROT 0.7.3) without hardware: real BROTLib.FB_MoveFollower and FB_FocusTargetInit in the order of
+// FB_FocusControl (sync, clamp, follower). Shows that a restart with a calibrated focus no longer makes the follower drive to fMinPosition (#115).
+// The wiring inside FB_FocusControl itself and the fixed homing target (fHomingReference) are not covered (FB_FocusMock has no body, the NC
+// is missing); that is the on-site check (HalfBROT plan 2026-10-25-focus-target-after-restart-115.md, D1 and D6).
+FUNCTION_BLOCK FocusTargetInit_Sim_Tests EXTENDS TcUnit.FB_TestSuite
+VAR
+	fbFollower		: BROTLib.FB_MoveFollower;
+	fbInit			: HalfBROT.FB_FocusTargetInit;
+	fTarget			: LREAL;	// FB_FocusControl.fPosition
+	fActual			: LREAL;	// fActualPosition
+	nStarts			: INT;		// cycles with bStartMove
+	nNeedEnable		: INT;		// cycles with bNeedEnable
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[Restart_Calibrated_No_Start();
+Restart_Without_Sync_Starts();
+Restart_Then_New_Target_Moves();
+Restart_Outside_Range_Moves_Into_Range();
+Homing_Keeps_Its_Target();
+]]></ST>
+    </Implementation>
+    <Method Name="Cycle" Id="{cbcb234a-157c-4e1a-b79f-370e15722aab}">
+      <Declaration><![CDATA[// One scan of the focus body in its order (HalfBROT 0.7.3): sync of the target, clamp, follower. The inputs are what fbAxis reported in its last call; the model has no NC, the test sets fActual.
+METHOD PRIVATE Cycle
+VAR_INPUT
+	bCalibrated	: BOOL;
+	bHoming		: BOOL;
+	bAutomatic	: BOOL;
+	bReady		: BOOL;		// fbAxis.Ready: FALSE with the drive locked, as after a restart
+	bSync		: BOOL;		// FALSE: the code of HalfBROT 0.7.2 (no FB_FocusTargetInit)
+END_VAR
+VAR
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF bSync THEN
+	fbInit(bCalibrated := bCalibrated, bHoming := bHoming);
+	IF fbInit.bSync THEN
+		fTarget := fActual;
+	END_IF
+END_IF
+fTarget := LIMIT(0.5, fTarget, 91.5);
+fbFollower(
+	fTarget		:= fTarget,
+	fActual		:= fActual,
+	fTolerance	:= 0.005,
+	bActive		:= bAutomatic AND bCalibrated AND NOT bHoming,
+	bReady		:= bReady,
+	bMoveDone	:= FALSE,
+	bAborted	:= FALSE,
+	bError		:= FALSE,
+	bStopDone	:= FALSE);
+IF fbFollower.bStartMove THEN
+	nStarts := nStarts + 1;
+END_IF
+IF fbFollower.bNeedEnable THEN
+	nNeedEnable := nNeedEnable + 1;
+END_IF
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Restart_Model" Id="{67c69eab-6475-42f5-8abe-c9de96cbc2ee}">
+      <Declaration><![CDATA[// State after a PLC start: the target has its initial 0, the axis is not calibrated yet in the first scan (fbAxis has not run).
+METHOD PRIVATE Restart_Model
+VAR
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[fbInit(bCalibrated := FALSE, bHoming := FALSE);
+fbFollower(bActive := FALSE);
+fTarget := 0.0;
+fActual := 0.0;
+nStarts := 0;
+nNeedEnable := 0;
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Restart_Calibrated_No_Start" Id="{b1f73614-a81d-4922-88d9-8b20a7a6ba95}">
+      <Declaration><![CDATA[// Restart with a calibrated focus at 36 mm in automatic mode: the target takes the actual position, no move, no enable (D1, D3).
+METHOD PRIVATE Restart_Calibrated_No_Start
+VAR
+	n	: INT;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Restart_Calibrated_No_Start');
+Restart_Model();
+Cycle(bCalibrated := FALSE, bHoming := FALSE, bAutomatic := TRUE, bReady := FALSE, bSync := TRUE);
+fActual := 36.0;
+FOR n := 1 TO 20 DO
+	Cycle(bCalibrated := TRUE, bHoming := FALSE, bAutomatic := TRUE, bReady := FALSE, bSync := TRUE);
+END_FOR
+AssertEquals_INT(Expected := 0, Actual := nStarts, Message := 'no move started');
+AssertEquals_INT(Expected := 0, Actual := nNeedEnable, Message := 'the drive is not enabled');
+AssertEquals_LREAL(Expected := 36.0, Actual := fTarget, Delta := 0.001, Message := 'the target is the actual position');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Restart_Without_Sync_Starts" Id="{cad9eb4e-4e4e-49d2-a7b4-d0557818ba0b}">
+      <Declaration><![CDATA[// The same restart with the code of HalfBROT 0.7.2: the target is clamped from 0 to 0.5 and the follower drives there (#115). Guards against a test that passes for the wrong reason.
+METHOD PRIVATE Restart_Without_Sync_Starts
+VAR
+	n	: INT;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Restart_Without_Sync_Starts');
+Restart_Model();
+Cycle(bCalibrated := FALSE, bHoming := FALSE, bAutomatic := TRUE, bReady := FALSE, bSync := FALSE);
+fActual := 36.0;
+FOR n := 1 TO 5 DO
+	Cycle(bCalibrated := TRUE, bHoming := FALSE, bAutomatic := TRUE, bReady := FALSE, bSync := FALSE);
+END_FOR
+AssertEquals_INT(Expected := 0, Actual := nStarts, Message := 'no start while the drive is locked');
+AssertTrue(Condition := nNeedEnable > 0, Message := 'the old code asks for the drive');
+FOR n := 1 TO 5 DO
+	Cycle(bCalibrated := TRUE, bHoming := FALSE, bAutomatic := TRUE, bReady := TRUE, bSync := FALSE);
+END_FOR
+AssertEquals_INT(Expected := 1, Actual := nStarts, Message := 'then the old code starts a move');
+AssertEquals_LREAL(Expected := 0.5, Actual := fbFollower.fMoveTarget, Delta := 0.001, Message := 'to fMinPosition');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Restart_Then_New_Target_Moves" Id="{620092a5-edb7-4f12-9ffa-6786c79e0147}">
+      <Declaration><![CDATA[// After the sync a new target starts a move: the sync is a one-shot.
+METHOD PRIVATE Restart_Then_New_Target_Moves
+VAR
+	n	: INT;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Restart_Then_New_Target_Moves');
+Restart_Model();
+Cycle(bCalibrated := FALSE, bHoming := FALSE, bAutomatic := TRUE, bReady := FALSE, bSync := TRUE);
+fActual := 36.0;
+FOR n := 1 TO 5 DO
+	Cycle(bCalibrated := TRUE, bHoming := FALSE, bAutomatic := TRUE, bReady := FALSE, bSync := TRUE);
+END_FOR
+fTarget := 40.0;
+FOR n := 1 TO 5 DO
+	Cycle(bCalibrated := TRUE, bHoming := FALSE, bAutomatic := TRUE, bReady := TRUE, bSync := TRUE);
+END_FOR
+AssertEquals_INT(Expected := 1, Actual := nStarts, Message := 'one move started');
+AssertEquals_LREAL(Expected := 40.0, Actual := fbFollower.fMoveTarget, Delta := 0.001, Message := 'to the new target');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Restart_Outside_Range_Moves_Into_Range" Id="{3fefba11-c4e8-4953-a08c-3c0c57795506}">
+      <Declaration><![CDATA[// Restart at the cam (91.99, outside 0.5..91.5): the clamp is kept and the focus moves into the range (Q2).
+METHOD PRIVATE Restart_Outside_Range_Moves_Into_Range
+VAR
+	n	: INT;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Restart_Outside_Range_Moves_Into_Range');
+Restart_Model();
+Cycle(bCalibrated := FALSE, bHoming := FALSE, bAutomatic := TRUE, bReady := TRUE, bSync := TRUE);
+fActual := 91.99;
+FOR n := 1 TO 5 DO
+	Cycle(bCalibrated := TRUE, bHoming := FALSE, bAutomatic := TRUE, bReady := TRUE, bSync := TRUE);
+END_FOR
+AssertEquals_INT(Expected := 1, Actual := nStarts, Message := 'one move started');
+AssertEquals_LREAL(Expected := 91.5, Actual := fbFollower.fMoveTarget, Delta := 0.001, Message := 'into the range');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Homing_Keeps_Its_Target" Id="{93dddda4-9e54-42da-bf05-fdedc0f19e9f}">
+      <Declaration><![CDATA[// A calibration during a homing does not sync, and neither does the end of the homing: the target of the homing stays (:205).
+METHOD PRIVATE Homing_Keeps_Its_Target
+VAR
+	n	: INT;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Homing_Keeps_Its_Target');
+Restart_Model();
+fTarget := 36.27;
+Cycle(bCalibrated := FALSE, bHoming := TRUE, bAutomatic := TRUE, bReady := TRUE, bSync := TRUE);
+fActual := 36.27;
+Cycle(bCalibrated := TRUE, bHoming := TRUE, bAutomatic := TRUE, bReady := TRUE, bSync := TRUE);
+fActual := 40.0;
+FOR n := 1 TO 5 DO
+	Cycle(bCalibrated := TRUE, bHoming := FALSE, bAutomatic := TRUE, bReady := TRUE, bSync := TRUE);
+END_FOR
+AssertEquals_LREAL(Expected := 36.27, Actual := fTarget, Delta := 0.001, Message := 'the target of the homing, not the actual position');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

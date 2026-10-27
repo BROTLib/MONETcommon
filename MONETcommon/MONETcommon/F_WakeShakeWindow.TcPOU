@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="F_WakeShakeWindow" Id="{681e5189-c348-407f-ab1e-4156b53d8f01}" SpecialFunc="None">
+    <Declaration><![CDATA[// The Wake&Shake window (MONETcommon#151): the shared Az/El brake may stay open with the elevation disabled, so the
+// Wake&Shake of the drives (P-0-0166, P-0-0160, #76) can run with the covers open. Returns the new state of the latch.
+// The exemption of #113 is true for one scan only (the edge of the error, after which the power-on has aborted), so the
+// window is latched: set by that exemption, cleared by whichever comes first of E-stop, a focus/derotator error, a park,
+// covers no longer open, a new power-on (it enables the elevation) or the timeout. A reset does not clear it, the drive
+// errors have to be reset before the Wake&Shake. Clearing wins over setting.
+FUNCTION F_WakeShakeWindow : BOOL
+VAR_INPUT
+	bWindow			: BOOL;		// the window as of the last scan
+	bSet			: BOOL;		// F_WakeShakeErrorExempt fired in this scan (bErrorParkExempt)
+	bTimeout		: BOOL;		// the window timer has elapsed
+	bParkActive		: BOOL;		// a park is requested or running, or the telescope is parked
+	bCoversOpen		: BOOL;		// fbCovers.Opened
+	bPowerOnStart	: BOOL;		// a power-on was requested in this scan (rising edge of bPower)
+	bEstop			: BOOL;		// bEstopTriggered
+	bOtherHwError	: BOOL;		// focus or derotator error
+END_VAR
+VAR_OUTPUT
+	sEndReason		: STRING(24);	// why a window that was open has just closed, empty otherwise
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[sEndReason := '';
+F_WakeShakeWindow := bWindow OR bSet;
+IF NOT F_WakeShakeWindow THEN
+	RETURN;
+END_IF
+
+IF bEstop THEN
+	sEndReason := 'E-stop';
+ELSIF bOtherHwError THEN
+	sEndReason := 'focus/derotator error';
+ELSIF bParkActive THEN
+	sEndReason := 'park';
+ELSIF NOT bCoversOpen THEN
+	sEndReason := 'covers not open';
+ELSIF bPowerOnStart THEN
+	sEndReason := 'power-on';
+ELSIF bTimeout THEN
+	sEndReason := 'timeout';
+ELSE
+	RETURN;
+END_IF
+
+F_WakeShakeWindow := FALSE;
+IF NOT bWindow THEN
+	sEndReason := '';	// set and cleared in the same scan: it never was open
+END_IF
+]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

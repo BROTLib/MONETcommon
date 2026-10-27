@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="F_WakeShakeErrorExempt" Id="{d34628b4-795d-4495-a6e0-3a6366eb111b}" SpecialFunc="None">
+    <Declaration><![CDATA[// TRUE if a new hardware error must not start the emergency park (MONETcommon#113, exemption from #86): the first
+// power-on after a PLC restart usually faults on azimuth/elevation in the Wake&Shake (P-0-0166/P-0-0160), which is run
+// by hand with the covers open. The emergency park would close the covers under it. Only while that first power-on is
+// running and only for azimuth/elevation; a focus or derotator error, or any error later, parks. Bounded by the
+// 12 h idle park (tonPowerTimeout).
+FUNCTION F_WakeShakeErrorExempt : BOOL
+VAR_INPUT
+	bFirstPowerOnPending	: BOOL;		// no power-on has completed since the PLC start
+	bPowering				: BOOL;		// a power-on is running
+	bAzElError				: BOOL;		// azimuth or elevation error
+	bOtherHwError			: BOOL;		// focus or derotator error
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[F_WakeShakeErrorExempt := bFirstPowerOnPending AND bPowering AND bAzElError AND NOT bOtherHwError;
+]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

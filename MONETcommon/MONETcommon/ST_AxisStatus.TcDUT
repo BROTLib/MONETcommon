@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="ST_AxisStatus" Id="{73f797f7-2eb3-4718-9a4c-d34c31ae3428}">
+    <Declaration><![CDATA[// Plan step 3.1: the feedback of one axis (FB_Axis outputs) as read once per scan by FB_MonetTelescopeControl._ReadAxes.
+// The axes run after the telescope in the PLC cycle, so these outputs do not change while the telescope body runs; reading them
+// into one struct is the same as reading fbAxis.* at every use.
+TYPE ST_AxisStatus :
+STRUCT
+	bStandStill		: BOOL;
+	bStopDone		: BOOL;
+	bInMotion		: BOOL;
+	bInRamp			: BOOL;
+	bHoming			: BOOL;
+	bStopping		: BOOL;
+	bBusy			: BOOL;
+	bTracking		: BOOL;
+END_STRUCT
+END_TYPE
+]]></Declaration>
+  </DUT>
+</TcPlcObject>

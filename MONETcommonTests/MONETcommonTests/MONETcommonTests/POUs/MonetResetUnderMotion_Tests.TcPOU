@@ -1,0 +1,249 @@
+<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="MonetResetUnderMotion_Tests" Id="{977f3951-9e91-4a0a-8896-01f03fa3b6e1}" SpecialFunc="None">
+    <Declaration><![CDATA[// Characterization of FB_MonetTelescopeControl for a reset during a slew, during a park and at rest, on mock axes (plan step 1,
+// MONETcommonTests README). These tests pin what the code does today, with the line of the behaviour in a comment; they are not
+// a specification. Every test owns a rig and runs over many PLC cycles (VAR_INST of the method, one Scan() per cycle). Failed
+// checks are also noted in GVL_Diag.sFailures (printed by Run-Tests.ps1).
+FUNCTION_BLOCK MonetResetUnderMotion_Tests EXTENDS TcUnit.FB_TestSuite
+VAR
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[Reset_While_Slewing_Stops_The_Axes_And_Resets_None_Of_Them();
+Reset_During_Park_Keeps_The_Park_Running();
+Reset_At_Rest_Drops_A_Pending_Slew_Without_Moving();
+]]></ST>
+    </Implementation>
+    <Method Name="Reset_While_Slewing_Stops_The_Axes_And_Resets_None_Of_Them" Id="{cf603242-f87b-491c-a621-b44f278df7bf}">
+      <Declaration><![CDATA[// M:221-226 (#56, #84, #85): a reset during a slew drops the slew, keeps the abort stop going (bMoveAbortPending) until the
+// axes have stopped, and does not reset a moving axis (a reset under motion was followed by 0x4260). The reset aborts the
+// startup, so the online telescope drops to READY_STATE -2.0 (FB_StartupReadiness: neither parked nor initialized).
+METHOD PRIVATE Reset_While_Slewing_Stops_The_Axes_And_Resets_None_Of_Them
+VAR_INST
+	rig			: FB_MonetRig;
+	nStep		: INT;
+	nCycles		: UINT;
+	sTest		: STRING(80);
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Reset_While_Slewing_Stops_The_Axes_And_Resets_None_Of_Them');
+sTest := 'Reset_While_Slewing_Stops_The_Axes_And_Resets_None_Of_Them: ';
+IF nStep >= 90 THEN
+	RETURN;
+END_IF
+rig.Scan();
+nCycles := nCycles + 1;
+CASE nStep OF
+0:	// wait for the clock, then power on
+	IF rig.ClockValid THEN
+		rig.fbTel.Init();
+		nStep := 10;
+		nCycles := 0;
+	ELSIF nCycles > 2000 THEN
+		AssertTrue(Condition := FALSE, Message := 'the astronomical clock never became valid');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the astronomical clock never became valid'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+10:	// online: slew
+	IF rig.Online THEN
+		rig.fbTel.Slew(fAzimuth := 180.0, fAltitude := 45.0);
+		nStep := 20;
+		nCycles := 0;
+	ELSIF nCycles > 1500 THEN
+		AssertTrue(Condition := FALSE, Message := 'the mock telescope did not reach READY_STATE 1.0');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the mock telescope did not reach READY_STATE 1.0'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+20:	// the slew moves all three axes
+	IF rig.fbElev.MoveAxis AND rig.fbAzim.MoveAxis AND rig.fbDero.MoveAxis THEN
+		nStep := 30;
+		nCycles := 0;
+	ELSIF nCycles > 300 THEN
+		AssertTrue(Condition := FALSE, Message := 'the slew did not start the axis moves');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the slew did not start the axis moves'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+30:	// let the moves run for a few scans, then reset
+	IF nCycles >= 5 THEN
+		rig.fbTel.Reset();
+		nStep := 40;
+		nCycles := 0;
+	END_IF
+40:
+	IF nCycles = 2 THEN
+		AssertFalse(Condition := rig.fbTel.bSlew, Message := 'the reset dropped the slew');
+		F_Note(bFailed := (rig.fbTel.bSlew), sText := CONCAT(sTest, 'the reset dropped the slew'));
+		AssertTrue(Condition := rig.fbTel.bMoveAbortPending, Message := 'the abort stop is pending while the axes stop');
+		F_Note(bFailed := NOT (rig.fbTel.bMoveAbortPending), sText := CONCAT(sTest, 'the abort stop is pending while the axes stop'));
+	ELSIF NOT rig.fbTel.bMoveAbortPending AND rig.fbTel.bStopped AND nCycles > 5 THEN
+		AssertTrue(Condition := rig.fbElev.nStopEdges = 1 AND rig.fbAzim.nStopEdges = 1 AND rig.fbDero.nStopEdges = 1, Message := 'each axis was stopped once');
+		F_Note(bFailed := NOT (rig.fbElev.nStopEdges = 1 AND rig.fbAzim.nStopEdges = 1 AND rig.fbDero.nStopEdges = 1), sText := CONCAT(sTest, 'each axis was stopped once'));
+		AssertTrue(Condition := rig.fbElev.nResetEdges = 0 AND rig.fbAzim.nResetEdges = 0 AND rig.fbDero.nResetEdges = 0, Message := 'no moving axis was reset');
+		F_Note(bFailed := NOT (rig.fbElev.nResetEdges = 0 AND rig.fbAzim.nResetEdges = 0 AND rig.fbDero.nResetEdges = 0), sText := CONCAT(sTest, 'no moving axis was reset'));
+		AssertTrue(Condition := rig.fbTel.ReadyState = -2.0, Message := 'the reset aborted the startup: READY_STATE -2.0');
+		F_Note(bFailed := NOT (rig.fbTel.ReadyState = -2.0), sText := CONCAT(sTest, 'the reset aborted the startup: READY_STATE -2.0'));
+		nStep := 99;
+		TEST_FINISHED();
+	ELSIF nCycles > 400 THEN
+		AssertTrue(Condition := FALSE, Message := 'the abort stop did not settle');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the abort stop did not settle'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+END_CASE
+
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Reset_During_Park_Keeps_The_Park_Running" Id="{6f937fc4-ce8b-43c8-8a0e-34c38ea93f39}">
+      <Declaration><![CDATA[// M:215-223 (#56, #85): a reset during a park keeps the park (bPark is the safe direction) and sends no abort stop (F_ResetMoveAbort:
+// the park is running). The park stage machine restarts from its first stage (a reset resets every stage) and ends parked.
+METHOD PRIVATE Reset_During_Park_Keeps_The_Park_Running
+VAR_INST
+	rig			: FB_MonetRig;
+	nStep		: INT;
+	nCycles		: UINT;
+	sTest		: STRING(80);
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Reset_During_Park_Keeps_The_Park_Running');
+sTest := 'Reset_During_Park_Keeps_The_Park_Running: ';
+IF nStep >= 90 THEN
+	RETURN;
+END_IF
+rig.Scan();
+nCycles := nCycles + 1;
+CASE nStep OF
+0:	// wait for the clock, then power on
+	IF rig.ClockValid THEN
+		rig.fbTel.Init();
+		nStep := 10;
+		nCycles := 0;
+	ELSIF nCycles > 2000 THEN
+		AssertTrue(Condition := FALSE, Message := 'the astronomical clock never became valid');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the astronomical clock never became valid'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+10:	// online: park
+	IF rig.Online THEN
+		rig.fbTel.Park();
+		nStep := 20;
+		nCycles := 0;
+	ELSIF nCycles > 1500 THEN
+		AssertTrue(Condition := FALSE, Message := 'the mock telescope did not reach READY_STATE 1.0');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the mock telescope did not reach READY_STATE 1.0'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+20:	// the park drives the three axes
+	IF rig.fbElev.MoveAxis AND rig.fbAzim.MoveAxis AND rig.fbDero.MoveAxis THEN
+		nStep := 30;
+		nCycles := 0;
+	ELSIF nCycles > 300 THEN
+		AssertTrue(Condition := FALSE, Message := 'the park did not start the axis moves');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the park did not start the axis moves'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+30:	// let the park run for a few scans, then reset
+	IF nCycles >= 5 THEN
+		rig.fbTel.Reset();
+		nStep := 40;
+		nCycles := 0;
+	END_IF
+40:
+	IF nCycles = 2 THEN
+		AssertTrue(Condition := rig.fbTel.bPark, Message := 'the reset keeps the park');
+		F_Note(bFailed := NOT (rig.fbTel.bPark), sText := CONCAT(sTest, 'the reset keeps the park'));
+		AssertFalse(Condition := rig.fbTel.bMoveAbortPending, Message := 'no abort stop during a park');
+		F_Note(bFailed := (rig.fbTel.bMoveAbortPending), sText := CONCAT(sTest, 'no abort stop during a park'));
+	ELSIF rig.fbTel.bIsParked AND nCycles > 5 THEN
+		AssertFalse(Condition := rig.fbTel.bPark, Message := 'the park is over');
+		F_Note(bFailed := (rig.fbTel.bPark), sText := CONCAT(sTest, 'the park is over'));
+		AssertTrue(Condition := rig.fbElev.nStopEdges = 0 AND rig.fbAzim.nStopEdges = 0 AND rig.fbDero.nStopEdges = 0, Message := 'the reset did not stop the park motion');
+		F_Note(bFailed := NOT (rig.fbElev.nStopEdges = 0 AND rig.fbAzim.nStopEdges = 0 AND rig.fbDero.nStopEdges = 0), sText := CONCAT(sTest, 'the reset did not stop the park motion'));
+		AssertTrue(Condition := rig.fbTel.ReadyState = 0.0, Message := 'READY_STATE is parked (0.0)');
+		F_Note(bFailed := NOT (rig.fbTel.ReadyState = 0.0), sText := CONCAT(sTest, 'READY_STATE is parked (0.0)'));
+		nStep := 99;
+		TEST_FINISHED();
+	ELSIF nCycles > 800 THEN
+		AssertTrue(Condition := FALSE, Message := 'the park did not finish');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the park did not finish'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+END_CASE
+
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Reset_At_Rest_Drops_A_Pending_Slew_Without_Moving" Id="{25f2ac61-48a6-451f-9759-344d9b52da1e}">
+      <Declaration><![CDATA[// M:215-219 (#85): a reset drops a move command that has been accepted but has not started; nothing may move later because of it.
+// Nothing moves, so there is nothing to stop (no abort stop).
+METHOD PRIVATE Reset_At_Rest_Drops_A_Pending_Slew_Without_Moving
+VAR_INST
+	rig			: FB_MonetRig;
+	nStep		: INT;
+	nCycles		: UINT;
+	sTest		: STRING(80);
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Reset_At_Rest_Drops_A_Pending_Slew_Without_Moving');
+sTest := 'Reset_At_Rest_Drops_A_Pending_Slew_Without_Moving: ';
+IF nStep >= 90 THEN
+	RETURN;
+END_IF
+rig.Scan();
+nCycles := nCycles + 1;
+CASE nStep OF
+0:	// wait for the clock, then power on
+	IF rig.ClockValid THEN
+		rig.fbTel.Init();
+		nStep := 10;
+		nCycles := 0;
+	ELSIF nCycles > 2000 THEN
+		AssertTrue(Condition := FALSE, Message := 'the astronomical clock never became valid');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the astronomical clock never became valid'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+10:	// online: accept a slew and reset in the same cycle
+	IF rig.Online THEN
+		rig.fbTel.Slew(fAzimuth := 180.0, fAltitude := 45.0);
+		rig.fbTel.Reset();
+		nStep := 20;
+		nCycles := 0;
+	ELSIF nCycles > 1500 THEN
+		AssertTrue(Condition := FALSE, Message := 'the mock telescope did not reach READY_STATE 1.0');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the mock telescope did not reach READY_STATE 1.0'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+20:	// give a slew that was not dropped time to start
+	IF nCycles >= 30 THEN
+		AssertFalse(Condition := rig.fbTel.bSlew, Message := 'the slew is dropped');
+		F_Note(bFailed := (rig.fbTel.bSlew), sText := CONCAT(sTest, 'the slew is dropped'));
+		AssertFalse(Condition := rig.fbElev.MoveAxis OR rig.fbAzim.MoveAxis OR rig.fbDero.MoveAxis, Message := 'no axis was sent to the slew target');
+		F_Note(bFailed := (rig.fbElev.MoveAxis OR rig.fbAzim.MoveAxis OR rig.fbDero.MoveAxis), sText := CONCAT(sTest, 'no axis was sent to the slew target'));
+		AssertFalse(Condition := rig.fbTel.bMoveAbortPending, Message := 'no abort stop when nothing moves');
+		F_Note(bFailed := (rig.fbTel.bMoveAbortPending), sText := CONCAT(sTest, 'no abort stop when nothing moves'));
+		AssertTrue(Condition := rig.fbElev.nStopEdges = 0 AND rig.fbAzim.nStopEdges = 0 AND rig.fbDero.nStopEdges = 0, Message := 'no axis was stopped');
+		F_Note(bFailed := NOT (rig.fbElev.nStopEdges = 0 AND rig.fbAzim.nStopEdges = 0 AND rig.fbDero.nStopEdges = 0), sText := CONCAT(sTest, 'no axis was stopped'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+END_CASE
+
+]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>
