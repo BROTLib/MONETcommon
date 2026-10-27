@@ -427,10 +427,9 @@ TEST_FINISHED();
       </Implementation>
     </Method>
     <Method Name="Axis_Not_Enabled_Gets_No_Stop" Id="{e2358618-74a6-4939-bd49-0652a433bf8b}">
-      <Declaration><![CDATA[// #150: a stop before the axes are enabled (power-on at 27 s). A disabled axis is not at StandStill, so the transaction sends it
-// StopAxis; FB_Axis.StopAllowed is FALSE there, the stop request stays latched in FB_AxisCommand and starts when the next
-// power-on enables the axis (NC 0x42EF "locked ... stop command is still active"). Expected to FAIL until the transaction
-// skips disabled axes (red test first).
+      <Declaration><![CDATA[// #150: a stop before the axes are enabled (power-on at 27 s). A disabled axis is not at StandStill, so the transaction used to
+// send it StopAxis; FB_Axis.StopAllowed is FALSE there, the stop request stayed latched in FB_AxisCommand and started when the
+// next power-on enabled the axis (NC 0x42EF "locked ... stop command is still active"). The transaction now skips disabled axes.
 METHOD PRIVATE Axis_Not_Enabled_Gets_No_Stop
 VAR
 	tx	: MONETcommon.FB_MonetStopTransaction;
