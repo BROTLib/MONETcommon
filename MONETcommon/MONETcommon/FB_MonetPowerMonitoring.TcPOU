@@ -64,7 +64,7 @@ IF mqttTimer.Q THEN
 	fbComm.PublishBOOL('power', 'power', 'QualityGuardError',		QualityGuardError);
 	fbComm.PublishBOOL('power', 'power', 'UnbalanceGuardWarning',	UnbalanceGuardWarning);
 	fbComm.PublishBOOL('power', 'power', 'UnbalanceGuardError',	UnbalanceGuardError);
-	fbComm.Publish('power', 'power', 'PowerQuality',			REAL_TO_STRING(PowerQuality));
+	fbComm.PublishLREAL('power', 'power', 'PowerQuality',			REAL_TO_LREAL(PowerQuality));
 	fbComm.PublishBOOL('power', 'power', 'L1OverVoltage',			L1OverVoltage);
 	fbComm.PublishBOOL('power', 'power', 'L1InaccVoltage',		L1InaccVoltage);
 	fbComm.PublishBOOL('power', 'power', 'L1VoltageGuardWarning',	L1VoltageGuardWarning);
