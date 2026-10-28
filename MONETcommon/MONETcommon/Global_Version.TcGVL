@@ -10,10 +10,10 @@ VAR_GLOBAL CONSTANT
 	stLibVersion_MONETcommon : ST_LibVersion := (
 		iMajor := 0,
 		iMinor := 11,
-		iBuild := 1,
+		iBuild := 2,
 		iRevision := 0,
 		nFlags := 1,
-		sVersion := '0.11.1'
+		sVersion := '0.11.2'
 	);
 END_VAR]]></Declaration>
   </GVL>
