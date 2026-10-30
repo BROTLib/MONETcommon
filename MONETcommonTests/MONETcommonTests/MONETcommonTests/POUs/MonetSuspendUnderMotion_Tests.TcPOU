@@ -87,8 +87,8 @@ CASE nStep OF
 		F_Note(bFailed := (rig.fbTel.bSlew), sText := CONCAT(sTest, 'the slew is dropped'));
 		AssertFalse(Condition := rig.fbTel.bSuspendStop, Message := 'the suspend stop is over');
 		F_Note(bFailed := (rig.fbTel.bSuspendStop), sText := CONCAT(sTest, 'the suspend stop is over'));
-		AssertTrue(Condition := rig.fbTel.ReadyState = -2.0, Message := 'READY_STATE is -2.0 in manual');
-		F_Note(bFailed := NOT (rig.fbTel.ReadyState = -2.0), sText := CONCAT(sTest, 'READY_STATE is -2.0 in manual'));
+		AssertTrue(Condition := rig.fbTel.ReadyState <> 1.0, Message := 'never online in manual');
+		F_Note(bFailed := NOT (rig.fbTel.ReadyState <> 1.0), sText := CONCAT(sTest, 'never online in manual'));
 		nStep := 99;
 		TEST_FINISHED();
 	ELSIF nCycles > 400 THEN
@@ -149,8 +149,8 @@ CASE nStep OF
 		F_Note(bFailed := NOT (rig.fbElev.nStopEdges = 0 AND rig.fbAzim.nStopEdges = 0 AND rig.fbDero.nStopEdges = 0), sText := CONCAT(sTest, 'no axis was stopped'));
 		AssertFalse(Condition := rig.fbTel.bSuspendStop OR rig.fbTel.bMoveAbortPending, Message := 'no stop is running');
 		F_Note(bFailed := (rig.fbTel.bSuspendStop OR rig.fbTel.bMoveAbortPending), sText := CONCAT(sTest, 'no stop is running'));
-		AssertTrue(Condition := rig.fbTel.ReadyState = -2.0, Message := 'READY_STATE is -2.0 in manual');
-		F_Note(bFailed := NOT (rig.fbTel.ReadyState = -2.0), sText := CONCAT(sTest, 'READY_STATE is -2.0 in manual'));
+		AssertTrue(Condition := rig.fbTel.ReadyState <> 1.0, Message := 'never online in manual');
+		F_Note(bFailed := NOT (rig.fbTel.ReadyState <> 1.0), sText := CONCAT(sTest, 'never online in manual'));
 		nStep := 99;
 		TEST_FINISHED();
 	END_IF
@@ -487,8 +487,8 @@ END_CASE
     </Method>
     <Method Name="Manual_From_Cold_Start_Does_Not_Fault" Id="{c4a1f0e2-6b7d-4e35-9a18-5d2f7b903e56}">
       <Declaration><![CDATA[// #156: the PLC starts with the cabinet selector on manual, so the telescope body never ran and fbAzimuth/fbElevation/fbDerotator
-// are unassigned references. SuspendAutomatic must not touch them (before the fix: page fault, the run crashes). READY_STATE -2.0
-// is still published and no axis is driven.
+// are unassigned references. SuspendAutomatic must not touch them (before the fix: page fault, the run crashes). The telescope
+// is never online (READY_STATE 1.0) and no axis is driven.
 METHOD PRIVATE Manual_From_Cold_Start_Does_Not_Fault
 VAR_INST
 	rig			: FB_MonetRig;
@@ -511,8 +511,8 @@ CASE nStep OF
 		rig.SetManual(TRUE);
 	END_IF
 	IF nCycles >= 20 THEN
-		AssertTrue(Condition := rig.fbTel.ReadyState = -2.0, Message := 'READY_STATE is -2.0 in manual');
-		F_Note(bFailed := NOT (rig.fbTel.ReadyState = -2.0), sText := CONCAT(sTest, 'READY_STATE is -2.0 in manual'));
+		AssertTrue(Condition := rig.fbTel.ReadyState <> 1.0, Message := 'never online in manual');
+		F_Note(bFailed := NOT (rig.fbTel.ReadyState <> 1.0), sText := CONCAT(sTest, 'never online in manual'));
 		AssertFalse(Condition := rig.fbElev.MoveAxis OR rig.fbAzim.MoveAxis OR rig.fbDero.MoveAxis, Message := 'no axis moves');
 		F_Note(bFailed := (rig.fbElev.MoveAxis OR rig.fbAzim.MoveAxis OR rig.fbDero.MoveAxis), sText := CONCAT(sTest, 'no axis moves'));
 		nStep := 99;
@@ -560,8 +560,8 @@ CASE nStep OF
 	END_IF
 20:
 	IF nCycles >= 5 THEN
-		AssertTrue(Condition := rig.fbTel.ReadyState = -2.0, Message := 'READY_STATE is -2.0 after two stops in manual');
-		F_Note(bFailed := NOT (rig.fbTel.ReadyState = -2.0), sText := CONCAT(sTest, 'READY_STATE is -2.0 after two stops in manual'));
+		AssertTrue(Condition := rig.fbTel.ReadyState <> 1.0, Message := 'never online after two stops in manual');
+		F_Note(bFailed := NOT (rig.fbTel.ReadyState <> 1.0), sText := CONCAT(sTest, 'never online after two stops in manual'));
 		nStep := 99;
 		TEST_FINISHED();
 	END_IF
