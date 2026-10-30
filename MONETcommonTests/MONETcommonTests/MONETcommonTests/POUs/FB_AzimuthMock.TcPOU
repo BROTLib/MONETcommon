@@ -75,6 +75,18 @@ bError := bInjected;
 nErrorID := nInjectedId;
 ]]></ST>
     </Implementation>
+    <Method Name="SetDigitalInputs" Id="{50c2fec9-4cfc-4444-8dec-43a084c75f72}">
+      <Declaration><![CDATA[// the limit inputs the pendant reads (InDigitalInputs, AT%I*): bit 0 and 1 TRUE = limit switch free (FB_MonetPendantControl_Tests)
+METHOD SetDigitalInputs
+VAR_INPUT
+	nInputs	: WORD;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[InDigitalInputs := nInputs;
+]]></ST>
+      </Implementation>
+    </Method>
     <Method Name="InjectError" Id="{7b5ffe42-4f43-4d92-9ec6-dd005695327d}">
       <Declaration><![CDATA[// the axis reports an error with this id until the telescope resets it (bError/nErrorID are what the telescope reads)
 METHOD InjectError

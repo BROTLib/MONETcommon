@@ -3,18 +3,323 @@
   <POU Name="FB_MonetPendantControl_Tests" Id="{08fefe33-64b1-416b-b29d-2fb550602936}" SpecialFunc="None">
     <Declaration><![CDATA[// Tests for MONETcommon.FB_MonetPendantControl.
 //
-// The selector, key and button inputs are AT%I* inside the FB, so a test on a target with no linked
-// hardware sees them all FALSE: selector 0 (pendant disconnected) and the enable key off. That is
-// exactly the case this suite pins down: the error lamp lights and nothing else happens. Nothing is
-// dereferenced: with the key off the block returns before its CASE, so no axis/cover references are needed.
+// Unlinked_Pendant_Lights_Error_Lamp: with no linked hardware the selector, key and button inputs (AT%I*) are all FALSE:
+// selector 0 (pendant disconnected) and the enable key off. The error lamp lights and nothing else happens.
+//
+// The other cases (#3) drive the inputs through FB_MonetPendantProbe and check that the pendant lets go of a function it
+// drives: Move* is FALSE once the key goes off, the selector changes or reads 0, and Enable follows after tEnableRelease.
+// They assert the command levels (MovePos, MoveNeg, Enable), not motion: the axis mocks are not scanned. The limit inputs
+// the pendant reads are set with SetDigitalInputs (0 would keep MovePos FALSE and the cases would pass for nothing), and
+// every case asserts the precondition (the jog is on) before the event.
 FUNCTION_BLOCK FB_MonetPendantControl_Tests EXTENDS TcUnit.FB_TestSuite
 VAR
 END_VAR
 ]]></Declaration>
     <Implementation>
       <ST><![CDATA[Unlinked_Pendant_Lights_Error_Lamp();
+Elevation_Key_Off_Releases_Jog();
+Azimuth_Selector_Change_Releases_Jog();
+Derotator_Selector_Zero_Releases_Jog();
+Focus_Key_Off_Releases_Jog();
+Key_Off_Without_Ownership_Writes_Nothing();
+Release_Is_Once();
+Reselect_Cancels_Enable_Drop();
+Selector_Bounce_Does_Not_Drive_Intermediate_Function();
+Unassigned_References_Do_Not_Fault();
 ]]></ST>
     </Implementation>
+    <Method Name="Scan" Id="{71d29b26-686b-4cd9-9173-dad44653aedb}">
+      <Declaration><![CDATA[// one pendant scan with the given inputs. The selector debounce is off (T#0S) but needs a second scan to see the selector stable,
+// so a change of the selector is applied with Hold (two scans).
+METHOD PRIVATE Scan
+VAR_IN_OUT
+	fbP		: FB_MonetPendantProbe;
+	fbEl	: FB_ElevationMock;
+	fbAz	: FB_AzimuthMock;
+	fbDr	: FB_DerotatorMock;
+	fbFo	: FB_FocusMock;
+END_VAR
+VAR_INPUT
+	bKey		: BOOL;
+	bButton		: BOOL;
+	nSel		: UINT;
+	bUp			: BOOL;
+	bDown		: BOOL;
+	bLeft		: BOOL;
+	bRight		: BOOL;
+	tRelease	: TIME;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[fbP(bKey := bKey, bButton := bButton, nSel := nSel, bUp := bUp, bDown := bDown, bLeft := bLeft, bRight := bRight,
+	tEnableRelease := tRelease, tSelectionDebounce := T#0S,
+	fbElevation := fbEl, fbAzimuth := fbAz, fbDerotator := fbDr, fbFocus := fbFo);
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Hold" Id="{e6f1982d-6228-44af-a18d-f171701b335e}">
+      <Declaration><![CDATA[// two scans with the same inputs: the selector is stable from the second one
+METHOD PRIVATE Hold
+VAR_IN_OUT
+	fbP		: FB_MonetPendantProbe;
+	fbEl	: FB_ElevationMock;
+	fbAz	: FB_AzimuthMock;
+	fbDr	: FB_DerotatorMock;
+	fbFo	: FB_FocusMock;
+END_VAR
+VAR_INPUT
+	bKey		: BOOL;
+	bButton		: BOOL;
+	nSel		: UINT;
+	bUp			: BOOL;
+	bDown		: BOOL;
+	bLeft		: BOOL;
+	bRight		: BOOL;
+	tRelease	: TIME;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Scan(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := bKey, bButton := bButton, nSel := nSel, bUp := bUp, bDown := bDown, bLeft := bLeft, bRight := bRight, tRelease := tRelease);
+Scan(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := bKey, bButton := bButton, nSel := nSel, bUp := bUp, bDown := bDown, bLeft := bLeft, bRight := bRight, tRelease := tRelease);
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Elevation_Key_Off_Releases_Jog" Id="{b9186aad-ab0c-4ada-b175-cf794ec10aee}">
+      <Declaration><![CDATA[// Key off while the elevation is jogged: MovePos/MoveNeg are FALSE, Enable follows after tEnableRelease (#3)
+METHOD PRIVATE Elevation_Key_Off_Releases_Jog
+VAR
+	fbComm	: FB_NullComm;
+	fbP		: FB_MonetPendantProbe(comm := fbComm);
+	fbEl	: FB_ElevationMock(comm := fbComm);
+	fbAz	: FB_AzimuthMock(comm := fbComm);
+	fbDr	: FB_DerotatorMock(comm := fbComm);
+	fbFo	: FB_FocusMock(comm := fbComm);
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Elevation_Key_Off_Releases_Jog');
+fbEl.SetDigitalInputs(16#3);
+fbAz.SetDigitalInputs(16#3);
+Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 7, bUp := TRUE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tRelease := T#1H);
+AssertTrue(Condition := fbEl.MovePos, Message := 'precondition: the elevation jogs up');
+AssertTrue(Condition := fbEl.Enable, Message := 'precondition: the elevation is enabled');
+Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := FALSE, bButton := TRUE, nSel := 7, bUp := TRUE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tRelease := T#1H);
+AssertFalse(Condition := fbEl.MovePos, Message := 'key off: MovePos released');
+AssertFalse(Condition := fbEl.MoveNeg, Message := 'key off: MoveNeg released');
+AssertTrue(Condition := fbEl.Enable, Message := 'Enable stays until tEnableRelease has expired');
+Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := FALSE, bButton := TRUE, nSel := 7, bUp := TRUE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tRelease := T#0S);
+AssertFalse(Condition := fbEl.Enable, Message := 'Enable dropped after tEnableRelease');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Azimuth_Selector_Change_Releases_Jog" Id="{01628a95-7812-4cef-ac18-c660277812b1}">
+      <Declaration><![CDATA[// Selector 8 to 7 while a direction is held: the azimuth jog is released, the elevation takes over (#3)
+METHOD PRIVATE Azimuth_Selector_Change_Releases_Jog
+VAR
+	fbComm	: FB_NullComm;
+	fbP		: FB_MonetPendantProbe(comm := fbComm);
+	fbEl	: FB_ElevationMock(comm := fbComm);
+	fbAz	: FB_AzimuthMock(comm := fbComm);
+	fbDr	: FB_DerotatorMock(comm := fbComm);
+	fbFo	: FB_FocusMock(comm := fbComm);
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Azimuth_Selector_Change_Releases_Jog');
+fbEl.SetDigitalInputs(16#3);
+fbAz.SetDigitalInputs(16#3);
+Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 8, bUp := FALSE, bDown := FALSE, bLeft := FALSE, bRight := TRUE, tRelease := T#1H);
+AssertTrue(Condition := fbAz.MovePos, Message := 'precondition: the azimuth jogs right');
+Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 7, bUp := FALSE, bDown := FALSE, bLeft := FALSE, bRight := TRUE, tRelease := T#1H);
+AssertFalse(Condition := fbAz.MovePos, Message := 'selector change: azimuth MovePos released');
+AssertFalse(Condition := fbAz.MoveNeg, Message := 'selector change: azimuth MoveNeg released');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Derotator_Selector_Zero_Releases_Jog" Id="{aa52798f-4291-4c55-a159-07d540b7ab6b}">
+      <Declaration><![CDATA[// Selector reads 0 (pendant cable pulled): the derotator jog is released and the error lamp is on (#3)
+METHOD PRIVATE Derotator_Selector_Zero_Releases_Jog
+VAR
+	fbComm	: FB_NullComm;
+	fbP		: FB_MonetPendantProbe(comm := fbComm);
+	fbEl	: FB_ElevationMock(comm := fbComm);
+	fbAz	: FB_AzimuthMock(comm := fbComm);
+	fbDr	: FB_DerotatorMock(comm := fbComm);
+	fbFo	: FB_FocusMock(comm := fbComm);
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Derotator_Selector_Zero_Releases_Jog');
+fbEl.SetDigitalInputs(16#3);
+fbAz.SetDigitalInputs(16#3);
+Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 6, bUp := FALSE, bDown := FALSE, bLeft := TRUE, bRight := FALSE, tRelease := T#1H);
+AssertTrue(Condition := fbDr.MoveNeg, Message := 'precondition: the derotator jogs left');
+Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 0, bUp := FALSE, bDown := FALSE, bLeft := TRUE, bRight := FALSE, tRelease := T#1H);
+AssertFalse(Condition := fbDr.MoveNeg, Message := 'selector 0: derotator MoveNeg released');
+AssertFalse(Condition := fbDr.MovePos, Message := 'selector 0: derotator MovePos released');
+AssertTrue(Condition := fbP.ObLampError, Message := 'selector 0: error lamp on');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Focus_Key_Off_Releases_Jog" Id="{213fc2e8-fadb-4b15-b740-c8ec0894d5e7}">
+      <Declaration><![CDATA[// Key off while the focus is jogged: MovePos is FALSE (#3)
+METHOD PRIVATE Focus_Key_Off_Releases_Jog
+VAR
+	fbComm	: FB_NullComm;
+	fbP		: FB_MonetPendantProbe(comm := fbComm);
+	fbEl	: FB_ElevationMock(comm := fbComm);
+	fbAz	: FB_AzimuthMock(comm := fbComm);
+	fbDr	: FB_DerotatorMock(comm := fbComm);
+	fbFo	: FB_FocusMock(comm := fbComm);
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Focus_Key_Off_Releases_Jog');
+fbEl.SetDigitalInputs(16#3);
+fbAz.SetDigitalInputs(16#3);
+Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 5, bUp := TRUE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tRelease := T#1H);
+AssertTrue(Condition := fbFo.MovePos, Message := 'precondition: the focus jogs up');
+Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := FALSE, bButton := TRUE, nSel := 5, bUp := TRUE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tRelease := T#1H);
+AssertFalse(Condition := fbFo.MovePos, Message := 'key off: focus MovePos released');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Key_Off_Without_Ownership_Writes_Nothing" Id="{c3a7ca3d-edd7-4ee1-8f5e-a5a0643aca97}">
+      <Declaration><![CDATA[// With the key off the pendant owns nothing and writes nothing: a jog started elsewhere (Visu, telescope) stays (#3)
+METHOD PRIVATE Key_Off_Without_Ownership_Writes_Nothing
+VAR
+	fbComm	: FB_NullComm;
+	fbP		: FB_MonetPendantProbe(comm := fbComm);
+	fbEl	: FB_ElevationMock(comm := fbComm);
+	fbAz	: FB_AzimuthMock(comm := fbComm);
+	fbDr	: FB_DerotatorMock(comm := fbComm);
+	fbFo	: FB_FocusMock(comm := fbComm);
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Key_Off_Without_Ownership_Writes_Nothing');
+fbEl.SetDigitalInputs(16#3);
+fbAz.SetDigitalInputs(16#3);
+Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := FALSE, bButton := TRUE, nSel := 7, bUp := FALSE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tRelease := T#1H);
+fbEl.MovePos := TRUE;
+fbEl.Enable := TRUE;
+Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := FALSE, bButton := TRUE, nSel := 7, bUp := TRUE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tRelease := T#1H);
+AssertTrue(Condition := fbEl.MovePos, Message := 'a jog set elsewhere is not touched with the key off');
+AssertTrue(Condition := fbEl.Enable, Message := 'an Enable set elsewhere is not touched with the key off');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Release_Is_Once" Id="{74b2c60a-9483-4952-9e8d-98953882536c}">
+      <Declaration><![CDATA[// The release is one write: a jog set after it (Visu) is not released again (#3)
+METHOD PRIVATE Release_Is_Once
+VAR
+	fbComm	: FB_NullComm;
+	fbP		: FB_MonetPendantProbe(comm := fbComm);
+	fbEl	: FB_ElevationMock(comm := fbComm);
+	fbAz	: FB_AzimuthMock(comm := fbComm);
+	fbDr	: FB_DerotatorMock(comm := fbComm);
+	fbFo	: FB_FocusMock(comm := fbComm);
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Release_Is_Once');
+fbEl.SetDigitalInputs(16#3);
+fbAz.SetDigitalInputs(16#3);
+Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 7, bUp := TRUE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tRelease := T#1H);
+AssertTrue(Condition := fbEl.MovePos, Message := 'precondition: the elevation jogs up');
+Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := FALSE, bButton := TRUE, nSel := 7, bUp := TRUE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tRelease := T#1H);
+AssertFalse(Condition := fbEl.MovePos, Message := 'released');
+fbEl.MovePos := TRUE;
+Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := FALSE, bButton := TRUE, nSel := 7, bUp := TRUE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tRelease := T#1H);
+AssertTrue(Condition := fbEl.MovePos, Message := 'not released a second time');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Reselect_Cancels_Enable_Drop" Id="{669cbc01-79b9-4440-9ee0-46c92e36d01d}">
+      <Declaration><![CDATA[// The same function selected again before tEnableRelease expires: the pending Enable drop is cancelled (#3)
+METHOD PRIVATE Reselect_Cancels_Enable_Drop
+VAR
+	fbComm	: FB_NullComm;
+	fbP		: FB_MonetPendantProbe(comm := fbComm);
+	fbEl	: FB_ElevationMock(comm := fbComm);
+	fbAz	: FB_AzimuthMock(comm := fbComm);
+	fbDr	: FB_DerotatorMock(comm := fbComm);
+	fbFo	: FB_FocusMock(comm := fbComm);
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Reselect_Cancels_Enable_Drop');
+fbEl.SetDigitalInputs(16#3);
+fbAz.SetDigitalInputs(16#3);
+Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 7, bUp := TRUE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tRelease := T#1H);
+AssertTrue(Condition := fbEl.Enable, Message := 'precondition: the elevation is enabled');
+Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := FALSE, bButton := TRUE, nSel := 7, bUp := FALSE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tRelease := T#1H);
+AssertEquals_UINT(Expected := 7, Actual := fbP.nEnablePending, Message := 'precondition: the Enable drop of the elevation is pending');
+Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 7, bUp := FALSE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tRelease := T#1H);
+AssertEquals_UINT(Expected := 0, Actual := fbP.nEnablePending, Message := 'selected again: the pending Enable drop is cancelled');
+AssertTrue(Condition := fbEl.Enable, Message := 'selected again with the button held: Enable stays');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Selector_Bounce_Does_Not_Drive_Intermediate_Function" Id="{a8160511-039f-45c2-9b05-506bba8d9141}">
+      <Declaration><![CDATA[// The first scan after a selector change drives nothing: turning 7 to 8 with a direction held does not jog the new function at once (#3)
+METHOD PRIVATE Selector_Bounce_Does_Not_Drive_Intermediate_Function
+VAR
+	fbComm	: FB_NullComm;
+	fbP		: FB_MonetPendantProbe(comm := fbComm);
+	fbEl	: FB_ElevationMock(comm := fbComm);
+	fbAz	: FB_AzimuthMock(comm := fbComm);
+	fbDr	: FB_DerotatorMock(comm := fbComm);
+	fbFo	: FB_FocusMock(comm := fbComm);
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Selector_Bounce_Does_Not_Drive_Intermediate_Function');
+fbEl.SetDigitalInputs(16#3);
+fbAz.SetDigitalInputs(16#3);
+Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 7, bUp := FALSE, bDown := FALSE, bLeft := FALSE, bRight := TRUE, tRelease := T#1H);
+Scan(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 8, bUp := FALSE, bDown := FALSE, bLeft := FALSE, bRight := TRUE, tRelease := T#1H);
+AssertFalse(Condition := fbAz.MovePos, Message := 'first scan at the new selector: nothing driven');
+AssertFalse(Condition := fbEl.MovePos, Message := 'the old function is released');
+Scan(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 8, bUp := FALSE, bDown := FALSE, bLeft := FALSE, bRight := TRUE, tRelease := T#1H);
+AssertTrue(Condition := fbAz.MovePos, Message := 'stable selector: the azimuth jogs');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Unassigned_References_Do_Not_Fault" Id="{f87dbd70-dda5-42b8-9d6d-92a611256842}">
+      <Declaration><![CDATA[// No references assigned: every function can be selected for a scan without a null dereference (a failure here is a page fault, CI shows a crashed run)
+METHOD PRIVATE Unassigned_References_Do_Not_Fault
+VAR
+	fbComm	: FB_NullComm;
+	fbP		: FB_MonetPendantProbe(comm := fbComm);
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Unassigned_References_Do_Not_Fault');
+fbP(bKey := TRUE, bButton := TRUE, nSel := 1, bUp := TRUE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tSelectionDebounce := T#0S);
+fbP(bKey := TRUE, bButton := TRUE, nSel := 1, bUp := TRUE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tSelectionDebounce := T#0S);
+fbP(bKey := TRUE, bButton := TRUE, nSel := 5, bUp := TRUE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tSelectionDebounce := T#0S);
+fbP(bKey := TRUE, bButton := TRUE, nSel := 5, bUp := TRUE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tSelectionDebounce := T#0S);
+fbP(bKey := TRUE, bButton := TRUE, nSel := 6, bUp := TRUE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tSelectionDebounce := T#0S);
+fbP(bKey := TRUE, bButton := TRUE, nSel := 6, bUp := TRUE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tSelectionDebounce := T#0S);
+fbP(bKey := TRUE, bButton := TRUE, nSel := 7, bUp := TRUE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tSelectionDebounce := T#0S);
+fbP(bKey := TRUE, bButton := TRUE, nSel := 7, bUp := TRUE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tSelectionDebounce := T#0S);
+fbP(bKey := TRUE, bButton := TRUE, nSel := 8, bUp := TRUE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tSelectionDebounce := T#0S);
+fbP(bKey := TRUE, bButton := TRUE, nSel := 8, bUp := TRUE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tSelectionDebounce := T#0S);
+fbP(bKey := FALSE, nSel := 7, tSelectionDebounce := T#0S);
+AssertTrue(Condition := TRUE, Message := 'no fault with unassigned references');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
     <Method Name="Unlinked_Pendant_Lights_Error_Lamp" Id="{160231b1-de38-493f-9d6b-339d6320396b}">
       <Declaration><![CDATA[// Selector 0 and key off: ObLampError is TRUE (it used to keep its last value, FALSE after start-up),
 // bEnable stays FALSE and no direction lamp is lit (HalfBROT #12).

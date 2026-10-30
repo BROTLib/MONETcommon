@@ -93,6 +93,10 @@ with the cover command of a power-on and is FALSE after a normal park and after 
   safe-torque-off (STO) reset handshake for all three drive axes.
 - `FB_MonetPendantControl` — BCD-selector manual hand pendant. The error lamp shows the selected function's error;
   selector 0 (pendant disconnected) lights it and does nothing else. The horn variable is not wired (nothing sounds).
+  The pendant lets go of a function it drives (key off, selector change, selector 0, cable pulled): `MovePos`/`MoveNeg` of that
+  axis or focus are set FALSE once, and its `Enable` after `tEnableRelease` (2 s) if the pendant had set it (#3). It writes
+  nothing for a function it does not own, so a jog from the Visu keeps working with the pendant key off. The selector must read
+  the same for `tSelectionDebounce` (100 ms) before the pendant drives that function.
 - `FB_MonetCabinetControl` — cabinet buttons/switches/lamps and temperature
   monitoring.
 - `FB_MonetPowerMonitoring` — monitors the three-phase supply quality.

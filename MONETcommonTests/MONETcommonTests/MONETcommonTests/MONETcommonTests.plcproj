@@ -178,6 +178,9 @@
     <Compile Include="POUs\MonetBrakeRelease_Tests.TcPOU">
       <SubType>Code</SubType>
     </Compile>
+    <Compile Include="POUs\FB_MonetPendantProbe.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
     <Compile Include="POUs\FB_MonetPendantControl_Tests.TcPOU">
       <SubType>Code</SubType>
     </Compile>
