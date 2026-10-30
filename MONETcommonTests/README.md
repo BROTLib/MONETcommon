@@ -10,7 +10,7 @@ results); this one only covers what's specific to MONETcommon.
 
 | Suite | What it checks |
 |---|---|
-| `FB_MonetPendantControl_Tests` | with no linked hardware (selector 0, key off) the error lamp is on, `bEnable` is FALSE and no direction lamp is lit (HalfBROT #12). The selector, key and buttons are `AT%I*`, so only this unlinked state can be tested |
+| `FB_MonetPendantControl_Tests` | with no linked hardware (selector 0, key off) the error lamp is on, `bEnable` is FALSE and no direction lamp is lit (HalfBROT #12). The pendant's `AT%I*` inputs are driven through `FB_MonetPendantProbe` (derived, writes the inputs, then runs the real body); the axis mocks get `SetDigitalInputs` for the limit inputs. Release of the jog on key off, selector change and selector 0, `Enable` after `tEnableRelease`, nothing written without ownership, one release only, the selector debounce, no fault without references (MONETcommon #3) |
 | `F_CommandAcceptance_Tests` | `F_CommandAcceptance` / `F_CommandRejectText` (#83, #87): one test per row of the command-acceptance table (reject reasons, park wins over power-on, park deferred during a stop, latest move replaces) |
 | `F_AxisTurn_Tests` | the turn of an azimuth/derotator target inside the axis limits (#2): MONETS/MONETN limits, inclusive endpoints, no valid turn, longest track time with the 4 h cap, nearest turn without velocity, the margin, and that a tracking axis keeps its turn and stops at the margin instead of jumping 360 deg |
 | `F_TargetBelowHorizonWarning_Tests` | the 'Target below safe horizon' condition (#94): only a requested goto/track below `fHorizon` warns, an idle or parked telescope with a stale RA/Dec target does not, the comparison is strict |
