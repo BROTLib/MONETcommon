@@ -1305,89 +1305,93 @@ END_CASE]]></ST>
 // a move is accepted, a startup is never resumed and nothing queued replays. Stop, park, reset and Init stay accepted.
 METHOD SuspendAutomatic
 ]]></Declaration>
-      <Implementation><ST><![CDATA[_ReadAxes();
-_StopTxInputs();
-IF fbStartup.EnterSuspend() THEN
-    bHwErrorLast := TRUE;	// #86: an error already present when switching back to automatic does not park
-    // #72: after any manual interval only a new Init makes the telescope movable again. Set in the first manual scan, so a
-    // move sent during manual is rejected too (bReady is not recomputed in manual) and the horizon guard cannot home before the Init.
-    bInitRequired := TRUE;
-    bInitRequiredLog := TRUE;
-    IF fbStartup.Initializing OR bPower THEN
-        bPower := FALSE;
-        bInterrupted := TRUE;
-        _PowerOn();
-        bInterrupted := FALSE;
-    END_IF
-
-    // #118: nothing queued may replay on the return, and the manual mode starts from defined axis states
-    bGoHome := FALSE;
-    bGoto := FALSE;
-    bSlew := FALSE;
-    bTrack := FALSE;
-    bSupersedeRequest := FALSE;
-    bInterrupted := TRUE;
-    _HomeTelescope();
-    _GotoTelescope();
-    _SlewTelescope();
-    _ParkTelescope();
-    bInterrupted := FALSE;
-    bSuspendStop := F_SuspendStop(
-        bError := bError,
-        bStopRunning := TCS_command = E_TCSCommand.stop AND (bStop OR bMoveAbortPending),
-        bAzMoving := fbStopTx.abEnabled[1] AND fbStopTx.abMoving[1],
-        bElMoving := fbStopTx.abEnabled[2] AND fbStopTx.abMoving[2],
-        bDrMoving := fbStopTx.abEnabled[3] AND fbStopTx.abMoving[3]);
-    IF bSuspendStop THEN
-        IF NOT bStop THEN
-            bMoveAbortPending := TRUE;
+      <Implementation><ST><![CDATA[// #156: the axis references are assigned only by the telescope body. After a start in manual (key on Local) they are still
+// unassigned, so the axis part is skipped until the first automatic scan. The rest (events, READY_STATE) does not use them.
+IF __ISVALIDREF(fbAzimuth) AND __ISVALIDREF(fbElevation) AND __ISVALIDREF(fbDerotator) THEN
+    _ReadAxes();
+    _StopTxInputs();
+    IF fbStartup.EnterSuspend() THEN
+        bHwErrorLast := TRUE;	// #86: an error already present when switching back to automatic does not park
+        // #72: after any manual interval only a new Init makes the telescope movable again. Set in the first manual scan, so a
+        // move sent during manual is rejected too (bReady is not recomputed in manual) and the horizon guard cannot home before the Init.
+        bInitRequired := TRUE;
+        bInitRequiredLog := TRUE;
+        IF fbStartup.Initializing OR bPower THEN
+            bPower := FALSE;
+            bInterrupted := TRUE;
+            _PowerOn();
+            bInterrupted := FALSE;
         END_IF
-        TCS_command := E_TCSCommand.stop;
-        bSuspendStopStarted := TRUE;
-    ELSE
-        TCS_command := E_TCSCommand.no_command;
-        fbAzimuth.Tracking := FALSE;
-        fbElevation.Tracking := FALSE;
-        fbDerotator.Tracking := FALSE;
-        fbAzimuth.MoveAxis := FALSE;
-        fbElevation.MoveAxis := FALSE;
-        fbDerotator.MoveAxis := FALSE;
-    END_IF
-END_IF
 
-IF bSuspendStop THEN
-    // the timeout counts from the first suspended scan, or goes on if the body was already stopping
-    IF TCS_command <> eTimeoutCommand THEN
-        tonCommandTimeout(IN := FALSE);
-        eTimeoutCommand := TCS_command;
+        // #118: nothing queued may replay on the return, and the manual mode starts from defined axis states
+        bGoHome := FALSE;
+        bGoto := FALSE;
+        bSlew := FALSE;
+        bTrack := FALSE;
+        bSupersedeRequest := FALSE;
+        bInterrupted := TRUE;
+        _HomeTelescope();
+        _GotoTelescope();
+        _SlewTelescope();
+        _ParkTelescope();
+        bInterrupted := FALSE;
+        bSuspendStop := F_SuspendStop(
+            bError := bError,
+            bStopRunning := TCS_command = E_TCSCommand.stop AND (bStop OR bMoveAbortPending),
+            bAzMoving := fbStopTx.abEnabled[1] AND fbStopTx.abMoving[1],
+            bElMoving := fbStopTx.abEnabled[2] AND fbStopTx.abMoving[2],
+            bDrMoving := fbStopTx.abEnabled[3] AND fbStopTx.abMoving[3]);
+        IF bSuspendStop THEN
+            IF NOT bStop THEN
+                bMoveAbortPending := TRUE;
+            END_IF
+            TCS_command := E_TCSCommand.stop;
+            bSuspendStopStarted := TRUE;
+        ELSE
+            TCS_command := E_TCSCommand.no_command;
+            fbAzimuth.Tracking := FALSE;
+            fbElevation.Tracking := FALSE;
+            fbDerotator.Tracking := FALSE;
+            fbAzimuth.MoveAxis := FALSE;
+            fbElevation.MoveAxis := FALSE;
+            fbDerotator.MoveAxis := FALSE;
+        END_IF
     END_IF
-    _StopTelescope();
-    // the NC rejects a jog while MC_Stop runs, which would raise an axis error: no jog until the stop has settled
-    fbAzimuth.MovePos := FALSE;
-    fbAzimuth.MoveNeg := FALSE;
-    fbElevation.MovePos := FALSE;
-    fbElevation.MoveNeg := FALSE;
-    fbDerotator.MovePos := FALSE;
-    fbDerotator.MoveNeg := FALSE;
-    tonCommandTimeout(IN := TRUE, PT := T#15S, nDivisor := nTimeDivisor);
-    TCSCTOEvent.OnMessage := 'STOP';
-    _StopTxMonitor();
-    IF fbStopTx.bSettled THEN
-        _StopTxRelease();
-        fbStopTx.Cancel();
-        bStopTxBegun := FALSE;
-        TCS_command := E_TCSCommand.no_command;
-        bSuspendStop := FALSE;
-    ELSIF fbStopTx.bStuck THEN
-        // an axis is still moving after the timeout: hand the axes to the pendant anyway. bMoveAbortPending / bStop stay set,
-        // so the body stops again after the return.
-        fbAzimuth.StopAxis := FALSE;
-        fbElevation.StopAxis := FALSE;
-        fbDerotator.StopAxis := FALSE;
-        fbStopTx.Cancel();
-        bStopTxBegun := FALSE;
-        TCS_command := E_TCSCommand.no_command;
-        bSuspendStop := FALSE;
+
+    IF bSuspendStop THEN
+        // the timeout counts from the first suspended scan, or goes on if the body was already stopping
+        IF TCS_command <> eTimeoutCommand THEN
+            tonCommandTimeout(IN := FALSE);
+            eTimeoutCommand := TCS_command;
+        END_IF
+        _StopTelescope();
+        // the NC rejects a jog while MC_Stop runs, which would raise an axis error: no jog until the stop has settled
+        fbAzimuth.MovePos := FALSE;
+        fbAzimuth.MoveNeg := FALSE;
+        fbElevation.MovePos := FALSE;
+        fbElevation.MoveNeg := FALSE;
+        fbDerotator.MovePos := FALSE;
+        fbDerotator.MoveNeg := FALSE;
+        tonCommandTimeout(IN := TRUE, PT := T#15S, nDivisor := nTimeDivisor);
+        TCSCTOEvent.OnMessage := 'STOP';
+        _StopTxMonitor();
+        IF fbStopTx.bSettled THEN
+            _StopTxRelease();
+            fbStopTx.Cancel();
+            bStopTxBegun := FALSE;
+            TCS_command := E_TCSCommand.no_command;
+            bSuspendStop := FALSE;
+        ELSIF fbStopTx.bStuck THEN
+            // an axis is still moving after the timeout: hand the axes to the pendant anyway. bMoveAbortPending / bStop stay set,
+            // so the body stops again after the return.
+            fbAzimuth.StopAxis := FALSE;
+            fbElevation.StopAxis := FALSE;
+            fbDerotator.StopAxis := FALSE;
+            fbStopTx.Cancel();
+            bStopTxBegun := FALSE;
+            TCS_command := E_TCSCommand.no_command;
+            bSuspendStop := FALSE;
+        END_IF
     END_IF
 END_IF
 SuspendStopEvent(	Trigger := bSuspendStopStarted,
@@ -2409,7 +2413,10 @@ Slew := TRUE;]]></ST>
         <ST><![CDATA[// #96 (D2): a repeated stop while a stop is running re-sends a stop only to axes that are moving again
 IF bStop THEN
 	fbStopTx.Restart();
-	fbFocus.Stop();	// MONETcommon#122: a focus that was sent to a new target meanwhile is stopped again
+	// #156: fbFocus is unassigned until the body has run (start in manual)
+	IF fbFocus <> 0 THEN
+		fbFocus.Stop();	// MONETcommon#122: a focus that was sent to a new target meanwhile is stopped again
+	END_IF
 END_IF
 bStop := TRUE;]]></ST>
       </Implementation>
