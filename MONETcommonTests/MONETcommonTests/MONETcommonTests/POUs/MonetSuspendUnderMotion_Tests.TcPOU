@@ -16,6 +16,9 @@ Suspend_During_Park_Stops_The_Park_And_Keeps_bPark();
 Suspend_Blocks_The_Jog_While_The_Stop_Runs();
 Back_To_Automatic_With_An_Error_Does_Not_Park();
 Back_To_Automatic_Requires_Init_Before_Any_Move();
+Manual_From_Cold_Start_Does_Not_Fault();
+Stop_Twice_In_Manual_From_Cold_Start_Does_Not_Fault();
+Manual_From_Cold_Start_Then_Automatic_Requires_Init();
 ]]></ST>
     </Implementation>
     <Method Name="Suspend_While_Slewing_Stops_Each_Moving_Axis_Once" Id="{88ce4633-9cab-43b1-ad84-da63f2946a81}">
@@ -474,6 +477,151 @@ CASE nStep OF
 	ELSIF nCycles > 300 THEN
 		AssertTrue(Condition := FALSE, Message := 'the slew after the new Init was not accepted');
 		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the slew after the new Init was not accepted'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+END_CASE
+
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Manual_From_Cold_Start_Does_Not_Fault" Id="{c4a1f0e2-6b7d-4e35-9a18-5d2f7b903e56}">
+      <Declaration><![CDATA[// #156: the PLC starts with the cabinet selector on manual, so the telescope body never ran and fbAzimuth/fbElevation/fbDerotator
+// are unassigned references. SuspendAutomatic must not touch them (before the fix: page fault, the run crashes). READY_STATE -2.0
+// is still published and no axis is driven.
+METHOD PRIVATE Manual_From_Cold_Start_Does_Not_Fault
+VAR_INST
+	rig			: FB_MonetRig;
+	nStep		: INT;
+	nCycles		: UINT;
+	sTest		: STRING(80);
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Manual_From_Cold_Start_Does_Not_Fault');
+sTest := 'Manual_From_Cold_Start_Does_Not_Fault: ';
+IF nStep >= 90 THEN
+	RETURN;
+END_IF
+rig.Scan();
+nCycles := nCycles + 1;
+CASE nStep OF
+0:	// the first scan after the reset is already a manual scan
+	IF nCycles = 1 THEN
+		rig.SetManual(TRUE);
+	END_IF
+	IF nCycles >= 20 THEN
+		AssertTrue(Condition := rig.fbTel.ReadyState = -2.0, Message := 'READY_STATE is -2.0 in manual');
+		F_Note(bFailed := NOT (rig.fbTel.ReadyState = -2.0), sText := CONCAT(sTest, 'READY_STATE is -2.0 in manual'));
+		AssertFalse(Condition := rig.fbElev.MoveAxis OR rig.fbAzim.MoveAxis OR rig.fbDero.MoveAxis, Message := 'no axis moves');
+		F_Note(bFailed := (rig.fbElev.MoveAxis OR rig.fbAzim.MoveAxis OR rig.fbDero.MoveAxis), sText := CONCAT(sTest, 'no axis moves'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+END_CASE
+
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Stop_Twice_In_Manual_From_Cold_Start_Does_Not_Fault" Id="{d7b2e913-0c4a-4f68-8e21-6a3c9d0f1b47}">
+      <Declaration><![CDATA[// #156: Stop() calls fbFocus.Stop() when a stop is already running (#122). After a cold start in manual fbFocus is unassigned and
+// bStop stays set (only the body releases it), so the second Stop() used to call a method on a null interface.
+METHOD PRIVATE Stop_Twice_In_Manual_From_Cold_Start_Does_Not_Fault
+VAR_INST
+	rig			: FB_MonetRig;
+	nStep		: INT;
+	nCycles		: UINT;
+	sTest		: STRING(80);
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Stop_Twice_In_Manual_From_Cold_Start_Does_Not_Fault');
+sTest := 'Stop_Twice_In_Manual_From_Cold_Start_Does_Not_Fault: ';
+IF nStep >= 90 THEN
+	RETURN;
+END_IF
+rig.Scan();
+nCycles := nCycles + 1;
+CASE nStep OF
+0:
+	IF nCycles = 1 THEN
+		rig.SetManual(TRUE);
+	END_IF
+	IF nCycles >= 5 THEN
+		rig.fbTel.Stop();
+		nStep := 10;
+		nCycles := 0;
+	END_IF
+10:
+	IF nCycles >= 5 THEN
+		rig.fbTel.Stop();
+		nStep := 20;
+		nCycles := 0;
+	END_IF
+20:
+	IF nCycles >= 5 THEN
+		AssertTrue(Condition := rig.fbTel.ReadyState = -2.0, Message := 'READY_STATE is -2.0 after two stops in manual');
+		F_Note(bFailed := NOT (rig.fbTel.ReadyState = -2.0), sText := CONCAT(sTest, 'READY_STATE is -2.0 after two stops in manual'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+END_CASE
+
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Manual_From_Cold_Start_Then_Automatic_Requires_Init" Id="{e9c3f024-1d5b-4a79-9f32-7b4d0e1a2c58}">
+      <Declaration><![CDATA[// #156: after a cold start in manual, the first automatic scan assigns the references and the guard is lifted. The telescope is
+// not initialized: a slew is rejected until a new Init, which then completes as after any start.
+METHOD PRIVATE Manual_From_Cold_Start_Then_Automatic_Requires_Init
+VAR_INST
+	rig			: FB_MonetRig;
+	nStep		: INT;
+	nCycles		: UINT;
+	sTest		: STRING(80);
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Manual_From_Cold_Start_Then_Automatic_Requires_Init');
+sTest := 'Manual_From_Cold_Start_Then_Automatic_Requires_Init: ';
+IF nStep >= 90 THEN
+	RETURN;
+END_IF
+rig.Scan();
+nCycles := nCycles + 1;
+CASE nStep OF
+0:	// cold start in manual
+	IF nCycles = 1 THEN
+		rig.SetManual(TRUE);
+	END_IF
+	IF nCycles >= 10 THEN
+		rig.SetManual(FALSE);
+		nStep := 10;
+		nCycles := 0;
+	END_IF
+10:	// automatic: wait for the clock, a slew is rejected before the Init
+	IF rig.ClockValid AND nCycles >= 5 THEN
+		rig.fbTel.Slew(fAzimuth := 180.0, fAltitude := 45.0);
+		AssertFalse(Condition := rig.fbTel.bSlew, Message := 'the slew is rejected before the Init');
+		F_Note(bFailed := (rig.fbTel.bSlew), sText := CONCAT(sTest, 'the slew is rejected before the Init'));
+		rig.fbTel.Init();
+		nStep := 20;
+		nCycles := 0;
+	ELSIF nCycles > 2000 THEN
+		AssertTrue(Condition := FALSE, Message := 'the astronomical clock never became valid');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the astronomical clock never became valid'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+20:	// the Init completes
+	IF rig.Online THEN
+		AssertFalse(Condition := rig.fbTel.InitRequired, Message := 'init no longer required after the Init');
+		F_Note(bFailed := (rig.fbTel.InitRequired), sText := CONCAT(sTest, 'init no longer required after the Init'));
+		nStep := 99;
+		TEST_FINISHED();
+	ELSIF nCycles > 1500 THEN
+		AssertTrue(Condition := FALSE, Message := 'the Init did not reach READY_STATE 1.0');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the Init did not reach READY_STATE 1.0'));
 		nStep := 99;
 		TEST_FINISHED();
 	END_IF
