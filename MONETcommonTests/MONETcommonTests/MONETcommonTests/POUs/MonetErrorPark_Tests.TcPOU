@@ -2,7 +2,7 @@
 <TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
   <POU Name="MonetErrorPark_Tests" Id="{589804fc-1ef2-48cc-9923-fb6abcd872c3}" SpecialFunc="None">
     <Declaration><![CDATA[// Characterization of the emergency park that FB_MonetTelescopeControl starts on a new axis, focus or (since #24 step 7 PR 3)
-// hydraulics error (#86, #113) on mock axes
+// hydraulics error (#86, #113) on mock axes, and (since #24 step 7 PR 4) of the normal park a new cover error starts
 // (plan step 1, MONETcommonTests README). These tests pin what the code does today, with the line of the behaviour in a comment;
 // they are not a specification. Every test owns a rig and runs over many PLC cycles (VAR_INST of the method, one Scan() per
 // cycle). Failed checks are also noted in GVL_Diag.sFailures (printed by Run-Tests.ps1).
@@ -20,6 +20,8 @@ Persisting_Error_Does_Not_Start_A_Second_Park();
 Hydraulics_Error_On_A_Parked_Telescope_Does_Not_Park();
 Hydraulics_Error_During_Estop_Does_Not_Park();
 Hydraulics_Error_Park_Recovers_With_Hydraulics_Reset_And_Reset();
+Cover_Error_Park_Recovers_With_Cover_Reset_And_Reset();
+Cover_Error_During_Estop_Does_Not_Park();
 ]]></ST>
     </Implementation>
     <Method Name="Elevation_Error_Starts_The_Emergency_Park" Id="{6190de19-41df-490b-93bf-4ae2a295f3a2}">
@@ -639,6 +641,190 @@ CASE nStep OF
 	ELSIF nCycles > 1500 THEN
 		AssertTrue(Condition := FALSE, Message := 'not online again after the resets and power=1');
 		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'not online again after the resets and power=1'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+END_CASE
+
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Cover_Error_Park_Recovers_With_Cover_Reset_And_Reset" Id="{1aed1f73-4b16-497e-b0a9-80d683867dc4}">
+      <Declaration><![CDATA[// #24 step 7 PR 4, reset path of the row cover error: online at standstill a cover error starts a normal park (no telescope error),
+// which ends without the covers closed (bIsParked, software error 16#21). A telescope reset alone clears 16#21 (parked, READY_STATE
+// 0.0), but with the cover error still there power=1 fails (bPowerFailure, stays parked). The MAIN reset button (cover Reset() and
+// telescope Reset()) clears the cover error; power=1 goes online, and a park then closes the covers.
+METHOD PRIVATE Cover_Error_Park_Recovers_With_Cover_Reset_And_Reset
+VAR_INST
+	rig			: FB_MonetRig;
+	nStep		: INT;
+	nCycles		: UINT;
+	sTest		: STRING(80);
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Cover_Error_Park_Recovers_With_Cover_Reset_And_Reset');
+sTest := 'Cover_Error_Park_Recovers_With_Cover_Reset_And_Reset: ';
+IF nStep >= 90 THEN
+	RETURN;
+END_IF
+rig.Scan();
+nCycles := nCycles + 1;
+CASE nStep OF
+0:	// wait for the clock, then power on
+	IF rig.ClockValid THEN
+		rig.fbTel.Init();
+		nStep := 10;
+		nCycles := 0;
+	ELSIF nCycles > 2000 THEN
+		AssertTrue(Condition := FALSE, Message := 'the astronomical clock never became valid');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the astronomical clock never became valid'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+10:	// online at standstill: the covers report an error
+	IF rig.Online THEN
+		rig.fbCovers.InjectError();
+		nStep := 20;
+		nCycles := 0;
+	ELSIF nCycles > 1500 THEN
+		AssertTrue(Condition := FALSE, Message := 'the mock telescope did not reach READY_STATE 1.0');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the mock telescope did not reach READY_STATE 1.0'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+20:	// the park ends without the covers closed
+	IF rig.fbTel.bIsParked AND nCycles > 5 THEN
+		AssertTrue(Condition := rig.fbTel.bError AND rig.fbTel.nErrorID = 16#21 AND NOT rig.fbCovers.bClosed, Message := 'parked with software error 16#21, covers not closed');
+		F_Note(bFailed := NOT (rig.fbTel.bError AND rig.fbTel.nErrorID = 16#21 AND NOT rig.fbCovers.bClosed), sText := CONCAT(sTest, 'parked with software error 16#21, covers not closed'));
+		rig.fbTel.Reset();	// the cover error is still there
+		nStep := 30;
+		nCycles := 0;
+	ELSIF nCycles > 1500 THEN
+		AssertTrue(Condition := FALSE, Message := 'the park did not end');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the park did not end'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+30:
+	IF nCycles >= 10 THEN
+		AssertFalse(Condition := rig.fbTel.bError OR rig.fbTel.bReset, Message := 'a telescope reset clears 16#21 and is not held');
+		F_Note(bFailed := (rig.fbTel.bError OR rig.fbTel.bReset), sText := CONCAT(sTest, 'a telescope reset clears 16#21 and is not held'));
+		AssertTrue(Condition := rig.fbTel.bIsParked AND rig.fbTel.ReadyState = 0.0, Message := 'parked, READY_STATE 0.0');
+		F_Note(bFailed := NOT (rig.fbTel.bIsParked AND rig.fbTel.ReadyState = 0.0), sText := CONCAT(sTest, 'parked, READY_STATE 0.0'));
+		rig.fbTel.Init();
+		nStep := 40;
+		nCycles := 0;
+	END_IF
+40:	// power=1 with the cover error still there fails
+	IF nCycles >= 10 THEN
+		AssertTrue(Condition := rig.fbTel.bPowerFailure AND rig.fbTel.ReadyState = -1.0 AND rig.fbTel.bIsParked, Message := 'power=1 fails while the cover error is there, still parked');
+		F_Note(bFailed := NOT (rig.fbTel.bPowerFailure AND rig.fbTel.ReadyState = -1.0 AND rig.fbTel.bIsParked), sText := CONCAT(sTest, 'power=1 fails while the cover error is there, still parked'));
+		rig.fbCovers.Reset();	// the MAIN reset button: covers, then the telescope
+		rig.fbTel.Reset();
+		nStep := 50;
+		nCycles := 0;
+	END_IF
+50:
+	IF nCycles >= 5 THEN
+		rig.fbTel.Init();
+		nStep := 60;
+		nCycles := 0;
+	END_IF
+60:	// power=1 after the reset button: online; then park
+	IF rig.Online THEN
+		AssertTrue(Condition := NOT rig.fbTel.bPowerFailure, Message := 'online again after the reset button and power=1');
+		F_Note(bFailed := rig.fbTel.bPowerFailure, sText := CONCAT(sTest, 'online again after the reset button and power=1'));
+		rig.fbTel.Park();
+		nStep := 70;
+		nCycles := 0;
+	ELSIF nCycles > 1500 THEN
+		AssertTrue(Condition := FALSE, Message := 'not online again after the reset button and power=1');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'not online again after the reset button and power=1'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+70:	// the park closes the covers
+	IF rig.fbTel.bIsParked AND nCycles > 5 THEN
+		AssertTrue(Condition := rig.fbCovers.bClosed AND NOT rig.fbTel.bError, Message := 'parked with the covers closed, no error');
+		F_Note(bFailed := NOT (rig.fbCovers.bClosed AND NOT rig.fbTel.bError), sText := CONCAT(sTest, 'parked with the covers closed, no error'));
+		nStep := 99;
+		TEST_FINISHED();
+	ELSIF nCycles > 1500 THEN
+		AssertTrue(Condition := FALSE, Message := 'the park after the recovery did not end');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the park after the recovery did not end'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+END_CASE
+
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Cover_Error_During_Estop_Does_Not_Park" Id="{44fb406b-6817-4fcc-830a-795da88a3e6b}">
+      <Declaration><![CDATA[// #24 step 7 PR 4: the E-stop exemption of F_ErrorParkRequest also holds for the cover error (drives cut, people on site, covers must
+// not move on the release); after the release the cover error is no new edge, so nothing parks by itself then either.
+METHOD PRIVATE Cover_Error_During_Estop_Does_Not_Park
+VAR_INST
+	rig			: FB_MonetRig;
+	nStep		: INT;
+	nCycles		: UINT;
+	sTest		: STRING(80);
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Cover_Error_During_Estop_Does_Not_Park');
+sTest := 'Cover_Error_During_Estop_Does_Not_Park: ';
+IF nStep >= 90 THEN
+	RETURN;
+END_IF
+rig.Scan();
+nCycles := nCycles + 1;
+CASE nStep OF
+0:	// wait for the clock, then power on
+	IF rig.ClockValid THEN
+		rig.fbTel.Init();
+		nStep := 10;
+		nCycles := 0;
+	ELSIF nCycles > 2000 THEN
+		AssertTrue(Condition := FALSE, Message := 'the astronomical clock never became valid');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the astronomical clock never became valid'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+10:	// online: the E-stop is pressed
+	IF rig.Online THEN
+		rig.SetEstop(TRUE);
+		nStep := 20;
+		nCycles := 0;
+	ELSIF nCycles > 1500 THEN
+		AssertTrue(Condition := FALSE, Message := 'the mock telescope did not reach READY_STATE 1.0');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the mock telescope did not reach READY_STATE 1.0'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+20:	// a few scans later the covers report an error
+	IF nCycles >= 5 THEN
+		rig.fbCovers.InjectError();
+		nStep := 30;
+		nCycles := 0;
+	END_IF
+30:
+	IF nCycles >= 60 THEN
+		AssertFalse(Condition := rig.fbTel.bPark OR rig.fbTel.bIsParked, Message := 'no park with the E-stop pressed');
+		F_Note(bFailed := (rig.fbTel.bPark OR rig.fbTel.bIsParked), sText := CONCAT(sTest, 'no park with the E-stop pressed'));
+		AssertTrue(Condition := rig.fbCovers.nCloseCalls = 0, Message := 'the covers were not commanded closed');
+		F_Note(bFailed := NOT (rig.fbCovers.nCloseCalls = 0), sText := CONCAT(sTest, 'the covers were not commanded closed'));
+		rig.SetEstop(FALSE);
+		nStep := 40;
+		nCycles := 0;
+	END_IF
+40:	// released: no new edge, nothing parks by itself
+	IF nCycles >= 30 THEN
+		AssertFalse(Condition := rig.fbTel.bPark OR rig.fbTel.bIsParked, Message := 'no park after the release');
+		F_Note(bFailed := (rig.fbTel.bPark OR rig.fbTel.bIsParked), sText := CONCAT(sTest, 'no park after the release'));
+		AssertFalse(Condition := rig.fbTel.bError, Message := 'no telescope error');
+		F_Note(bFailed := (rig.fbTel.bError), sText := CONCAT(sTest, 'no telescope error'));
 		nStep := 99;
 		TEST_FINISHED();
 	END_IF
