@@ -641,7 +641,7 @@ nCycles := nCycles + 1;
 CASE nStep OF
 0:	// first cycle: the clock needs a NT_GetTime round trip (about 5 s), so it is not valid yet
 	IF NOT rig.ClockValid THEN
-		rig.fbTel.bSlew := TRUE;
+		rig.SetSlewFlag();
 		nStep := 10;
 		nCycles := 0;
 	ELSE
@@ -678,8 +678,6 @@ END_CASE
 METHOD PRIVATE Watchdog_Parks_And_Closes_The_Roof_In_One_Scan
 VAR_INST
 	rig			: FB_MonetRig;
-	fbWdComm	: FB_NullComm;
-	fbWatchdog	: FB_MonetMqttWatchdog(comm := fbWdComm);
 	fbRoof		: FB_RoofMock;
 	bConnected	: BOOL;
 	nStep		: INT;
@@ -694,13 +692,13 @@ sTest := 'Watchdog_Parks_And_Closes_The_Roof_In_One_Scan: ';
 IF nStep >= 90 THEN
 	RETURN;
 END_IF
-fbWatchdog(bConnected := bConnected, iTelescope := rig.fbTel, iRoof := fbRoof, tGrace := T#100MS);
+rig.fbWatchdog(bConnected := bConnected, iTelescope := rig.fbTel, iRoof := fbRoof, tGrace := T#100MS);
 nCycles := nCycles + 1;
 CASE nStep OF
 0:	// never connected: not armed, also after more than tGrace; then the broker connects
 	IF nCycles >= 30 THEN
-		AssertFalse(Condition := fbWatchdog.bTriggered OR rig.fbTel.bPark OR fbRoof.nCloseCalls > 0, Message := 'not armed before the first connect');
-		F_Note(bFailed := (fbWatchdog.bTriggered OR rig.fbTel.bPark OR fbRoof.nCloseCalls > 0), sText := CONCAT(sTest, 'not armed before the first connect'));
+		AssertFalse(Condition := rig.fbWatchdog.bTriggered OR rig.fbTel.bPark OR fbRoof.nCloseCalls > 0, Message := 'not armed before the first connect');
+		F_Note(bFailed := (rig.fbWatchdog.bTriggered OR rig.fbTel.bPark OR fbRoof.nCloseCalls > 0), sText := CONCAT(sTest, 'not armed before the first connect'));
 		bConnected := TRUE;
 		nStep := 10;
 		nCycles := 0;
@@ -710,7 +708,7 @@ CASE nStep OF
 	nStep := 20;
 	nCycles := 0;
 20:
-	IF fbWatchdog.bTriggered THEN
+	IF rig.fbWatchdog.bTriggered THEN
 		AssertTrue(Condition := rig.fbTel.bPark AND fbRoof.nCloseCalls = 1, Message := 'park and roof close in the trigger scan');
 		F_Note(bFailed := NOT (rig.fbTel.bPark AND fbRoof.nCloseCalls = 1), sText := CONCAT(sTest, 'park and roof close in the trigger scan'));
 		nStep := 30;
@@ -733,8 +731,8 @@ CASE nStep OF
 	nStep := 40;
 	nCycles := 0;
 40:	// connected again: the watchdog lets go
-	AssertFalse(Condition := fbWatchdog.bTriggered, Message := 'not triggered once the connection is back');
-	F_Note(bFailed := (fbWatchdog.bTriggered), sText := CONCAT(sTest, 'not triggered once the connection is back'));
+	AssertFalse(Condition := rig.fbWatchdog.bTriggered, Message := 'not triggered once the connection is back');
+	F_Note(bFailed := (rig.fbWatchdog.bTriggered), sText := CONCAT(sTest, 'not triggered once the connection is back'));
 	nCloses := fbRoof.nCloseCalls;
 	nStep := 50;
 	nCycles := 0;
