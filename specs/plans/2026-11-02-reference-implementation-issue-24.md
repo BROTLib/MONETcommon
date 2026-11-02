@@ -4,7 +4,8 @@ Date: 2026-11-02. Status: **proposed, plan only, no code changed. Decisions D1-D
 the open items left are in section 8.** Steps 0-1 written 2026-11-02 on `feat/safe-state-table-and-tests`: the
 table is [../design/monetcommon-safe-states.md](../design/monetcommon-safe-states.md) (cells corrected against 0.11.2), the suite
 `MonetSafeState_Tests`; not compiled or run yet. Step 2a released in BROTLib 0.17.0. Step 2c written 2026-11-02 on
-`feat/motion-config-input` (status at the step); not compiled or run yet.
+`feat/motion-config-input` (status at the step); not compiled or run yet. Step 3 written 2026-11-02 on
+`refactor/stage-machines` (status at the step); not compiled or run yet.
 Repo: BROTLib/MONETcommon (steps 2a/2b also BROTLib and IAG50cm). Base: read at `develop` @ `adc1013` (0.11.1, pins
 BROTLib 0.15.1, HalfBROT 0.10.1); line numbers are from that commit. `origin/develop` has since moved to `c34470f`
 (0.11.2, pins BROTLib 0.16.0 / HalfBROT 0.10.2; pendant release-on-exit #3, null-reference fix #156); none of that
@@ -167,6 +168,42 @@ cases go into existing suites where they fit; step 6 frees slots by moving dupli
   `F_StageAbort_Tests` with one row per machine and flag.
 - Tests: all rig suites unedited and green; new pure suite. Consumers: none (private). Release: MONETcommon patch.
   On-site smoke test as step 2c.
+- **Status (2026-11-02): written on `refactor/stage-machines` (from `develop` @ `359ce5b`, 0.12.0), one commit per
+  sub-step, not compiled, not run (CI on push). Version not bumped.**
+  - 3a: the four enums (values = old numbers; `E_GotoStage` idle/untrack/start_move/wait_moves/wait_standstill/done,
+    `E_SlewStage` idle/untrack/start_move/wait_standstill/done, `E_ParkStage` prepare/untrack/start_move/wait_moves/
+    disable_axes/secure/parked, `E_PowerOnStage` open_covers/home_axes/start_move_home/wait_home/complete), no explicit base
+    type (INT, like every enum in the BROT repos; the base type syntax has no precedent here). Deviation: the stage is not
+    in the method's `VAR_INST` any more but in the FB's `VAR` (`eGotoStage`, ...), because a property cannot read a
+    method's `VAR_INST`; both live in the instance, so nothing changes at run time. `nLastStage` stays a `USINT` in
+    `VAR_INST`; the progress log compares and prints `TO_USINT(eStage)`, so `GoTo progress: 25` is unchanged. The power-on's
+    `nStage >= 10` is `ePowerOnStage <> open_covers` (same set). No rig suite read `nStage` (it was not reachable from
+    outside), so no suite was touched.
+  - 3b: `_RaiseSoftwareError(nId, sText)`, the same four assignments in the same order. `sText` goes to a new diagnostic
+    `sSoftwareErrorText : STRING(80)` (ADS only, cleared in `_HandleReset` with the latch); the log line is unchanged.
+    16#31/16#32 in the body set only the latch (no `bError`/`nErrorID` before the recompute) and were left as they are.
+  - 3c: `F_StageAbort` + `E_StageMachine` (goto/slew/gohome/park/poweron, the `E_TCSCommand` names), the table is a
+    `CASE` with five policy booleans per row. Exact rows: goto/slew `bReset OR bError OR bInterrupted OR NOT bGoto/bSlew`;
+    home `bReset OR bError OR bInterrupted`; park `bReset OR bStop OR bInterrupted`; power-on `NOT bPower OR bReset OR
+    bError OR bStop OR bInterrupted`, after the failure checks that may clear `bPower` (those checks, which use their own
+    `bReset OR bStop OR bInterrupted`, stay in `_PowerOn`). Correction to the step text and to SM plan 3.5: the power-on
+    also aborts on `bError` and on `NOT bPower`, not only on stop. `F_StageAbort_Tests` takes the 40th suite slot (40 of
+    40 now): five per-machine tests (one assertion per input) and an exhaustive 32-combination check per machine against
+    the old IF conditions.
+  - Read while doing it, **not changed** (behaviour kept, for Tim / step 5.1): (1) `_HomeTelescope`'s timeout branch sets
+    `_HomeTelescope := TRUE` without `RETURN`; the done check below overwrites it, and if all three `MoveDone` were TRUE in
+    that scan it would also log "Telescope is homed." and copy the current position after raising 16#30 [unverified
+    whether reachable]. (2) Home does not abort on `NOT bGoHome` and park not on `NOT bPark`; both are dispatched only with
+    their flag set, so today this only matters if a later caller (the arbiter) calls them otherwise. (3) The park's
+    `rtrigError` is clocked only when the prologue passes, so an error edge during a call that aborts (reset/stop/
+    interrupt) or while no park runs is seen as an edge at the next park call. (4) The `#77` comment says "a
+    reset/interrupt/stop call", but `bStop` is not in the goto/slew/home rows: a stop reaches them only through the
+    arbitration (flags dropped, `bInterrupted`). (5) Not a prologue: stage 0 of the slew waits for `bStopped AND NOT
+    bTracking`, stage 0 of the goto does not.
+  - Unverified until CI: `TO_USINT` of a strict enum (HalfBROT uses `TO_INT(eManualHome)`), enum return type of the
+    properties, several statements per line in the `CASE` of `F_StageAbort`. Safe-state doc: line numbers noted as moved,
+    no cell changed. To run (Tim): `tcbuild.yml` on push, or the library install + `tctool MONETcommonTests.sln build run`
+    of `MONETcommonTests/README.md`; on site the step-2c smoke test (power-on, goto, slew, stop, park) on MONET/S, then N.
 
 ### Step 4 - Split telemetry and targets (aim 2, neutral; D5)
 - 4a telemetry: `_SendTelemetry` (67 publishes) into `FB_MonetTelescopeTelemetry` fed with a snapshot struct
@@ -255,7 +292,8 @@ are batched with re-pins; 7 is policy and goes row by row. Step 3 can come befor
 - Step 5 can break pybrotlib clients silently (a held `bGoto` no longer re-triggers). Gated on 4c.
 - Overlap with open work in the same file: #168 (mode state machine), #177 (pendant), SM plan 5.x, #26, #17.
   Whoever merges second rebases; do not run two of these in parallel on M.
-- TcUnit suite limit (40, about 37 used) and per-suite limits (32 tests, 256 asserts).
+- TcUnit suite limit (40, all 40 used after step 3; step 4's telemetry case must go into an existing suite or step 6
+  must free slots first) and per-suite limits (32 tests, 256 asserts).
 
 ## 6. Verification summary
 
