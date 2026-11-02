@@ -18,11 +18,15 @@ VAR
 	fbPointing		: FB_PointingModelForward(AOFF := 0.0, BNP := 0.0, AN_A := 0.0, AE_A := 0.0, NPAE := 0.0, EOFF := 0.0, AN_E := 0.0, AE_E := 0.0, TF := 0.0);	// zero coefficients
 	fbPointingInv	: FB_PointingModelInversion(fbPointing := fbPointing);
 	fbTel			: FB_MonetTelescopeControl(comm := fbComm);
+	fbWatchdog		: FB_MonetMqttWatchdog(comm := fbComm);	// for MonetSafeState_Tests (a method VAR_INST cannot refer to a sibling in its init list)
 	nScans			: UDINT;
 	bManual			: BOOL;	// MAIN calls SuspendAutomatic instead of the body while the cabinet selector is on manual
 	nTimeDivisor	: UDINT := 1;	// the time seam of the telescope under test (SetTimeDivisor)
 	bEstopIn		: BOOL;	// SafetyHandling.estop
 	bSafetyIn		: BOOL;	// SafetyHandling.error
+	bMainReadyIn	: BOOL := TRUE;	// PowerMonitoring.phaseOK (MAIN: bMainReady := ready)
+	stMotion		: BROTLib.ST_MotionConfig;	// stMotion of the telescope under test (SetMotion), default = the struct defaults (#24 step 2c)
+	fElevationMoveVelocityIn	: LREAL := 5.0;	// the deprecated alias input (SetElevationMoveVelocity), default = its old default; MONETS MAIN passes 3.0
 END_VAR
 VAR CONSTANT
 	telescopeConfig	: ST_TelescopeConfig := (longitude := 20.810808, latitude := -32.375823, altitude := 1798.0,
@@ -111,6 +115,9 @@ ELSE
 		fbPointingInverse := fbPointingInv,
 		bEstopTriggered := bEstopIn,
 		bSafetyError := bSafetyIn,
+		bMainReady := bMainReadyIn,
+		stMotion := stMotion,
+		fElevationMoveVelocity := fElevationMoveVelocityIn,
 		nTimeDivisor := nTimeDivisor);
 END_IF
 fbElev(fbCovers := fbCovers, fbBrake := fbBrakeHyd);
@@ -143,6 +150,30 @@ END_VAR
         </Implementation>
       </Get>
     </Property>
+    <Method Name="SetMotion" Id="{a8848ecf-4ba6-4d7f-95e4-4a32a59465d5}">
+      <Declaration><![CDATA[// stMotion of the telescope under test (#24 step 2c), handed to it from the next Scan() on; the default is the struct defaults
+METHOD SetMotion
+VAR_INPUT
+	stValue	: BROTLib.ST_MotionConfig;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[stMotion := stValue;
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="SetElevationMoveVelocity" Id="{62399cab-459e-47e6-bff3-27d83498d3ec}">
+      <Declaration><![CDATA[// the deprecated alias input fElevationMoveVelocity of the telescope (#24 D2); 5.0 (default) = not used, MONETS MAIN passes 3.0
+METHOD SetElevationMoveVelocity
+VAR_INPUT
+	fValue	: LREAL;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[fElevationMoveVelocityIn := fValue;
+]]></ST>
+      </Implementation>
+    </Method>
     <Method Name="SetManual" Id="{7367e2f8-5967-47be-afd4-0d6ea17370fa}">
       <Declaration><![CDATA[// the cabinet selector: TRUE = manual (the telescope body is not called, SuspendAutomatic is)
 METHOD SetManual
@@ -176,6 +207,27 @@ END_VAR
 ]]></Declaration>
       <Implementation>
         <ST><![CDATA[bSafetyIn := bValue;
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="SetSlewFlag" Id="{acff02fe-462d-4119-ba0f-3270ddb40627}">
+      <Declaration><![CDATA[// writes the slew flag of the telescope directly (an ADS write); the methods reject a move before it is set while the clock is invalid
+METHOD SetSlewFlag
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[fbTel.bSlew := TRUE;
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="SetMainReady" Id="{83eaab32-d382-48b6-babc-99dec72544d2}">
+      <Declaration><![CDATA[// the power input of the telescope (bMainReady, MAIN: PowerMonitoring.phaseOK); FALSE = power failure. Default TRUE.
+METHOD SetMainReady
+VAR_INPUT
+	bValue	: BOOL;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[bMainReadyIn := bValue;
 ]]></ST>
       </Implementation>
     </Method>

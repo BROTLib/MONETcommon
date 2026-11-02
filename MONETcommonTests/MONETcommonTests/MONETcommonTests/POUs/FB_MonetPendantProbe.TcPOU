@@ -1,0 +1,32 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="FB_MonetPendantProbe" Id="{9ff5c5e0-1c88-456b-9905-4f342cd2b772}" SpecialFunc="None">
+    <Declaration><![CDATA[// Test seam for FB_MonetPendantControl (#3): the selector, key and buttons are AT%I* inside the pendant, so a test cannot
+// write them from outside. This derived block writes them from its inputs and then runs the real body.
+FUNCTION_BLOCK FB_MonetPendantProbe EXTENDS MONETcommon.FB_MonetPendantControl
+VAR_INPUT
+	bKey		: BOOL;		// IbEnableKey
+	bButton		: BOOL;		// IbEnableButton
+	nSel		: UINT;		// selector 0..15 (IbBCD0, 2, 4, 8)
+	bUp			: BOOL;
+	bDown		: BOOL;
+	bLeft		: BOOL;
+	bRight		: BOOL;
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[IbEnableKey := bKey;
+IbEnableButton := bButton;
+IbBCD0 := (nSel AND 1) <> 0;
+IbBCD2 := (nSel AND 2) <> 0;
+IbBCD4 := (nSel AND 4) <> 0;
+IbBCD8 := (nSel AND 8) <> 0;
+IbDirectionUp := bUp;
+IbDirectionDown := bDown;
+IbDirectionLeft := bLeft;
+IbDirectionRight := bRight;
+SUPER^();
+]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

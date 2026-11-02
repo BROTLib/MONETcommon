@@ -11,6 +11,8 @@ VAR_INPUT
 	fbElevation			: REFERENCE TO FB_ElevationControl;
 	fbAzimuth	 		: REFERENCE TO FB_AzimuthControl;
 	fbDerotator			: REFERENCE TO FB_DerotatorControl;
+	tEnableRelease		: TIME := T#2S;		// #3: an Enable the pendant set is dropped this long after the pendant lets go of the function
+	tSelectionDebounce	: TIME := T#100MS;	// #3: the selector must read the same this long before the pendant drives that function
 END_VAR
 VAR_OUTPUT
 	bEnable				: BOOL;
@@ -30,6 +32,16 @@ VAR
 	bCoverJogActive		: BOOL;		// the pendant started the running open/close and stops it on release
 	fbCoverUpTrigger	: R_TRIG;
 	fbCoverDownTrigger	: R_TRIG;
+	// #3: release the jog when the pendant lets go of a function (key off, selector change, selector 0). The pendant only
+	// writes the function it owns; with the key off the axes belong to the telescope (automatic) or to the Visu (manual).
+	nSelectionLast		: UINT;		// selector of the last scan (debounce)
+	tonSelectionStable	: TON;		// the selector read the same for tSelectionDebounce
+	nSelectionStable	: UINT;		// nSelection once stable, else 0
+	nDriven				: UINT;		// function 5-8 the pendant drives in this scan, 0 = none
+	nOwned				: UINT;		// function 5-8 whose Move*/Enable the pendant wrote in the last scan, 0 = none
+	bOwnedEnable		: BOOL;		// the last Enable the pendant wrote for nOwned
+	nEnablePending		: UINT;		// function whose Enable is dropped when tonEnableRelease expires, 0 = none
+	tonEnableRelease	: TON;
 
 	//DIN17 2.0
 	// AT%I*/AT%Q* below are mapped directly on this FB: only one instance per PLC is
@@ -103,6 +115,34 @@ IF __ISVALIDREF(fbCovers) THEN
 	END_IF
 END_IF
 
+// #3: what the pendant drives in this scan: the selected function, with the key on and the selector stable. When the pendant
+// lets go of a function it has written (key off, selector change, selector 0, cable pulled), Move* of that function is set
+// FALSE once, and Enable too after tEnableRelease if the pendant had set it. Nothing is written for a function the pendant
+// does not own: with the key off the axes belong to the telescope (automatic) or the Visu (manual).
+tonSelectionStable(IN := (nSelection = nSelectionLast), PT := tSelectionDebounce);
+nSelectionLast := nSelection;
+nSelectionStable := SEL(tonSelectionStable.Q, 0, nSelection);
+nDriven := SEL(IbEnableKey AND tonSelectionStable.Q, 0, nSelection);
+IF nOwned <> 0 AND nOwned <> nDriven THEN
+	_ReleaseMove(nFunction := nOwned);
+	IF bOwnedEnable THEN
+		IF nEnablePending <> 0 AND nEnablePending <> nOwned THEN
+			_DropEnable(nFunction := nEnablePending);	// one drop at a time: the earlier one is not left enabled
+		END_IF
+		nEnablePending := nOwned;
+	END_IF
+	nOwned := 0;
+	bOwnedEnable := FALSE;
+END_IF
+IF nEnablePending <> 0 AND nEnablePending = nDriven THEN
+	nEnablePending := 0;	// the same function is selected again: the enable button decides again
+END_IF
+tonEnableRelease(IN := (nEnablePending <> 0), PT := tEnableRelease);
+IF tonEnableRelease.Q THEN
+	_DropEnable(nFunction := nEnablePending);
+	nEnablePending := 0;
+END_IF
+
 // enabled?
 bEnable := IbEnableKey;
 IF NOT bEnable THEN
@@ -119,16 +159,20 @@ IF eTelescopeMode = E_TelescopeMode.automatic THEN
 END_IF
 
 // enable only the selected item and connect lamps and buttons accordingly
-CASE nSelection OF
+CASE nSelectionStable OF
 	1, 2, 3:	// covers: lamps only; the hold-to-run is above the RETURN
-		ObLampUp := fbCovers.Opened;
-		ObLampDown := fbCovers.Closed;
-		ObLampError := fbCovers.bError;
+		IF __ISVALIDREF(fbCovers) THEN
+			ObLampUp := fbCovers.Opened;
+			ObLampDown := fbCovers.Closed;
+			ObLampError := fbCovers.bError;
+		END_IF
 
 	4:	// Nasmyth / mirror M3 control
 		
 	5:	// Focus Control
 		IF __ISVALIDREF(fbFocus) THEN
+			nOwned := 5;
+			bOwnedEnable := IbEnableButton;
 			fbFocus.Enable := IbEnableButton;			
 			ObLampUp := fbFocus.Enable AND fbFocus.Ready AND NOT fbFocus.InPosLimit;
 			ObLampDown := fbFocus.Enable AND fbFocus.Ready AND NOT fbFocus.InNegLimit;
@@ -141,42 +185,116 @@ CASE nSelection OF
 		END_IF
 							
 	6:	// Derotator control
-		fbDerotator.Enable := IbEnableButton;
-		ObLampLeft  := fbDerotator.Ready AND NOT fbDerotator.InNegLimit;
-		ObLampRight := fbDerotator.Ready AND NOT fbDerotator.InPosLimit;
-		fbDerotator.MoveNeg := IbDirectionLeft AND NOT fbDerotator.inDigitalInputs.1;
-		fbDerotator.MovePos := IbDirectionRight AND NOT fbDerotator.inDigitalInputs.0;
-		ObLampError := fbDerotator.Error;
-		IF fbResetTrigger.Q THEN
-			fbDerotator.Reset();
+		IF __ISVALIDREF(fbDerotator) THEN
+			nOwned := 6;
+			bOwnedEnable := IbEnableButton;
+			fbDerotator.Enable := IbEnableButton;
+			ObLampLeft  := fbDerotator.Ready AND NOT fbDerotator.InNegLimit;
+			ObLampRight := fbDerotator.Ready AND NOT fbDerotator.InPosLimit;
+			fbDerotator.MoveNeg := IbDirectionLeft AND NOT fbDerotator.inDigitalInputs.1;
+			fbDerotator.MovePos := IbDirectionRight AND NOT fbDerotator.inDigitalInputs.0;
+			ObLampError := fbDerotator.Error;
+			IF fbResetTrigger.Q THEN
+				fbDerotator.Reset();
+			END_IF
 		END_IF
 		
 							
 	7:	// Elevation Control
-		fbElevation.Enable := IbEnableButton;		
-		fbElevation.MovePos := IbDirectionUp AND fbElevation.inDigitalInputs.0;
-		fbElevation.MoveNeg := IbDirectionDown AND fbElevation.inDigitalInputs.1;
-		ObLampUp := fbElevation.inDigitalInputs.0;
-		ObLampDown := fbElevation.inDigitalInputs.1;
-		ObLampError := fbElevation.bError;
-		IF fbResetTrigger.Q THEN
-			fbElevation.Reset();
+		IF __ISVALIDREF(fbElevation) THEN
+			nOwned := 7;
+			bOwnedEnable := IbEnableButton;
+			fbElevation.Enable := IbEnableButton;
+			fbElevation.MovePos := IbDirectionUp AND fbElevation.inDigitalInputs.0;
+			fbElevation.MoveNeg := IbDirectionDown AND fbElevation.inDigitalInputs.1;
+			ObLampUp := fbElevation.inDigitalInputs.0;
+			ObLampDown := fbElevation.inDigitalInputs.1;
+			ObLampError := fbElevation.bError;
+			IF fbResetTrigger.Q THEN
+				fbElevation.Reset();
+			END_IF
 		END_IF
 		
 	8:	// Azimuth Control
-		fbAzimuth.Enable := IbEnableButton;
-		ObLampLeft := fbAzimuth.inDigitalInputs.0; // NOT GVL_Telescope.azimut_limit_switch;
-		ObLampRight := fbAzimuth.inDigitalInputs.1; // NOT GVL_Telescope.azimut_limit_switch;
-		fbAzimuth.MoveNeg := IbDirectionLeft AND fbAzimuth.inDigitalInputs.0;
-		fbAzimuth.MovePos := IbDirectionRight AND fbAzimuth.inDigitalInputs.1;
-		ObLampError := fbAzimuth.Error;
-		IF fbResetTrigger.Q THEN
-			fbAzimuth.Reset();
+		IF __ISVALIDREF(fbAzimuth) THEN
+			nOwned := 8;
+			bOwnedEnable := IbEnableButton;
+			fbAzimuth.Enable := IbEnableButton;
+			ObLampLeft := fbAzimuth.inDigitalInputs.0; // NOT GVL_Telescope.azimut_limit_switch;
+			ObLampRight := fbAzimuth.inDigitalInputs.1; // NOT GVL_Telescope.azimut_limit_switch;
+			fbAzimuth.MoveNeg := IbDirectionLeft AND fbAzimuth.inDigitalInputs.0;
+			fbAzimuth.MovePos := IbDirectionRight AND fbAzimuth.inDigitalInputs.1;
+			ObLampError := fbAzimuth.Error;
+			IF fbResetTrigger.Q THEN
+				fbAzimuth.Reset();
+			END_IF
 		END_IF
 
 END_CASE
 ]]></ST>
     </Implementation>
+    <Method Name="_ReleaseMove" Id="{ba987d59-44d6-43e4-a7bf-f9aeebcb6b84}">
+      <Declaration><![CDATA[// #3: the pendant lets go of function 5-8: its jog commands are set FALSE once (Enable: _DropEnable)
+METHOD PRIVATE _ReleaseMove
+VAR_INPUT
+	nFunction	: UINT;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[CASE nFunction OF
+	5:
+		IF __ISVALIDREF(fbFocus) THEN
+			fbFocus.MovePos := FALSE;
+			fbFocus.MoveNeg := FALSE;
+		END_IF
+	6:
+		IF __ISVALIDREF(fbDerotator) THEN
+			fbDerotator.MovePos := FALSE;
+			fbDerotator.MoveNeg := FALSE;
+		END_IF
+	7:
+		IF __ISVALIDREF(fbElevation) THEN
+			fbElevation.MovePos := FALSE;
+			fbElevation.MoveNeg := FALSE;
+		END_IF
+	8:
+		IF __ISVALIDREF(fbAzimuth) THEN
+			fbAzimuth.MovePos := FALSE;
+			fbAzimuth.MoveNeg := FALSE;
+		END_IF
+END_CASE
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="_DropEnable" Id="{fee5b0c3-ee8c-42f5-a888-e2ebe37a4fa2}">
+      <Declaration><![CDATA[// #3: the Enable the pendant had set for function 5-8 is dropped (tEnableRelease after the pendant let go of it)
+METHOD PRIVATE _DropEnable
+VAR_INPUT
+	nFunction	: UINT;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[CASE nFunction OF
+	5:
+		IF __ISVALIDREF(fbFocus) THEN
+			fbFocus.Enable := FALSE;
+		END_IF
+	6:
+		IF __ISVALIDREF(fbDerotator) THEN
+			fbDerotator.Enable := FALSE;
+		END_IF
+	7:
+		IF __ISVALIDREF(fbElevation) THEN
+			fbElevation.Enable := FALSE;
+		END_IF
+	8:
+		IF __ISVALIDREF(fbAzimuth) THEN
+			fbAzimuth.Enable := FALSE;
+		END_IF
+END_CASE
+]]></ST>
+      </Implementation>
+    </Method>
     <Method Name="FB_Init" Id="{377c4b19-44fb-4929-801b-86205f66218e}">
       <Declaration><![CDATA[//FB_Init is always available implicitly and it is used primarily for initialization.
 //The return value is not evaluated. For a specific influence, you can also declare the

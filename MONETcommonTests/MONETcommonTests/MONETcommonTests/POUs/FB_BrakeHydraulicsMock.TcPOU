@@ -2,15 +2,20 @@
 <TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
   <POU Name="FB_BrakeHydraulicsMock" Id="{b710b6cd-5a7f-4296-96e0-69b08cd2bf4f}" SpecialFunc="None">
     <Declaration><![CDATA[// Mock of the hydraulics unit, which is both the brake (I_Brake) and the hydraulics (I_Hydraulics) on MONETS/MONETN.
+// The Az/El brake is hydraulic and locks by itself without pressure: Enable := FALSE (hydraulics off) closes the brake, and after
+// InjectPressureLoss() the brake is locked and OpenBrake() has no effect until Reset(). Nobody sets Enable TRUE in the rig, so the
+// brake opens as before as long as the pressure is there (OpenBrake does not need Enable).
 FUNCTION_BLOCK FB_BrakeHydraulicsMock IMPLEMENTS BROTLib.I_Brake, BROTLib.I_Hydraulics
 VAR
 	bBrakeIsOpen	: BOOL;
 	bEnabled		: BOOL;
 	bFailed			: BOOL;
+	bPressureLost	: BOOL;	// InjectPressureLoss: no oil pressure, the brake is locked
 	bStartSuction	: BOOL;
 	bStopPump		: BOOL;
 	nOpenCalls		: UINT;
 	nCloseCalls		: UINT;
+	nDisableCalls	: UINT;	// Enable := FALSE writes (the hydraulics were switched off)
 END_VAR
 ]]></Declaration>
     <Implementation>
@@ -21,9 +26,11 @@ END_VAR
       <Declaration><![CDATA[METHOD OpenBrake : BOOL
 ]]></Declaration>
       <Implementation>
-        <ST><![CDATA[bBrakeIsOpen := TRUE;
+        <ST><![CDATA[IF NOT bPressureLost THEN
+	bBrakeIsOpen := TRUE;
+END_IF
 nOpenCalls := nOpenCalls + 1;
-OpenBrake := TRUE;
+OpenBrake := NOT bPressureLost;
 ]]></ST>
       </Implementation>
     </Method>
@@ -46,11 +53,24 @@ METHOD InjectError
 ]]></ST>
       </Implementation>
     </Method>
+    <Method Name="InjectPressureLoss" Id="{28e89f9d-f339-4cb8-bb99-e89aef723e3b}">
+      <Declaration><![CDATA[// the hydraulics report an error and the oil pressure is gone: the brake locks at once and cannot be opened until Reset()
+// (MonetSafeState_Tests). InjectError alone keeps the pressure (the brake stays as it is).
+METHOD InjectPressureLoss
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[bFailed := TRUE;
+bPressureLost := TRUE;
+bBrakeIsOpen := FALSE;
+]]></ST>
+      </Implementation>
+    </Method>
     <Method Name="Reset" Id="{16f43ef0-757d-4384-8dfd-12f9d925c432}">
       <Declaration><![CDATA[METHOD Reset : BOOL
 ]]></Declaration>
       <Implementation>
         <ST><![CDATA[bFailed := FALSE;
+bPressureLost := FALSE;
 Reset := TRUE;
 ]]></ST>
       </Implementation>
@@ -81,7 +101,11 @@ END_VAR
 END_VAR
 ]]></Declaration>
         <Implementation>
-          <ST><![CDATA[bEnabled := Enable;]]></ST>
+          <ST><![CDATA[bEnabled := Enable;
+IF NOT Enable THEN
+	nDisableCalls := nDisableCalls + 1;
+	bBrakeIsOpen := FALSE;	// no pressure: the hydraulic brake locks
+END_IF]]></ST>
         </Implementation>
       </Set>
     </Property>
@@ -141,7 +165,7 @@ END_VAR
 END_VAR
 ]]></Declaration>
         <Implementation>
-          <ST><![CDATA[OilPressureOK := TRUE;]]></ST>
+          <ST><![CDATA[OilPressureOK := NOT bPressureLost;]]></ST>
         </Implementation>
       </Get>
     </Property>
