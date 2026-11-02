@@ -13,7 +13,8 @@ table is [../design/monetcommon-safe-states.md](../design/monetcommon-safe-state
 written 2026-11-02 on `feat/hydraulics-error-reaction` (status at step 7); not compiled or run yet. Step 7 PR 5 (state-machine
 timeouts ramp, then park) written 2026-11-02 on `feat/timeout-error-reaction` (status at step 7); not compiled or run yet. Step 7 PR 7 (power failure
 reaction) written 2026-11-02 on `feat/power-failure-reaction` (status at step 7); not compiled or run yet. Step 7 PR 8 (focus error
-reaction) written 2026-11-02 on `feat/focus-error-reaction` (status at step 7); not compiled or run yet.
+reaction) written 2026-11-02 on `feat/focus-error-reaction` (status at step 7); not compiled or run yet. Step 7 PR 6 (E-stop / safety
+error reaction) written 2026-11-02 on `feat/estop-safety-reaction` (status at step 7); not compiled or run yet.
 Repo: BROTLib/MONETcommon (steps 2a/2b also BROTLib and IAG50cm). Base: read at `develop` @ `adc1013` (0.11.1, pins
 BROTLib 0.15.1, HalfBROT 0.10.1); line numbers are from that commit. `origin/develop` has since moved to `c34470f`
 (0.11.2, pins BROTLib 0.16.0 / HalfBROT 0.10.2; pendant release-on-exit #3, null-reference fix #156); none of that
@@ -612,6 +613,63 @@ cases go into existing suites where they fit; step 6 frees slots by moving dupli
     moves 60 scans); `fActualPosition` and `Position` read from the mocks; that the second `Init()` after the park goes online on the rig. Not
     modelled: a real focus fault (whether HalfBROT's `Reset()` clears a real stuck focus in one call), NC behaviour of a tracking axis. To run
     (Tim): `tcbuild.yml` on push, or the library install + `tctool MONETcommonTests.sln build run`; on site (design doc, order item 8).
+- **Status PR 6 (2026-11-02): written on `feat/estop-safety-reaction` (from `develop` @ `40517f9`, 0.13.0, PR 3 merged; rebased
+  onto `develop` @ `a0e1589`, PR 5, PR 4, PR 7 and PR 8 merged), not compiled, not run (CI on push). Version not bumped.** Rows "E-stop" and "Safety error" of the design doc (now implemented, M lines of that
+  branch).
+  - One condition for both: `bSafetyStop := bEstopTriggered OR bSafetyError`, in a block of its own right after the #86 emergency park
+    block (before the arbitration, so the stop branch cannot clear the park in the scan of the release). D8: the lock is the stop, no
+    ramp. The axes are disabled every scan while `bSafetyStop` (the old E-stop disable at the end of the body, now also for a safety
+    error alone).
+  - **When (decided here, the conservative reading of the doc):** on the rising edge, at once: hydraulics off (`fbHydraulics.Enable :=
+    FALSE`; the brake locks; harmless because HalfBROT's `OpenBrake()` restarts the pump at the next power-on), every move ends (move
+    flags dropped, goto/slew/home stage machines reset with the #26 one-shot interrupt as the park branch does it, `bMoveAbortPending`
+    and `bSupersedeRequest` cleared; no stop transaction: a disabled axis is never sent an MC_Stop, #150) and, if the telescope is not
+    parked, the park in place is **held** (`bSafetyParkPending`). It runs once (`Park()`, WARN `SafetyParkEvent`) when the E-stop **and**
+    the safety error are both gone (`SafetyHandling.estop` is "E-stop block not in RUN", so on site this is after the safety reset
+    [unverified]). Reason: the covers may hang on the E-stop circuit, and the doc's target is "covers as possible after release"; M
+    does not command them while the circuit is open, so no command latched in HalfBROT starts them when the power comes back.
+  - The park after the release takes the emergency-park bypass of the ready gate (`bSafetyPark`, park branch `IF bError OR
+    bSafetyPark`) and parks in place because the axes are disabled (`F_ParkAxesCanMove` FALSE); `_ParkTelescope` is not changed.
+    `bSafetyPark` ends with its park (`bPark`/`bParkAfterStop` gone). Without the bypass the park would wait for `NOT bBusy`, which an
+    STO'd axis may not give [unverified] (the mock axis keeps `Busy` when disabled).
+  - Exemptions: parked at the edge -> no pending (as #86; also skipped if it got parked meanwhile). A safety error alone while the
+    Wake&Shake window is open -> no park (the window survives a safety error by #155 design, the operator goes on; an E-stop ends the
+    window and does park). #86: `F_ErrorParkRequest` is unchanged, so an axis/hydraulics error during the E-stop still starts no park
+    of its own; the E-stop's park covers it after the release. What changes against #86 is that the E-stop itself now leads to a park.
+    The PR 3 test `Hydraulics_Error_During_Estop_Does_Not_Park` is kept unedited in its asserts (no park, no cover command, no ramp,
+    axes disabled during the E-stop: all still true); only its comment ("covers must not move on the release") is corrected.
+  - Not changed (kept, listed for review): a park requested by someone else during the E-stop (watchdog, cabinet, operator) and a park
+    already running at the edge go on as today and may command the covers during the E-stop; a safety error alone is still not
+    `bError`, does not reject moves and is not in the READY_STATE -1.0 condition; the edge memory `bSafetyStopLast` is not set in
+    `SuspendAutomatic`, so a safety stop still there on the return from manual acts then (conservative; #86 does the opposite).
+  - Alternatives (not taken): (a) park in place at once during the E-stop (covers commanded while unpowered; they might start on the
+    release or raise a cover error); (b) wait for an explicit `reset=1` or `park=1` after the release before the park (no automatic
+    cover motion after the release, but covers stay open until someone acts); (c) release on `NOT bEstopTriggered` only (a safety
+    error that stays after the E-stop would then not hold the park); (d) hold every park during the E-stop, also the watchdog's and an
+    operator's (consistent covers, but changes the watchdog/cabinet rows); (e) hydraulics off in every scan of the safety stop instead
+    of on the edge; (f) treat a safety error alone fully as an E-stop (reject moves, READY_STATE -1.0); (g) also park in the Wake&Shake
+    window on a safety error (flips `Window_Brake_Closes_On_Safety_Error`).
+  - Tests (40 of 40 suites; `MonetSafeState_Tests` 20 tests after the rebase): flipped `Estop_During_Slew_Disables_The_Axes_Without_Park_Current` ->
+    `Estop_During_Slew_Locks_Then_Parks_In_Place_After_The_Release` (same method Id: axes disabled and hydraulics off in the E-stop scan,
+    no bStop/MC_Stop, slew ended, no park and no cover command during the E-stop and after a reset in it, park in place after the
+    release, roof request until a reset, `power=1` online); new `Safety_Error_While_Tracking_Locks_Then_Parks_In_Place_When_It_Clears`;
+    `Roof_Request_On_Estop` one more assert (parked: no park after the release). Unedited and expected green: `MonetErrorPark_Tests` (E-stop
+    cases only commented), `MonetBrakeRelease_Tests.Window_Brake_Closes_On_Estop`/`_On_Safety_Error` (the latter pins the window exemption),
+    the other classes' suites.
+  - Rebase onto PR 5/4/7/8 (2026-11-03): the safety-stop block stays right after the #86 block, now after the PR 4 cover-error
+    park request. The ramp/park flags of the others already end on an E-stop or a safety error before it runs (`bTimeoutPark`
+    via `bTimeoutCanMove`, `bFocusErrorPark` via `bFocusErrorOnly`, `bHydraulicsRamp`/`bMainPowerRamp` via `bHydraulicsCanRamp`),
+    so the edge block does not fight them; a park they started goes on (as "a park already running at the edge", above). The
+    prepare condition of `_ParkTelescope` (`(bError AND NOT bTimeoutPark AND NOT bFocusErrorPark) OR NOT bAxesCanMove`) is
+    kept as it is: the safety park parks in place through `NOT bAxesCanMove` (axes disabled), as before the rebase.
+    `MonetErrorPark_Tests.Cover_Error_During_Estop_Does_Not_Park` (PR 4) asserted "no park after the release"; with PR 6 the
+    held park runs then and ends with 16#21 (PR 4 cover path), so its last step is changed to assert that.
+  - Unverified until CI: the build; the test timing; that `Init()` after the in-place park goes online (as in PR 3, after an E-stop abort
+    of the startup); the mock axis keeps its move when disabled, so the E-stop test ends it with `SetMoveScans` before the release. Not
+    modelled: STO, TwinSAFE, the safety reset sequence, whether the covers and the roof hang on the E-stop circuit, whether a safety
+    error cuts the drives. Risk: a `reset=1` held by an axis error that does not clear (STO may raise axis errors) aborts the park in
+    every scan (`F_StageAbort` park row), as for any emergency park today. To run (Tim): `tcbuild.yml` on push, or the library install
+    and `tctool MONETcommonTests.sln build run`; on site (design doc, order item 6), E-stop at hand.
 
 Order rationale: 0-1 make the safety net; 2a-2b put the shared types in place before MONETcommon consumes them;
 2c-4 are neutral and unblock tests and the SM plan's 5.2; 4c settles the client question; 5-6 break consumers and

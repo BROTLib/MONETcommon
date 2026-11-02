@@ -13,4 +13,6 @@ Living design docs for MONETcommon, one per topic, updated in place as the code 
   PR 7, the power failure reaction (row implemented), written on
   `feat/power-failure-reaction`;
   PR 8, the focus error reaction (row implemented), written on
-  `feat/focus-error-reaction`).
+  `feat/focus-error-reaction`;
+  PR 6, the E-stop / safety error reaction (rows implemented), written on
+  `feat/estop-safety-reaction`).

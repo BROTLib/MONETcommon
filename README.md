@@ -68,7 +68,7 @@ recovery. Each site passes its own pointing model (`fbPointing`,
 
 A new axis, focus or hydraulics error or a power failure on a telescope that is not parked starts the
 emergency park by itself (brake closed, covers closed, hydraulics off,
-`bIsParked`); not during an E-stop, not when already parked, and not for
+`bIsParked`); not during an E-stop (the E-stop holds its own park until the release, below), not when already parked, and not for
 command-level (software) errors other than the state-machine timeouts (below). `power=1` is refused until the park is
 finished, `stop=1` cancels it; recover with `reset=1`, then `power=1`.
 `bIsParked` drops with the cover command of a power-on, so a park during a
@@ -128,6 +128,18 @@ faulty focus is not sent to its park position and the park does not wait for it.
 during the drive, an E-stop, axes that cannot drive) it parks in place as before; after a switch to manual the pending park
 parks in place. No roof close request (D9). Recovery: `reset=1` (resets the focus; during this park a reset is one scan and
 restarts the park once), then `power=1`.
+
+**E-stop and safety error (#24 step 7 PR 6, D8).** An E-stop (`bEstopTriggered`) or a safety error without E-stop
+(`bSafetyError`) cuts the drives (STO): the brake lock is the stop. The axes are disabled in every scan (until 0.13.0 only
+for the E-stop), and on the rising edge the hydraulics are switched off at once (the hydraulic brake locks) and every move
+ends (no controlled stop, no MC_Stop). If the telescope is not parked, a park in place is held while the E-stop or the
+safety error is there (the covers may hang on the same circuit; nothing parks and the covers are not commanded meanwhile,
+also not after a `reset=1`) and runs as soon as both are gone: covers closed, hydraulics off, `bIsParked`,
+`bParkedInPlace` (WARN "E-stop / safety error released: park in place"). Not for a safety error alone while the
+Wake&Shake window is open (the window survives it, #155). Recovery: release the E-stop and run the safety reset (the
+`MAIN` reset button), wait for the park, `reset=1` clears the roof request, `power=1`. A safety error is still not
+`bError`, does not reject moves and is not part of the READY_STATE -1.0 condition (the E-stop is, as before); online
+it drops out of READY_STATE 1.0 because the axes are disabled.
 
 The brake can be opened in the window with the elevation error latched, without `reset=1` first: the error closes
 the brake once, and while the window is open the brake is closed again only by an E-stop, a hydraulics error, a safety
