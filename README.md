@@ -66,7 +66,7 @@ hydraulics and safety, publishes MQTT telemetry and handles error states and
 recovery. Each site passes its own pointing model (`fbPointing`,
 `fbPointingInverse`) from `MAIN`.
 
-A new axis or focus error on a telescope that is not parked starts the
+A new axis, focus or hydraulics error on a telescope that is not parked starts the
 emergency park by itself (brake closed, covers closed, hydraulics off,
 `bIsParked`); not during an E-stop, not when already parked, and not for
 command-level (software) errors. `power=1` is refused until the park is
@@ -79,6 +79,16 @@ covers stay open for the manual Wake&Shake (a WARN is logged). From then on a
 (otherwise it is closed whenever the elevation is disabled, #121). The window
 closes, and the brake with it, on park, E-stop, a focus/derotator error, closed
 covers, a new `power=1` or the timeout (#151).
+
+**Hydraulics error (#24 step 7 PR 3, D8).** `fbHydraulics.Error` is a telescope error like an axis error (`bError`,
+READY_STATE -1.0, the emergency park in place on its rising edge, with the same exemptions: not parked, not in E-stop;
+never treated as the Wake&Shake fault). Ramp first: if the brake is still open, the oil pressure is there and an axis
+moves, the axes get a controlled stop in the same scan (the normal stop, one MC_Stop per axis) and stay enabled until it
+has settled, then the park in place disables them, closes the brake and the covers and switches the hydraulics off. With
+the pressure already gone (brake locked), or with an E-stop, a safety error or any other error, there is no ramp: the
+lock is the stop, as for an axis error. Recovery: reset the hydraulics (HalfBROT `Reset()`, the `MAIN` reset button);
+`bError` then goes by itself, `reset=1` clears the roof request, `power=1` powers on again. A `reset=1` while the
+hydraulics error is still there does not clear it and is not held (it would abort the park).
 The brake can be opened in the window with the elevation error latched, without `reset=1` first: the error closes
 the brake once, and while the window is open the brake is closed again only by an E-stop, a hydraulics error, a safety
 error (input `bSafetyError`, wire it to `SafetyHandling.error`; FALSE = not enforced) or covers that are not open (#155).

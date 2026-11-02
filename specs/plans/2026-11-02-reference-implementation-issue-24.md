@@ -9,7 +9,8 @@ table is [../design/monetcommon-safe-states.md](../design/monetcommon-safe-state
 `refactor/stage-machines` (status at the step); not compiled or run yet. Step 4a written 2026-11-02 on
 `refactor/telemetry-split` (status at the step); not compiled or run yet. Step 4b written 2026-11-02 on
 `refactor/compute-targets` (status at the step); not compiled or run yet. Step 7 PR 1 (`bCloseRoofRequest`) written
-2026-11-02 on `feat/close-roof-request` (status at step 7); not compiled or run yet.
+2026-11-02 on `feat/close-roof-request` (status at step 7); not compiled or run yet. Step 7 PR 3 (hydraulics error reaction)
+written 2026-11-02 on `feat/hydraulics-error-reaction` (status at step 7); not compiled or run yet.
 Repo: BROTLib/MONETcommon (steps 2a/2b also BROTLib and IAG50cm). Base: read at `develop` @ `adc1013` (0.11.1, pins
 BROTLib 0.15.1, HalfBROT 0.10.1); line numbers are from that commit. `origin/develop` has since moved to `c34470f`
 (0.11.2, pins BROTLib 0.16.0 / HalfBROT 0.10.2; pendant release-on-exit #3, null-reference fix #156); none of that
@@ -369,6 +370,48 @@ cases go into existing suites where they fit; step 6 frees slots by moving dupli
     manual-mode behaviour (output held) and the PLC-start case. To run (Tim): `tcbuild.yml` on push, or the library install +
     `tctool MONETcommonTests.sln build run` of `MONETcommonTests/README.md`; on site (design doc, order item 1): ADS watch of
     `bCloseRoofRequest` on an E-stop and a hydraulics stop, and after a PLC restart with the E-stop pressed.
+- **Status PR 3 (2026-11-02): written on `feat/hydraulics-error-reaction` (from `develop` @ `7d667d8`, 0.13.0), not compiled, not run
+  (CI on push). Version not bumped.** Row "Hydraulics error" of the design doc (now implemented, M lines of that branch).
+  - Entry: `fbHydraulics.Error` goes into `bHwError` (`bHydraulicsError`), so it reuses everything an axis error has: `bError`,
+    READY_STATE -1.0, the error branch, the #86 emergency park on the rising edge of `bHwError` (`F_ErrorParkRequest` unchanged)
+    and its park in place (`_ParkTelescope` stage `prepare` with `bError`: brake closed, axes disabled, covers closed; `secure`:
+    hydraulics off; `bIsParked`, `bParkedInPlace`). No parallel park path.
+  - Ramp first (D8): new `bHydraulicsCanRamp` = brake open AND `OilPressureOK` AND no E-stop AND no safety error AND no other
+    (axis/focus/software) error. On the rising edge of the hydraulics error, with `bHydraulicsCanRamp` and an enabled axis moving
+    (InMotion/InRamp/Homing or tracking), M sets `bStop` (the existing stop transaction, #96) and `bHydraulicsRamp`; the error
+    branch then skips only its three `Enable := FALSE` while `bHydraulicsRamp`. The emergency park of the same scan sees `bStop`
+    and is queued (`Park()` -> `bParkAfterStop`), the stop release starts it, and it parks in place (bError). The ramp ends when
+    `bStop` has been released (settled), the drives cannot ramp any more (brake closed / pressure gone / E-stop / safety / other
+    error), the hydraulics error is gone, or on the stop timeout (`tStopTimeout`, 15 s; the lock takes over). Without
+    `bHydraulicsCanRamp`, or at standstill, no ramp: disabled in the scan of the error, park in place at once (= axis error).
+  - Reset: the hydraulics error is latched in HalfBROT and reset there (MAIN reset button: `HydraulicsControl.Reset()` and, in
+    automatic, `TelescopeControl.Reset()`). M does not reset it; `bError` drops by itself once it is gone. The `bReset` hold at
+    the end of the body is now written as the errors M resets (axes, focus, software errors), i.e. the old `bError`; a held reset
+    on the hydraulics error would abort the park every scan (`F_StageAbort` park row) and could keep the covers open while an
+    unresettable fault (oil low) persists. So a `reset=1` during a hydraulics error stays a one-scan pulse, as before PR 3, and
+    `Roof_Request_On_Hydraulics_Error` (PR 1) holds unedited.
+  - Exemptions, decided here: parked telescope -> no park (as #86; the park would do nothing). E-stop -> no park and no ramp (as
+    #86: drives cut, people on site, covers must not move on release; the E-stop row is PR 6). First power-on (#113) -> **not
+    exempt**: the hydraulics error is added to `bOtherHwError` of `F_WakeShakeErrorExempt`, so it parks even together with an
+    Az/El fault (conservative: covers close). The Wake&Shake window (`F_WakeShakeWindow`) is unchanged (a hydraulics error in it
+    closes the brake, #155; with the elevation error already latched there is no new edge, so no park, as before).
+  - `SuspendAutomatic`: `F_SuspendStop` gets `bError AND NOT bHydraulicsRamp`, so a switch to manual during the ramp goes on with
+    that stop instead of leaving a tracking/coasting axis unstopped. The edge memory `bHydraulicsErrorLast` is not set in manual:
+    a hydraulics error that appears in manual and is still there on the return ramps then if an axis moves (no park:
+    `bHwErrorLast` is set on the first manual scan, #86).
+  - New log `HydraulicsRampEvent` (WARN, once per ramp). `nErrorID` stays 0 for a hydraulics error alone (no ID invented).
+  - Tests (40 of 40 suites; `MonetSafeState_Tests` 17 tests, `MonetErrorPark_Tests` 9): flipped
+    `Hydraulics_Error_While_Tracking_Keeps_Tracking_Current` -> `Hydraulics_Error_While_Tracking_Ramps_Then_Parks_In_Place` (same
+    method Id); new `Hydraulics_Pressure_Loss_While_Tracking_Parks_In_Place_Without_Ramp`, `MonetErrorPark_Tests.Hydraulics_Error_On_
+    A_Parked_Telescope_Does_Not_Park`, `.Hydraulics_Error_During_Estop_Does_Not_Park`, `.Hydraulics_Error_Park_Recovers_With_
+    Hydraulics_Reset_And_Reset` (standstill: no ramp; reset not held; hydraulics reset clears `bError`; roof request until the next
+    reset; `power=1` online again). Other classes: their suites are unedited (axis/focus park, E-stop, timeouts, roof request,
+    brake release, suspend).
+  - Unverified until CI: the build; the test timing (ramp settles in about 10 scans on the mocks); that the second `Init()` after the
+    in-place park goes online on the rig (no earlier test re-inits after a park). Not modelled: how fast the real pump stop drops
+    `BrakeOpen` (HalfBROT drops the brake output as soon as `bPumpRunning` falls, so on site the ramp may end within a few scans and
+    the lock takes over), `OilPressureOK` debounce, NC behaviour of a tracking axis (`InMotion` while tracking). To run (Tim):
+    `tcbuild.yml` on push, or the library install + `tctool MONETcommonTests.sln build run`; on site (design doc, order item 3).
 
 Order rationale: 0-1 make the safety net; 2a-2b put the shared types in place before MONETcommon consumes them;
 2c-4 are neutral and unblock tests and the SM plan's 5.2; 4c settles the client question; 5-6 break consumers and
