@@ -40,6 +40,12 @@
     <Compile Include="E_PowerOnStage.TcDUT">
       <SubType>Code</SubType>
     </Compile>
+    <Compile Include="E_StageMachine.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="F_StageAbort.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
     <Compile Include="ST_AxisStatus.TcDUT">
       <SubType>Code</SubType>
     </Compile>

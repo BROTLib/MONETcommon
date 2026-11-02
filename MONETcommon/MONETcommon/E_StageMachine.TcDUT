@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="E_StageMachine" Id="{102bc8f8-1a69-4f02-9ed3-d741c461d8cd}">
+    <Declaration><![CDATA[// #24 step 3c: the stage machines of FB_MonetTelescopeControl, the row of the abort policy in F_StageAbort.
+// Names as in BROTLib.E_TCSCommand.
+{attribute 'qualified_only'}
+{attribute 'strict'}
+TYPE E_StageMachine :
+(
+	goto := 0,		// _GotoTelescope
+	slew := 1,		// _SlewTelescope
+	gohome := 2,	// _HomeTelescope (no stage)
+	park := 3,		// _ParkTelescope
+	poweron := 4	// _PowerOn
+);
+END_TYPE
+]]></Declaration>
+  </DUT>
+</TcPlcObject>

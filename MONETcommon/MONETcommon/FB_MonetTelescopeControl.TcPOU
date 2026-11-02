@@ -893,7 +893,9 @@ END_VAR]]></Declaration>
       <Implementation>
         <ST><![CDATA[_GotoTelescope := TO_USINT(eGotoStage);
 // #77: a reset/interrupt/stop call only resets the stage; it must never raise an error from a stale target
-IF bReset OR bError OR bInterrupted OR NOT bGoto THEN
+// #24 step 3c: bReset OR bError OR bInterrupted OR NOT bGoto (F_StageAbort, row goto)
+IF F_StageAbort(eMachine := E_StageMachine.goto, bReset := bReset, bError := bError, bStop := bStop,
+		bInterrupted := bInterrupted, bCommand := bGoto) THEN
 	eGotoStage := E_GotoStage.idle;
 	RETURN;
 END_IF
@@ -999,7 +1001,9 @@ VAR
 END_VAR]]></Declaration>
       <Implementation>
         <ST><![CDATA[// reset/interrupt aborts the homing without moving anything, like the other stage methods
-IF bReset OR bError OR bInterrupted THEN
+// #24 step 3c: bReset OR bError OR bInterrupted (F_StageAbort, row gohome: bGoHome is not read, no stage to reset)
+IF F_StageAbort(eMachine := E_StageMachine.gohome, bReset := bReset, bError := bError, bStop := bStop,
+		bInterrupted := bInterrupted, bCommand := bGoHome) THEN
     RETURN;
 END_IF
 
@@ -1055,7 +1059,9 @@ VAR_INST
 END_VAR]]></Declaration>
       <Implementation>
         <ST><![CDATA[_ParkTelescope := TO_USINT(eParkStage);
-IF bReset OR bStop OR bInterrupted THEN
+// #24 step 3c: bReset OR bStop OR bInterrupted (F_StageAbort, row park: bError does not abort, see M2 below; bPark is not read)
+IF F_StageAbort(eMachine := E_StageMachine.park, bReset := bReset, bError := bError, bStop := bStop,
+		bInterrupted := bInterrupted, bCommand := bPark) THEN
 	eParkStage := E_ParkStage.prepare;
 	RETURN;
 END_IF
@@ -1198,7 +1204,10 @@ ELSE
 	bPowerFailure := FALSE;		
 END_IF
 
-IF NOT bPower OR bReset OR bError OR bStop OR bInterrupted THEN
+// #24 step 3c: NOT bPower OR bReset OR bError OR bStop OR bInterrupted (F_StageAbort, row poweron), with bPower as left by
+// the checks above
+IF F_StageAbort(eMachine := E_StageMachine.poweron, bReset := bReset, bError := bError, bStop := bStop,
+		bInterrupted := bInterrupted, bCommand := bPower) THEN
     fbStartup.MarkAborted();
     bPower := FALSE;
 	ePowerOnStage := E_PowerOnStage.open_covers;
@@ -1598,7 +1607,9 @@ END_VAR]]></Declaration>
       <Implementation>
         <ST><![CDATA[_SlewTelescope := TO_USINT(eSlewStage);
 // #77: see _GotoTelescope
-IF bReset OR bError OR bInterrupted OR NOT bSlew THEN
+// #24 step 3c: bReset OR bError OR bInterrupted OR NOT bSlew (F_StageAbort, row slew)
+IF F_StageAbort(eMachine := E_StageMachine.slew, bReset := bReset, bError := bError, bStop := bStop,
+		bInterrupted := bInterrupted, bCommand := bSlew) THEN
 	eSlewStage := E_SlewStage.idle;
 	RETURN;
 END_IF

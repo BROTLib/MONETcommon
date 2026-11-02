@@ -18,6 +18,7 @@ results); this one only covers what's specific to MONETcommon.
 | `F_BrakeMustClose_Tests` | the brake close while the elevation is disabled (#121): TRUE when disabled, FALSE when enabled or in the Wake&Shake window (#151) |
 | `F_ParkAxesCanMove_Tests` | the park decision (#87, #121): drive only with all three axes calibrated and enabled and the brake open, otherwise park in place |
 | `F_ResetMoveAbort_Tests` | the abort stop after a reset (#56, #66): kept while an enabled axis moves or homes, cleared at rest, on an error and while a park runs |
+| `F_StageAbort_Tests` | the guard prologue of the stage machines as one policy table (#24 step 3c): one test per machine (goto, slew, gohome, park, poweron) with one assertion per input (`bReset`, `bError`, `bStop`, `bInterrupted`, the drop of the command flag), and all 32 input combinations per machine against the IF condition each prologue had in 0.12.0 (park does not abort on `bError`, the emergency park; only park and power-on abort on `bStop`; home and park do not read their flag) |
 | `F_SuspendStop_Tests` | the stop at the switch to manual (#118): moving or homing axis, running park and running stop are stopped, not at rest or on an error |
 | `F_WakeShakeWindow_Tests` | the latched Wake&Shake window (#151): set by the #113 exemption, stays set, closed by timeout, park, covers, power-on, E-stop or a focus/derotator error, clearing wins |
 | `F_WakeShakeErrorExempt_Tests` | the Wake&Shake exemption from the emergency park (#113): only the first power-on after a PLC restart, only while powering, only for azimuth/elevation errors |
@@ -61,7 +62,7 @@ tctool MONETcommonTests.sln build run --require-valid-license
 
 ## Things to know
 
-Same as `BROTLibTests` (CI runs these tests through `tcbuild.yml`) -- TcUnit sized to 32 suites / 32 tests / 256 asserts, every test method
+Same as `BROTLibTests` (CI runs these tests through `tcbuild.yml`) -- TcUnit sized to 40 suites (all 40 used since #24 step 3c: a new case goes into an existing suite, or a suite slot is freed first) / 32 tests / 256 asserts, every test method
 runs every PLC cycle (multi-cycle tests must guard their own state), `.tmc`/`_Boot`/`_CompileInfo`/
 `_Libraries` are generated and git-ignored.
 

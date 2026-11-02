@@ -101,6 +101,14 @@ Deprecated for one release (removed in the next minor): `fElevationMoveVelocity`
 stMotion ...`). MONET/S passes `fElevationMoveVelocity := 3.0` and needs no change; move it to
 `stMotion.fElevationMoveVelocity` at the next re-pin.
 
+**Stage machines (#24 step 3).** Goto, slew, park and power-on step through the enumerations `E_GotoStage`,
+`E_SlewStage`, `E_ParkStage` and `E_PowerOnStage`, whose values are the old stage numbers (the progress log, e.g.
+`GoTo progress: 25`, reads as before); the read-only properties `GotoStage`, `SlewStage`, `ParkStage` and `PowerOnStage`
+return the current stage. Home (`_HomeTelescope`) has no stage. When a machine aborts is one table, `F_StageAbort` (goto/slew: reset,
+error, interrupt or the flag dropped; home: reset, error, interrupt; park: reset, stop, interrupt, not an error, which is
+the emergency park; power-on: all of them). The software errors of the machines (16#10, 16#15/16#16, 16#30, 16#40) are
+raised in one place (`_RaiseSoftwareError`, text in `sSoftwareErrorText`) and latched until `reset=1` as before.
+
 `bIsParked` means *secured* (covers closed, brake closed, hydraulics off, axes disabled), not *at the park
 position*: the emergency park, and a park after a reset or an aborted power-on, secure the telescope where it stands.
 `bParkedInPlace` (MQTT `diagnostics/base/ParkedInPlace`, WARN log "parked in place at el .. az ..") is TRUE then; it drops

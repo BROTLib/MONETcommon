@@ -1,0 +1,164 @@
+<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="F_StageAbort_Tests" Id="{427be2a2-5309-4386-adcb-e6c330959e77}" SpecialFunc="None">
+    <Declaration><![CDATA[// Tests for MONETcommon.F_StageAbort, the guard prologue of the stage machines of FB_MonetTelescopeControl as a policy
+// table (#24 step 3c). One test per machine, one assertion per input (each set alone, the others at "runs"), and an
+// exhaustive check of every row against the IF condition of the prologue it replaced (0.12.0).
+// Inputs in call order: eMachine, bReset, bError, bStop, bInterrupted, bCommand.
+FUNCTION_BLOCK F_StageAbort_Tests EXTENDS TcUnit.FB_TestSuite
+VAR
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[Goto_Row();
+Slew_Row();
+GoHome_Row();
+Park_Row();
+PowerOn_Row();
+Rows_Equal_The_Old_Prologues();
+]]></ST>
+    </Implementation>
+    <Method Name="Goto_Row" Id="{7b99185e-75d5-4ff6-852c-fc04ca885ecd}">
+      <Declaration><![CDATA[// goto: reset, error, interrupt and the drop of bGoto abort; a stop alone does not (it reaches goto through the arbitration).
+METHOD PRIVATE Goto_Row
+VAR
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Goto_Row');
+AssertFalse(Condition := MONETcommon.F_StageAbort(MONETcommon.E_StageMachine.goto, FALSE, FALSE, FALSE, FALSE, TRUE), Message := 'goto: nothing set, bGoto: runs');
+AssertTrue(Condition := MONETcommon.F_StageAbort(MONETcommon.E_StageMachine.goto, TRUE, FALSE, FALSE, FALSE, TRUE), Message := 'goto: bReset aborts');
+AssertTrue(Condition := MONETcommon.F_StageAbort(MONETcommon.E_StageMachine.goto, FALSE, TRUE, FALSE, FALSE, TRUE), Message := 'goto: bError aborts');
+AssertFalse(Condition := MONETcommon.F_StageAbort(MONETcommon.E_StageMachine.goto, FALSE, FALSE, TRUE, FALSE, TRUE), Message := 'goto: bStop alone does not abort');
+AssertTrue(Condition := MONETcommon.F_StageAbort(MONETcommon.E_StageMachine.goto, FALSE, FALSE, FALSE, TRUE, TRUE), Message := 'goto: bInterrupted aborts');
+AssertTrue(Condition := MONETcommon.F_StageAbort(MONETcommon.E_StageMachine.goto, FALSE, FALSE, FALSE, FALSE, FALSE), Message := 'goto: bGoto FALSE aborts');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Slew_Row" Id="{0e5439cc-e159-49b7-842b-bd4f2540c165}">
+      <Declaration><![CDATA[// slew: same row as goto, with bSlew.
+METHOD PRIVATE Slew_Row
+VAR
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Slew_Row');
+AssertFalse(Condition := MONETcommon.F_StageAbort(MONETcommon.E_StageMachine.slew, FALSE, FALSE, FALSE, FALSE, TRUE), Message := 'slew: nothing set, bSlew: runs');
+AssertTrue(Condition := MONETcommon.F_StageAbort(MONETcommon.E_StageMachine.slew, TRUE, FALSE, FALSE, FALSE, TRUE), Message := 'slew: bReset aborts');
+AssertTrue(Condition := MONETcommon.F_StageAbort(MONETcommon.E_StageMachine.slew, FALSE, TRUE, FALSE, FALSE, TRUE), Message := 'slew: bError aborts');
+AssertFalse(Condition := MONETcommon.F_StageAbort(MONETcommon.E_StageMachine.slew, FALSE, FALSE, TRUE, FALSE, TRUE), Message := 'slew: bStop alone does not abort');
+AssertTrue(Condition := MONETcommon.F_StageAbort(MONETcommon.E_StageMachine.slew, FALSE, FALSE, FALSE, TRUE, TRUE), Message := 'slew: bInterrupted aborts');
+AssertTrue(Condition := MONETcommon.F_StageAbort(MONETcommon.E_StageMachine.slew, FALSE, FALSE, FALSE, FALSE, FALSE), Message := 'slew: bSlew FALSE aborts');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="GoHome_Row" Id="{e6fc53e9-edc4-4ff2-a355-1c297e83a108}">
+      <Declaration><![CDATA[// gohome: reset, error and interrupt abort; neither a stop alone nor bGoHome FALSE (it is not read: the done check runs on).
+METHOD PRIVATE GoHome_Row
+VAR
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('GoHome_Row');
+AssertFalse(Condition := MONETcommon.F_StageAbort(MONETcommon.E_StageMachine.gohome, FALSE, FALSE, FALSE, FALSE, TRUE), Message := 'gohome: nothing set, bGoHome: runs');
+AssertTrue(Condition := MONETcommon.F_StageAbort(MONETcommon.E_StageMachine.gohome, TRUE, FALSE, FALSE, FALSE, TRUE), Message := 'gohome: bReset aborts');
+AssertTrue(Condition := MONETcommon.F_StageAbort(MONETcommon.E_StageMachine.gohome, FALSE, TRUE, FALSE, FALSE, TRUE), Message := 'gohome: bError aborts');
+AssertFalse(Condition := MONETcommon.F_StageAbort(MONETcommon.E_StageMachine.gohome, FALSE, FALSE, TRUE, FALSE, TRUE), Message := 'gohome: bStop alone does not abort');
+AssertTrue(Condition := MONETcommon.F_StageAbort(MONETcommon.E_StageMachine.gohome, FALSE, FALSE, FALSE, TRUE, TRUE), Message := 'gohome: bInterrupted aborts');
+AssertFalse(Condition := MONETcommon.F_StageAbort(MONETcommon.E_StageMachine.gohome, FALSE, FALSE, FALSE, FALSE, FALSE), Message := 'gohome: bGoHome FALSE does not abort');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Park_Row" Id="{f29bac2e-68a5-47b4-9deb-b064d05f0b9d}">
+      <Declaration><![CDATA[// park: reset, stop and interrupt abort; an error does not (the emergency park needs it, M2); bPark is not read.
+METHOD PRIVATE Park_Row
+VAR
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Park_Row');
+AssertFalse(Condition := MONETcommon.F_StageAbort(MONETcommon.E_StageMachine.park, FALSE, FALSE, FALSE, FALSE, TRUE), Message := 'park: nothing set, bPark: runs');
+AssertTrue(Condition := MONETcommon.F_StageAbort(MONETcommon.E_StageMachine.park, TRUE, FALSE, FALSE, FALSE, TRUE), Message := 'park: bReset aborts');
+AssertFalse(Condition := MONETcommon.F_StageAbort(MONETcommon.E_StageMachine.park, FALSE, TRUE, FALSE, FALSE, TRUE), Message := 'park: bError does not abort (emergency park)');
+AssertTrue(Condition := MONETcommon.F_StageAbort(MONETcommon.E_StageMachine.park, FALSE, FALSE, TRUE, FALSE, TRUE), Message := 'park: bStop aborts');
+AssertTrue(Condition := MONETcommon.F_StageAbort(MONETcommon.E_StageMachine.park, FALSE, FALSE, FALSE, TRUE, TRUE), Message := 'park: bInterrupted aborts');
+AssertFalse(Condition := MONETcommon.F_StageAbort(MONETcommon.E_StageMachine.park, FALSE, FALSE, FALSE, FALSE, FALSE), Message := 'park: bPark FALSE does not abort');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="PowerOn_Row" Id="{635704a5-49d7-4e6f-b1a9-ff5e927998f6}">
+      <Declaration><![CDATA[// poweron: every input aborts, also a stop and the drop of bPower.
+METHOD PRIVATE PowerOn_Row
+VAR
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('PowerOn_Row');
+AssertFalse(Condition := MONETcommon.F_StageAbort(MONETcommon.E_StageMachine.poweron, FALSE, FALSE, FALSE, FALSE, TRUE), Message := 'poweron: nothing set, bPower: runs');
+AssertTrue(Condition := MONETcommon.F_StageAbort(MONETcommon.E_StageMachine.poweron, TRUE, FALSE, FALSE, FALSE, TRUE), Message := 'poweron: bReset aborts');
+AssertTrue(Condition := MONETcommon.F_StageAbort(MONETcommon.E_StageMachine.poweron, FALSE, TRUE, FALSE, FALSE, TRUE), Message := 'poweron: bError aborts');
+AssertTrue(Condition := MONETcommon.F_StageAbort(MONETcommon.E_StageMachine.poweron, FALSE, FALSE, TRUE, FALSE, TRUE), Message := 'poweron: bStop aborts');
+AssertTrue(Condition := MONETcommon.F_StageAbort(MONETcommon.E_StageMachine.poweron, FALSE, FALSE, FALSE, TRUE, TRUE), Message := 'poweron: bInterrupted aborts');
+AssertTrue(Condition := MONETcommon.F_StageAbort(MONETcommon.E_StageMachine.poweron, FALSE, FALSE, FALSE, FALSE, FALSE), Message := 'poweron: bPower FALSE aborts');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Rows_Equal_The_Old_Prologues" Id="{07723f03-dc0c-42f7-8ec0-63f577a74b22}">
+      <Declaration><![CDATA[// All 32 input combinations per machine against the IF condition of the prologue in FB_MonetTelescopeControl 0.12.0:
+// goto/slew bReset OR bError OR bInterrupted OR NOT <flag>, home bReset OR bError OR bInterrupted, park bReset OR bStop OR
+// bInterrupted, power-on NOT bPower OR bReset OR bError OR bStop OR bInterrupted. Counts the mismatches, expects none.
+METHOD PRIVATE Rows_Equal_The_Old_Prologues
+VAR
+	i			: USINT;
+	bR			: BOOL;
+	bE			: BOOL;
+	bS			: BOOL;
+	bI			: BOOL;
+	bC			: BOOL;
+	nGoto		: UINT;
+	nSlew		: UINT;
+	nGoHome		: UINT;
+	nPark		: UINT;
+	nPowerOn	: UINT;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Rows_Equal_The_Old_Prologues');
+FOR i := 0 TO 31 DO
+	bR := (i AND 1) <> 0;
+	bE := (i AND 2) <> 0;
+	bS := (i AND 4) <> 0;
+	bI := (i AND 8) <> 0;
+	bC := (i AND 16) <> 0;
+	IF MONETcommon.F_StageAbort(MONETcommon.E_StageMachine.goto, bR, bE, bS, bI, bC) <> (bR OR bE OR bI OR NOT bC) THEN
+		nGoto := nGoto + 1;
+	END_IF
+	IF MONETcommon.F_StageAbort(MONETcommon.E_StageMachine.slew, bR, bE, bS, bI, bC) <> (bR OR bE OR bI OR NOT bC) THEN
+		nSlew := nSlew + 1;
+	END_IF
+	IF MONETcommon.F_StageAbort(MONETcommon.E_StageMachine.gohome, bR, bE, bS, bI, bC) <> (bR OR bE OR bI) THEN
+		nGoHome := nGoHome + 1;
+	END_IF
+	IF MONETcommon.F_StageAbort(MONETcommon.E_StageMachine.park, bR, bE, bS, bI, bC) <> (bR OR bS OR bI) THEN
+		nPark := nPark + 1;
+	END_IF
+	IF MONETcommon.F_StageAbort(MONETcommon.E_StageMachine.poweron, bR, bE, bS, bI, bC) <> (NOT bC OR bR OR bE OR bS OR bI) THEN
+		nPowerOn := nPowerOn + 1;
+	END_IF
+END_FOR
+AssertEquals_UINT(Expected := 0, Actual := nGoto, Message := 'goto: combinations that differ from the old prologue');
+AssertEquals_UINT(Expected := 0, Actual := nSlew, Message := 'slew: combinations that differ from the old prologue');
+AssertEquals_UINT(Expected := 0, Actual := nGoHome, Message := 'gohome: combinations that differ from the old prologue');
+AssertEquals_UINT(Expected := 0, Actual := nPark, Message := 'park: combinations that differ from the old prologue');
+AssertEquals_UINT(Expected := 0, Actual := nPowerOn, Message := 'poweron: combinations that differ from the old prologue');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>
