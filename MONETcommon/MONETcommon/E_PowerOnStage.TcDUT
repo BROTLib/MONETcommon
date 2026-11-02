@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="E_PowerOnStage" Id="{a6e6c7e8-3b1b-4300-b759-994deadd7f98}">
+    <Declaration><![CDATA[// #24 step 3a: stage of FB_MonetTelescopeControl._PowerOn (property PowerOnStage). The values are the stage numbers of
+// 0.12.0 and earlier, so ADS watch values read as before.
+{attribute 'qualified_only'}
+{attribute 'strict'}
+TYPE E_PowerOnStage :
+(
+	open_covers := 0,		// bIsParked dropped (#113), covers opened; waits for bMainReady AND covers opened
+	home_axes := 10,		// axes enabled, homing requested (focus after the elevation); waits for all calibrated and ready
+	start_move_home := 30,	// move to the home position issued (one call)
+	wait_home := 40,		// waits until every axis reported MoveDone and the telescope is at rest
+	complete := 100			// startup marked completed once operational, then open_covers
+);
+END_TYPE
+]]></Declaration>
+  </DUT>
+</TcPlcObject>

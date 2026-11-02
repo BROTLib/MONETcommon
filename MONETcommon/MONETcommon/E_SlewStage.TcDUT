@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="E_SlewStage" Id="{88f636c2-895d-4c4c-bf0b-ec6acf5d074d}">
+    <Declaration><![CDATA[// #24 step 3a: stage of FB_MonetTelescopeControl._SlewTelescope (property SlewStage). The values are the stage numbers of
+// 0.12.0 and earlier, so the log ('Slew progress: %s') and ADS watch values read as before.
+{attribute 'qualified_only'}
+{attribute 'strict'}
+TYPE E_SlewStage :
+(
+	idle := 0,				// waits for bReady AND bStopped AND NOT bBusy AND NOT bTracking
+	untrack := 10,			// tracking of the three axes switched off
+	start_move := 25,		// limits checked (#2), targets written, MoveAxis until all three axes are busy
+	wait_standstill := 50,	// MoveAxis dropped per axis when its move is done, until all axes stand still
+	done := 100				// slew finished (one call), then idle
+);
+END_TYPE
+]]></Declaration>
+  </DUT>
+</TcPlcObject>

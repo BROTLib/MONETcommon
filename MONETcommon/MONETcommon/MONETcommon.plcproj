@@ -28,6 +28,18 @@
     <Compile Include="E_CommandRejectReason.TcDUT">
       <SubType>Code</SubType>
     </Compile>
+    <Compile Include="E_GotoStage.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="E_SlewStage.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="E_ParkStage.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="E_PowerOnStage.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
     <Compile Include="ST_AxisStatus.TcDUT">
       <SubType>Code</SubType>
     </Compile>

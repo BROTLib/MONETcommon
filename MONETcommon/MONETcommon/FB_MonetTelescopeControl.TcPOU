@@ -119,6 +119,14 @@ VAR
 	tonHomeTimeout		: FB_TimeoutTimer;
 	tonSlewTimeout		: FB_TimeoutTimer;
 
+	// #24 step 3a: the stage of each stage machine (until 0.12.0 a bare USINT nStage in the VAR_INST of the method; here so
+	// the read-only properties GotoStage, SlewStage, ParkStage and PowerOnStage can return it). The values are the old numbers.
+	// _HomeTelescope has no stage.
+	eGotoStage			: E_GotoStage := E_GotoStage.idle;
+	eSlewStage			: E_SlewStage := E_SlewStage.idle;
+	eParkStage			: E_ParkStage := E_ParkStage.prepare;
+	ePowerOnStage		: E_PowerOnStage := E_PowerOnStage.open_covers;
+
 	// #26: safety net for a latched bInterrupted (now a one-shot, see the arbitration): auto-clear after 5 s of
 	// true idle, logged and counted. The counter should stay at 0.
 	bInterruptedIdle			: BOOL;
@@ -879,14 +887,13 @@ VAR
 	nTargetError	: UINT;
 END_VAR
 VAR_INST
-	nStage			: USINT := 0;
 	nLastStage		: USINT := 101;
 END_VAR]]></Declaration>
       <Implementation>
-        <ST><![CDATA[_GotoTelescope := nStage;
+        <ST><![CDATA[_GotoTelescope := TO_USINT(eGotoStage);
 // #77: a reset/interrupt/stop call only resets the stage; it must never raise an error from a stale target
 IF bReset OR bError OR bInterrupted OR NOT bGoto THEN
-	nStage := 0;
+	eGotoStage := E_GotoStage.idle;
 	RETURN;
 END_IF
 IF tonGotoTimeout.Q THEN	// #17: fed every scan in the body, a method-local TON never kept its state
@@ -895,7 +902,7 @@ IF tonGotoTimeout.Q THEN	// #17: fed every scan in the body, a method-local TON 
 	bSoftwareError := TRUE;
 	nSoftwareErrorID := 16#10;
 	bGoto := FALSE;
-	nStage := 0;
+	eGotoStage := E_GotoStage.idle;
 	RETURN;
 END_IF
 
@@ -912,32 +919,32 @@ IF nTargetError <> 0 THEN
 	bSoftwareError := TRUE;
 	nSoftwareErrorID := nTargetError;
 	bGoto := FALSE;
-	nStage := 0;
+	eGotoStage := E_GotoStage.idle;
 	RETURN;
 END_IF
 
 // #2: no position inside the axis limits (F_AxisTurn): no move, the body warns. Not an error: nothing is latched.
 IF NOT bAzimuthTurnOK OR NOT bDerotatorTurnOK THEN
 	bGoto := FALSE;
-	nStage := 0;
+	eGotoStage := E_GotoStage.idle;
 	RETURN;
 END_IF
 
 
-CASE nStage OF
-	0:	
+CASE eGotoStage OF
+	E_GotoStage.idle:	
 		IF bReady AND NOT bBusy THEN
-			nStage := 10;
+			eGotoStage := E_GotoStage.untrack;
 		END_IF
-	10:
+	E_GotoStage.untrack:
 		IF fbElevation.Tracking = TRUE OR fbAzimuth.Tracking = TRUE OR fbDerotator.Tracking = TRUE THEN
 			fbElevation.Tracking := FALSE;
 			fbAzimuth.Tracking := FALSE;
 			fbDerotator.Tracking := FALSE;
 		ELSE
-			nStage := 25;
+			eGotoStage := E_GotoStage.start_move;
 		END_IF				
-	25:	
+	E_GotoStage.start_move:	
 		fbElevation.Position := fElevationCalc;
 		fbAzimuth.Position := fAzimuthCalc;
 		fbDerotator.Position := fDerotatorCalc;
@@ -951,9 +958,9 @@ CASE nStage OF
 		IF fbElevation.Busy AND
 			fbAzimuth.Busy AND
 			fbDerotator.Busy THEN
-				nStage := 50;
+				eGotoStage := E_GotoStage.wait_moves;
 		END_IF
-	50:
+	E_GotoStage.wait_moves:
 		IF NOT fbElevation.Busy AND fbElevation.MoveDone THEN
 			fbElevation.MoveAxis := FALSE;
 		END_IF
@@ -966,13 +973,13 @@ CASE nStage OF
 		IF NOT fbElevation.MoveAxis AND 
            NOT fbAzimuth.MoveAxis AND 
 		   NOT fbDerotator.MoveAxis THEN
-		   nStage := 75;
+		   eGotoStage := E_GotoStage.wait_standstill;
 		END_IF
-	75:
+	E_GotoStage.wait_standstill:
 		IF NOT bSlewing AND bStopped THEN // all axis standstill
-			nStage := 100;
+			eGotoStage := E_GotoStage.done;
 		END_IF
-	100:
+	E_GotoStage.done:
 		fbElevation.MoveAxis := FALSE;
 		fbAzimuth.MoveAxis := FALSE;
 		fbDerotator.MoveAxis := FALSE;
@@ -981,10 +988,10 @@ CASE nStage OF
 		bGoto := FALSE;
 		// enable automatic tracking
 		bTrack := bAutoTrack;
-		nStage := 0;
+		eGotoStage := E_GotoStage.idle;
 END_CASE
-GoToEvent(Trigger := nStage > nLastStage, FormatString := 'GoTo progress: %s', OnMessage := USINT_TO_STRING(nStage), comm := fbComm);
-nLastStage := nStage;
+GoToEvent(Trigger := TO_USINT(eGotoStage) > nLastStage, FormatString := 'GoTo progress: %s', OnMessage := USINT_TO_STRING(TO_USINT(eGotoStage)), comm := fbComm);
+nLastStage := TO_USINT(eGotoStage);
 ]]></ST>
       </Implementation>
     </Method>
@@ -1052,13 +1059,12 @@ VAR_INST
 	rtrigError	: R_TRIG;	// M2: reset the stage only on the rising edge of bError, not every scan; VAR_INST, a plain method VAR is re-created on every call (#17)
 END_VAR
 VAR_INST
-	nStage		: USINT := 0;
 	nLastStage	: USINT := 101;
 END_VAR]]></Declaration>
       <Implementation>
-        <ST><![CDATA[_ParkTelescope := nStage;
+        <ST><![CDATA[_ParkTelescope := TO_USINT(eParkStage);
 IF bReset OR bStop OR bInterrupted THEN
-	nStage := 0;
+	eParkStage := E_ParkStage.prepare;
 	RETURN;
 END_IF
 // M2: bError does NOT return early here, unlike the other state machines: stage 0's
@@ -1067,15 +1073,15 @@ END_IF
 // progress through its own stages (80 -> 100) on later scans while bError stays TRUE.
 rtrigError(CLK := bError);
 IF rtrigError.Q THEN
-	nStage := 0;
+	eParkStage := E_ParkStage.prepare;
 END_IF
 // parked means: nothing opened since the last park (#113: bIsParked drops with the cover command of a power-on).
 // #158: that is "secured", not "at the park position"; see bParkedInPlace.
 IF bIsParked THEN
-	nStage := 100;
+	eParkStage := E_ParkStage.parked;
 END_IF
-CASE nStage OF
-	0: 
+CASE eParkStage OF
+	E_ParkStage.prepare: 
 		bGoHome := 	FALSE;
 		bTrack := 	FALSE;
 		bGoto := 	FALSE;
@@ -1095,20 +1101,20 @@ CASE nStage OF
 			fbCovers.Close();	
 			bParkedInPlace := TRUE;
 			bParkedInPlaceLogged := TRUE;
-			nStage := 80;
+			eParkStage := E_ParkStage.secure;
 		ELSE
 			bParkedInPlace := FALSE;
-			nStage := 10;
+			eParkStage := E_ParkStage.untrack;
 		END_IF
-	10:
+	E_ParkStage.untrack:
 		IF fbElevation.Tracking = TRUE OR fbAzimuth.Tracking = TRUE OR fbDerotator.Tracking = TRUE THEN
 			fbElevation.Tracking := FALSE;
 			fbAzimuth.Tracking := FALSE;
 			fbDerotator.Tracking := FALSE;
 		ELSE
-			nStage := 20;
+			eParkStage := E_ParkStage.start_move;
 		END_IF		
-	20:
+	E_ParkStage.start_move:
 		fbElevation.Position := telescopeConfig.elevationPark;
 		fbElevation.Velocity := stMotionUsed.fElevationMoveVelocity;
 		fbElevation.MoveAxis := TRUE;
@@ -1121,9 +1127,9 @@ CASE nStage OF
 		IF fbElevation.Busy AND
 			fbAzimuth.Busy AND
 			fbDerotator.Busy THEN
-				nStage := 40;
+				eParkStage := E_ParkStage.wait_moves;
 		END_IF
-	40:
+	E_ParkStage.wait_moves:
 		IF fbElevation.MoveDone THEN
 			fbElevation.MoveAxis := FALSE;
 		END_IF
@@ -1134,11 +1140,11 @@ CASE nStage OF
 			fbDerotator.MoveAxis := FALSE;
 		END_IF
 		IF NOT bSlewing THEN // all axis standstill
-			nStage := 60;
+			eParkStage := E_ParkStage.disable_axes;
 		END_IF
-	60:
+	E_ParkStage.disable_axes:
 		IF NOT fbElevation.Enable AND NOT fbAzimuth.Enable AND NOT fbDerotator.Enable THEN
-			nStage := 80;
+			eParkStage := E_ParkStage.secure;
 		END_IF
 
 		IF bStopped THEN
@@ -1150,25 +1156,25 @@ CASE nStage OF
 		fbElevation.MoveAxis := FALSE;
 		fbAzimuth.MoveAxis := FALSE;
 		fbDerotator.MoveAxis := FALSE;
-	80:
+	E_ParkStage.secure:
 		IF fbElevation.Enable OR fbAzimuth.Enable OR fbDerotator.Enable THEN
-			nStage := 60;
+			eParkStage := E_ParkStage.disable_axes;
 		END_IF
 		IF NOT fbBrake.BrakeOpen THEN
 			fbCovers.Close();
 			fbHydraulics.Enable := FALSE;
 		END_IF
 		IF fbCovers.Closed THEN
-			nStage := 100;
+			eParkStage := E_ParkStage.parked;
 		END_IF
-	100:
+	E_ParkStage.parked:
 			bIsParked := TRUE;
 			bPark := FALSE;
 			_ParkTelescope := 100;
-			nStage := 0;	
+			eParkStage := E_ParkStage.prepare;	
 END_CASE
-ParkEvent(Trigger := nStage > nLastStage, FormatString := 'Parking progress: %s', OnMessage := USINT_TO_STRING(nStage), comm := fbComm);
-nLastStage := nStage;
+ParkEvent(Trigger := TO_USINT(eParkStage) > nLastStage, FormatString := 'Parking progress: %s', OnMessage := USINT_TO_STRING(TO_USINT(eParkStage)), comm := fbComm);
+nLastStage := TO_USINT(eParkStage);
 ]]></ST>
       </Implementation>
     </Method>
@@ -1177,7 +1183,6 @@ nLastStage := nStage;
 VAR_INPUT
 END_VAR
 VAR_INST
-	nStage		: USINT := 0;
 	nLastStage	: USINT := 101;
     elevationDone : BOOL;
     azimuthDone : BOOL;
@@ -1204,7 +1209,7 @@ END_IF
 IF NOT bPower OR bReset OR bError OR bStop OR bInterrupted THEN
     fbStartup.MarkAborted();
     bPower := FALSE;
-	nStage := 0;
+	ePowerOnStage := E_PowerOnStage.open_covers;
 	// abort without leaving the last written axis commands set
 	fbElevation.MoveAxis := FALSE;
 	fbElevation.HomeAxis := FALSE;
@@ -1216,12 +1221,12 @@ IF NOT bPower OR bReset OR bError OR bStop OR bInterrupted THEN
 	RETURN;
 END_IF
 
-IF nStage >= 10 THEN
+IF ePowerOnStage <> E_PowerOnStage.open_covers THEN	// every stage from home_axes on (was: stage >= 10)
     fbStartup.MarkCalibrating();
 END_IF
 
-CASE nStage OF
-	0:
+CASE ePowerOnStage OF
+	E_PowerOnStage.open_covers:
 		_PowerOn := FALSE;
 		// COVER MUST BE OPENED FOR A SUCCESSFUL WAKE & SHAKE COMMAND!
 		// unconditional by design: does not consult bCoverAutoOpen (see CoverAutoOpen.Set)
@@ -1231,10 +1236,10 @@ CASE nStage OF
 		bParkedInPlace := FALSE;
 		fbCovers.Open();
 		IF bMainReady AND fbCovers.Opened THEN
-			nStage := 10;
+			ePowerOnStage := E_PowerOnStage.home_axes;
 		END_IF
 		
-	10:
+	E_PowerOnStage.home_axes:
 		fbElevation.Enable := TRUE;
 		fbAzimuth.Enable := TRUE;
 		fbDerotator.Enable := TRUE;
@@ -1265,10 +1270,10 @@ CASE nStage OF
 	
 		IF fbCovers.Opened AND fbElevation.Calibrated AND fbAzimuth.Calibrated AND fbDerotator.Calibrated AND fbFocus.Calibrated AND
 			bReady AND bStopped AND NOT bBusy AND NOT bTracking THEN
-			nStage := 30;
+			ePowerOnStage := E_PowerOnStage.start_move_home;
 		END_IF
 		
-	30:
+	E_PowerOnStage.start_move_home:
 		fbElevation.Velocity := stMotionUsed.fElevationMoveVelocity;
 		fbElevation.Position := telescopeConfig.elevationHome;
 		fbElevation.MoveAxis := TRUE;
@@ -1283,8 +1288,8 @@ CASE nStage OF
         elevationDone := FALSE;
         azimuthDone := FALSE;
         derotatorDone := FALSE;
-        nStage := 40;
-    40:
+        ePowerOnStage := E_PowerOnStage.wait_home;
+    E_PowerOnStage.wait_home:
         elevationDone := elevationDone OR fbElevation.MoveDone;
         azimuthDone := azimuthDone OR fbAzimuth.MoveDone;
         derotatorDone := derotatorDone OR fbDerotator.MoveDone;
@@ -1292,9 +1297,9 @@ CASE nStage OF
             fbElevation.MoveAxis := FALSE;
             fbAzimuth.MoveAxis := FALSE;
             fbDerotator.MoveAxis := FALSE;
-            nStage := 100;
+            ePowerOnStage := E_PowerOnStage.complete;
         END_IF
-    100:
+    E_PowerOnStage.complete:
         // #80: same Operational test FB_StartupControl.Update applies this scan; otherwise the completion is ignored
         // while bPower is already FALSE and the startup would stay at 0.8. Wait one more scan instead.
         IF bReady AND bMainReady AND bStopped AND NOT bBusy AND NOT bError AND NOT bEstopTriggered THEN
@@ -1307,7 +1312,7 @@ CASE nStage OF
             _PowerOn := TRUE;
             bIsParked := FALSE;
             bParkedInPlace := FALSE;
-            nStage := 0;
+            ePowerOnStage := E_PowerOnStage.open_covers;
         END_IF
 
 END_CASE]]></ST>
@@ -1596,14 +1601,13 @@ VAR
 	fSlewDerotator:	LREAL;
 END_VAR
 VAR_INST
-	nStage:		USINT := 0;
 	nLastStage:	USINT := 101;
 END_VAR]]></Declaration>
       <Implementation>
-        <ST><![CDATA[_SlewTelescope := nStage;
+        <ST><![CDATA[_SlewTelescope := TO_USINT(eSlewStage);
 // #77: see _GotoTelescope
 IF bReset OR bError OR bInterrupted OR NOT bSlew THEN
-	nStage := 0;
+	eSlewStage := E_SlewStage.idle;
 	RETURN;
 END_IF
 IF tonSlewTimeout.Q THEN	// #17: fed every scan in the body
@@ -1612,23 +1616,23 @@ IF tonSlewTimeout.Q THEN	// #17: fed every scan in the body
 	bSoftwareError := TRUE;
 	nSoftwareErrorID := 16#40;
 	bSlew := FALSE;
-	nStage := 0;
+	eSlewStage := E_SlewStage.idle;
 	RETURN;
 END_IF
-CASE nStage OF
-	0:	
+CASE eSlewStage OF
+	E_SlewStage.idle:	
 		IF bReady AND bStopped AND NOT bBusy AND NOT bTracking THEN
-			nStage := 10;
+			eSlewStage := E_SlewStage.untrack;
 		END_IF
-	10:
+	E_SlewStage.untrack:
 		IF fbElevation.Tracking = TRUE OR fbAzimuth.Tracking = TRUE OR fbDerotator.Tracking = TRUE THEN
 			fbElevation.Tracking := FALSE;
 			fbAzimuth.Tracking := FALSE;
 			fbDerotator.Tracking := FALSE;
 		ELSE
-			nStage := 25;
+			eSlewStage := E_SlewStage.start_move;
 		END_IF				
-	25:
+	E_SlewStage.start_move:
 		fbPointing(
 			fAzimuth			:= fAzimuth,
 			fElevation			:= fElevation,
@@ -1642,7 +1646,7 @@ CASE nStage OF
 			OR fSlewDerotator < fbDerotator.fMinPosition - 1.0E-6 OR fSlewDerotator > fbDerotator.fMaxPosition + 1.0E-6 THEN
 			bSlewOutOfLimits := TRUE;
 			bSlew := FALSE;
-			nStage := 0;
+			eSlewStage := E_SlewStage.idle;
 			RETURN;
 		END_IF
 		fbElevation.Position := fElevation + fElevationPointingOffset + fElevationOffset;
@@ -1657,9 +1661,9 @@ CASE nStage OF
 		IF fbElevation.Busy AND
 			fbAzimuth.Busy AND
 			fbDerotator.Busy THEN
-				nStage := 50;
+				eSlewStage := E_SlewStage.wait_standstill;
 		END_IF
-	50:
+	E_SlewStage.wait_standstill:
 		IF fbElevation.MoveDone THEN
 			fbElevation.MoveAxis := FALSE;
 		END_IF
@@ -1672,19 +1676,19 @@ CASE nStage OF
 			fbDerotator.MoveAxis := FALSE;
 		END_IF
 		IF NOT bSlewing AND bStopped THEN // all axis standstill
-			nStage := 100;
+			eSlewStage := E_SlewStage.done;
 		END_IF
-	100:
+	E_SlewStage.done:
 		fbElevation.MoveAxis := FALSE;
 		fbAzimuth.MoveAxis := FALSE;
 		fbDerotator.MoveAxis := FALSE;
 		fRightAscension := fRightAscensionCalc;
 		fDeclination := fDeclinationCalc;
 		bSlew := FALSE;
-		nStage := 0;
+		eSlewStage := E_SlewStage.idle;
 END_CASE
-SlewEvent(Trigger := nStage > nLastStage, FormatString := 'Slew progress: %s', OnMessage := USINT_TO_STRING(nStage), Comm := fbComm);
-nLastStage := nStage;		
+SlewEvent(Trigger := TO_USINT(eSlewStage) > nLastStage, FormatString := 'Slew progress: %s', OnMessage := USINT_TO_STRING(TO_USINT(eSlewStage)), Comm := fbComm);
+nLastStage := TO_USINT(eSlewStage);		
 ]]></ST>
       </Implementation>
     </Method>
@@ -2411,6 +2415,58 @@ END_VAR
 ]]></Declaration>
         <Implementation>
           <ST><![CDATA[InitRequired := THIS^.bInitRequired;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Property Name="GotoStage" Id="{959e1a2d-fcd5-4c79-9600-4efa7a99e801}">
+      <Declaration><![CDATA[// #24 step 3a: stage of the goto state machine (_GotoTelescope), read-only (diagnostics, rig tests)
+PROPERTY GotoStage : E_GotoStage
+]]></Declaration>
+      <Get Name="Get" Id="{a0c6ebf9-67a0-45f2-b933-7fe31b9d3dcb}">
+        <Declaration><![CDATA[VAR
+END_VAR
+]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[GotoStage := THIS^.eGotoStage;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Property Name="SlewStage" Id="{1f9ae3ba-2aee-475c-b044-f7960f958733}">
+      <Declaration><![CDATA[// #24 step 3a: stage of the slew state machine (_SlewTelescope), read-only (diagnostics, rig tests)
+PROPERTY SlewStage : E_SlewStage
+]]></Declaration>
+      <Get Name="Get" Id="{85e22bac-7f1b-41b0-b47f-156467a8e558}">
+        <Declaration><![CDATA[VAR
+END_VAR
+]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[SlewStage := THIS^.eSlewStage;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Property Name="ParkStage" Id="{37e0eba2-3ab4-48d7-a482-9be393ca5938}">
+      <Declaration><![CDATA[// #24 step 3a: stage of the park state machine (_ParkTelescope), read-only (diagnostics, rig tests)
+PROPERTY ParkStage : E_ParkStage
+]]></Declaration>
+      <Get Name="Get" Id="{6ff74361-666d-47a2-b0f8-469420406ebe}">
+        <Declaration><![CDATA[VAR
+END_VAR
+]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[ParkStage := THIS^.eParkStage;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Property Name="PowerOnStage" Id="{3b74f511-c8e4-483e-9c1d-cfda7087ce6d}">
+      <Declaration><![CDATA[// #24 step 3a: stage of the power-on state machine (_PowerOn), read-only (diagnostics, rig tests)
+PROPERTY PowerOnStage : E_PowerOnStage
+]]></Declaration>
+      <Get Name="Get" Id="{0616118d-3653-4238-b6c7-5db7d1292808}">
+        <Declaration><![CDATA[VAR
+END_VAR
+]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[PowerOnStage := THIS^.ePowerOnStage;]]></ST>
         </Implementation>
       </Get>
     </Property>
