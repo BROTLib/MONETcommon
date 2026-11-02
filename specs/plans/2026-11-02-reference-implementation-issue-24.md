@@ -1,7 +1,8 @@
 # MONETcommon as a reference implementation (#24, code review finding D)
 
-Date: 2026-11-02. Status: **proposed, plan only, no code changed. Decisions D1-D7 taken (Tim, 2026-11-02, section 7);
-the open items left are in section 8.** Steps 0-1 written 2026-11-02 on `feat/safe-state-table-and-tests`: the
+Date: 2026-11-02. Status: **proposed, plan only, no code changed. Decisions D1-D9 taken (Tim, 2026-11-02, section 7;
+D8/D9 settle the old open points 8.1/8.2, the safe-state table is final for step 7); the open items left are in
+section 8.** Steps 0-1 written 2026-11-02 on `feat/safe-state-table-and-tests`: the
 table is [../design/monetcommon-safe-states.md](../design/monetcommon-safe-states.md) (cells corrected against 0.11.2), the suite
 `MonetSafeState_Tests`; not compiled or run yet. Step 2a released in BROTLib 0.17.0. Step 2c written 2026-11-02 on
 `feat/motion-config-input` (status at the step); not compiled or run yet. Step 3 written 2026-11-02 on
@@ -72,7 +73,8 @@ cases go into existing suites where they fit; step 6 frees slots by moving dupli
 - The open point per class is whether the axes get a **controlled stop (ramp, `FB_MonetStopTransaction`) before the
   hydraulics drop**, or whether the brake lock is accepted as the stop (axes may still be moving when the pressure
   goes). Rule proposed below: ramp first whenever the drives are still controllable; the lock is the stop only when
-  they are not. The draft table (to copy into the design doc and check against the code in step 1):
+  they are not (decided as D8). The draft table (to copy into the design doc and check against the code in step 1;
+  the design doc is the current version, its roof column follows D9, which this draft predates):
 
 | Error class | Drives controllable? | Stop before hydraulics off | Park | Covers | Roof | Today [read from code, pin in step 1] |
 |---|---|---|---|---|---|---|
@@ -91,6 +93,8 @@ cases go into existing suites where they fit; step 6 frees slots by moving dupli
 
 - Who closes the roof for classes other than the watchdog is the site `MAIN` / MONETRoof, not this library; the
   table names the signal M provides (e.g. `bError`, READY_STATE) and the `MAIN` line that should act on it.
+  Decided (D9): a new M output (proposed `bCloseRoofRequest`) for the serious classes only, acted on in each `MAIN`
+  behind an enable switch and only in automatic; the design doc has the derivation and the `MAIN` line.
 - Verified by review only. Release: none.
 
 ### Step 1 - Characterization suites for the untested error classes (aim 6, tests only)
@@ -332,6 +336,11 @@ cases go into existing suites where they fit; step 6 frees slots by moving dupli
 - Each row where today differs from the target becomes a PR: flip the `_Current` test, change M (expected first
   candidates: software errors and hydraulics/cover errors park; hydraulics off at the end of every emergency park).
   Safety-relevant: on-site check per PR, E-stop at hand. Release: minor per behaviour change, MONETS first.
+- Order (2026-11-02, after D8/D9; details per PR in the design doc, "Step 7: proposed order"): 1 `bCloseRoofRequest`
+  output in M (signal only); 2 roof close in MONETS then MONETN `MAIN` behind the enable switch; 3 hydraulics error
+  reaction; 4 cover error hangs (park, power-on); 5 software-error timeouts ramp and park; 6 E-stop/safety error park
+  and hydraulics off; 7 power failure; 8 focus error drive to park; 9 invalid clock (optional). The emergency-park
+  hydraulics-off candidate is already true (design doc, findings).
 
 Order rationale: 0-1 make the safety net; 2a-2b put the shared types in place before MONETcommon consumes them;
 2c-4 are neutral and unblock tests and the SM plan's 5.2; 4c settles the client question; 5-6 break consumers and
@@ -399,15 +408,33 @@ are batched with re-pins; 7 is policy and goes row by row. Step 3 can come befor
 - **D6 Axes coupling.** Keep `REFERENCE TO` the concrete axes, rationale in the README, `I_Axis` not widened.
 - **D7 Internal timings.** Tracking delay, Wake&Shake window, interrupted auto-clear (and the other internal timers)
   are not site policy and stay constants outside the config.
+- **D8 Stop before hydraulics off** (was 8.1). Ramp first: a controlled stop (`FB_MonetStopTransaction`), then
+  hydraulics off, so the brake locks on a standing axis, whenever the drives can still ramp. The brake lock is the stop
+  only for axis errors, E-stop/safety errors, and a hydraulics error where the pressure is already gone. The hydraulic
+  brakes lock by themselves when the hydraulics go off.
+- **D9 Roof** (was 8.2). Close the roof only for serious errors: E-stop/safety error, power failure, hydraulics error,
+  axis errors. Not for the recoverable ones: timeouts 16#10/16#30/16#40, config errors 16#31/16#32, goto target
+  16#15/16#16, invalid clock, cover error, focus error (kept as no close, see 8.4). The closing logic lives in the site
+  `MAIN` (MONETS, MONETN) behind an enable switch that can be turned off for test runs, and does not close while the
+  cabinet selector is on manual. The library only provides the signal (proposed: M output `bCloseRoofRequest`,
+  derivation in the design doc). The MQTT watchdog is unchanged (always closes). The E-stop circuit also cuts the roof
+  drives: a close during an active E-stop cannot act, the request is held and takes effect after release and restart.
+  Nothing implemented yet (step 7, PRs 1-2).
 
 ## 8. Still open
 
-1. **Ramp or lock per error class** (step 0 table, column "Stop before hydraulics off"): confirm the proposed rule
-   (controlled stop first whenever the drives can still ramp; the hydraulic brake lock is the stop only for axis
-   error, E-stop/safety error, and a hydraulics error with the pressure already gone). Settle in the step-0 PR.
-2. **Roof for classes other than the watchdog:** which `MAIN`/MONETRoof signal closes it (e.g. on `bError` or
-   READY_STATE -1), so the table can name it. Settle in step 0.
+1. Decided as D8 (ramp or lock per error class).
+2. Decided as D9 (roof for classes other than the watchdog); what is left of it is in 8.4-8.7.
 3. **pybrotlib findings** (step 4c) decide edge-triggered inputs vs methods only for step 5.
+4. **Focus error and the roof:** kept as no close (D9); is a focus error serious enough to close the roof?
+5. **Exact signal:** name (`bCloseRoofRequest` proposed), latch and reset (proposed: latched on the rising edge,
+   cleared by `bReset` once no cause is active) and the name of the `MAIN` enable switch (`bRoofCloseOnErrorEnable`
+   proposed; a variable, a Visu switch or a cabinet input). Settle in step 7 PR 1.
+6. **Cabinet over-temperature (#32) and the roof:** not in the D9 list; today no close ("this is not weather").
+7. **Request at PLC start:** does `NOT bMainReady` or an active E-stop at boot set the request on every restart, so
+   that it needs an arming (like the watchdog's first connect) or a debounce? Check on site before step 7 PR 2.
+   Also [unverified]: whether the roof drives have power on a phase loss, and whether a safety error (no E-stop)
+   cuts them like the E-stop.
 
 ## 9. Not in this plan
 
