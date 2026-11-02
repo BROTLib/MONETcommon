@@ -3,7 +3,8 @@
 Date: 2026-11-02. Status: **proposed, plan only, no code changed. Decisions D1-D7 taken (Tim, 2026-11-02, section 7);
 the open items left are in section 8.** Steps 0-1 written 2026-11-02 on `feat/safe-state-table-and-tests`: the
 table is [../design/monetcommon-safe-states.md](../design/monetcommon-safe-states.md) (cells corrected against 0.11.2), the suite
-`MonetSafeState_Tests`; not compiled or run yet.
+`MonetSafeState_Tests`; not compiled or run yet. Step 2a released in BROTLib 0.17.0. Step 2c written 2026-11-02 on
+`feat/motion-config-input` (status at the step); not compiled or run yet.
 Repo: BROTLib/MONETcommon (steps 2a/2b also BROTLib and IAG50cm). Base: read at `develop` @ `adc1013` (0.11.1, pins
 BROTLib 0.15.1, HalfBROT 0.10.1); line numbers are from that commit. `origin/develop` has since moved to `c34470f`
 (0.11.2, pins BROTLib 0.16.0 / HalfBROT 0.10.2; pendant release-on-exit #3, null-reference fix #156); none of that
@@ -137,6 +138,21 @@ cases go into existing suites where they fit; step 6 frees slots by moving dupli
   86 deg target; command timeout 1 min fires at 1 min via the seam); one alias case (MONETS 3.0 still used).
 - Consumers: none required; MONETS may move its 3.0 into `stMotion` in its next re-pin. Release: MONETcommon minor
   (additive). On site: smoke test (power-on, goto, slew, stop, park) on MONET/S, then MONET/N.
+- **Status (2026-11-02): written on `feat/motion-config-input`, not compiled, not run (CI on push).** BROTLib pinned to
+  0.17.0 in both projects; the test project also moves from BROTLib 0.15.1 / HalfBROT 0.10.1 to 0.17.0 / 0.10.2 (it
+  lagged; with 0.15.1 the tree would resolve to a BROTLib without `ST_MotionConfig`). M: private `_MotionConfig()` at the
+  start of the body builds `stMotionUsed` (stMotion, aliases applied, logged once through `MotionAliasEvent` per
+  change of the set in use); every listed literal reads it. Invalid = 16#32 every scan after 16#31 **and the defaults
+  stay in use** (added: otherwise a 0 s timeout or a 0 velocity would act before the error branch). `SuspendAutomatic`
+  uses the `tSuspendStopTimeout` of the last automatic scan (defaults after a cold start in manual). The plan's "README
+  error table" does not exist: README got a `stMotion` paragraph, the safe-state table a 16#32 row.
+  Tests, all in existing suites (39 of 40 suites, step 3 still has a slot):
+  `MonetTimeouts_Tests.Command_Timeout_From_stMotion_Fires_At_1_Minute` (ET 60 ms with seam 1000),
+  `F_GotoTargetCheck_Tests.Goto_Window_From_stMotion_Refuses_The_Pole` (deviation: window max 30 refuses dec -89 at 31-33 deg with 16#16, instead of 85/86 deg, because an 86 deg
+  RA/Dec target depends on the clock), `MonetSafeState_Tests.Invalid_Motion_Config_Is_Software_Error_32`,
+  `FB_MonetRig_Tests.Monets_Elevation_Velocity_Alias_Is_Used` (MONETS 3.0). MONETS/MONETN `MAIN` read: only MONETS sets
+  an alias (`fElevationMoveVelocity := 3.0`), nobody reads `fHorizonMargin`; no `MAIN` change. Version not bumped
+  (separate release commit).
 
 ### Step 3 - Stage machines: enumerated stage, one error path, guard as a table (aim 2, neutral)
 - 3a: `E_GotoStage`, `E_SlewStage`, `E_ParkStage`, `E_PowerOnStage` (values equal to today's numbers, so logs and
