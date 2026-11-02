@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="FB_RoofMock" Id="{d0d85751-c6c9-4c7e-8e85-058542031f0f}" SpecialFunc="None">
+    <Declaration><![CDATA[// Mock of the roof (I_Roof) for the MQTT watchdog test (MonetSafeState_Tests): only counts the calls, the state never changes.
+FUNCTION_BLOCK FB_RoofMock IMPLEMENTS BROTLib.I_Roof
+VAR
+	eState		: BROTLib.E_RoofState;
+	nOpenCalls	: UINT;
+	nCloseCalls	: UINT;
+	nStopCalls	: UINT;
+	nResetCalls	: UINT;
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[
+]]></ST>
+    </Implementation>
+    <Method Name="Open" Id="{701f0c2a-dfdc-48eb-a9a9-d847687e2a6f}">
+      <Declaration><![CDATA[METHOD Open : BOOL
+VAR_INPUT
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[nOpenCalls := nOpenCalls + 1;
+Open := TRUE;
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Close" Id="{7115409d-f091-43de-8c5f-8f3203a42595}">
+      <Declaration><![CDATA[METHOD Close : BOOL
+VAR_INPUT
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[nCloseCalls := nCloseCalls + 1;
+Close := TRUE;
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Stop" Id="{30ea0b94-648e-490d-b320-ea404e9c4a3f}">
+      <Declaration><![CDATA[METHOD Stop : BOOL
+VAR_INPUT
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[nStopCalls := nStopCalls + 1;
+Stop := TRUE;
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Reset" Id="{ddadd3bf-b815-45c5-9367-341cacfe5156}">
+      <Declaration><![CDATA[METHOD Reset : BOOL
+VAR_INPUT
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[nResetCalls := nResetCalls + 1;
+Reset := TRUE;
+]]></ST>
+      </Implementation>
+    </Method>
+    <Property Name="State" Id="{5b26a6e5-38ac-443f-8b12-14989db0ffeb}">
+      <Declaration><![CDATA[PROPERTY State : BROTLib.E_RoofState]]></Declaration>
+      <Get Name="Get" Id="{1a74b2d7-70a4-4d29-bca0-6ec1c531c92e}">
+        <Declaration><![CDATA[VAR
+END_VAR
+]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[State := eState;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+  </POU>
+</TcPlcObject>

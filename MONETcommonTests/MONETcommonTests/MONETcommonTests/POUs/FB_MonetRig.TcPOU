@@ -23,6 +23,7 @@ VAR
 	nTimeDivisor	: UDINT := 1;	// the time seam of the telescope under test (SetTimeDivisor)
 	bEstopIn		: BOOL;	// SafetyHandling.estop
 	bSafetyIn		: BOOL;	// SafetyHandling.error
+	bMainReadyIn	: BOOL := TRUE;	// PowerMonitoring.phaseOK (MAIN: bMainReady := ready)
 END_VAR
 VAR CONSTANT
 	telescopeConfig	: ST_TelescopeConfig := (longitude := 20.810808, latitude := -32.375823, altitude := 1798.0,
@@ -111,6 +112,7 @@ ELSE
 		fbPointingInverse := fbPointingInv,
 		bEstopTriggered := bEstopIn,
 		bSafetyError := bSafetyIn,
+		bMainReady := bMainReadyIn,
 		nTimeDivisor := nTimeDivisor);
 END_IF
 fbElev(fbCovers := fbCovers, fbBrake := fbBrakeHyd);
@@ -176,6 +178,18 @@ END_VAR
 ]]></Declaration>
       <Implementation>
         <ST><![CDATA[bSafetyIn := bValue;
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="SetMainReady" Id="{83eaab32-d382-48b6-babc-99dec72544d2}">
+      <Declaration><![CDATA[// the power input of the telescope (bMainReady, MAIN: PowerMonitoring.phaseOK); FALSE = power failure. Default TRUE.
+METHOD SetMainReady
+VAR_INPUT
+	bValue	: BOOL;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[bMainReadyIn := bValue;
 ]]></ST>
       </Implementation>
     </Method>
