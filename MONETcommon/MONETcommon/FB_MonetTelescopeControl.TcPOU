@@ -261,6 +261,17 @@ VAR
 	bFocusErrorPark			: BOOL;	// the emergency park of a focus error drives to the park position, the error branch does not disable the axes
 	bFocusErrorParkStarted	: BOOL;	// one scan, logged
 	FocusErrorParkEvent		: FB_EventLog;
+	// #24 step 7 PR 6 (plan D8, specs/design/monetcommon-safe-states.md rows "E-stop" and "Safety error"): an E-stop or a safety
+	// error (bSafetyStop) cuts the drives (STO), so the brake lock is the stop. On its rising edge the hydraulics go off at once
+	// (the hydraulic brake locks), every move ends (flags dropped, stage machines reset, no MC_Stop: the axes are disabled) and,
+	// if the telescope is not parked, a park in place is held (bSafetyParkPending) until both are gone; then it runs like the
+	// emergency park (bSafetyPark: past the ready gate, in place because the axes are disabled) and closes the covers.
+	bSafetyStop				: BOOL;	// bEstopTriggered OR bSafetyError in this scan
+	bSafetyStopLast			: BOOL;	// its value of the last automatic scan (edge memory)
+	bSafetyParkPending		: BOOL;	// the park in place of a safety stop, held until the E-stop and the safety error are gone
+	bSafetyPark				: BOOL;	// that park runs (from Park() until bPark falls)
+	bSafetyParkStarted		: BOOL;	// one scan, logged
+	SafetyParkEvent			: FB_EventLog;
 	// #151: the brake may stay open with the elevation disabled for the Wake&Shake (F_WakeShakeWindow)
 	bWakeShakeWindow		: BOOL;
 	bWakeShakeWindowLast	: BOOL;
@@ -661,6 +672,43 @@ IF bCoverErrorParkStarted THEN
 	Park();
 END_IF
 
+// #24 step 7 PR 6 (D8, rows E-stop / safety error): the E-stop or a safety error cuts the drives (STO), the brake lock is the
+// stop (no ramp, no MC_Stop; the axes are disabled at the end of the body). On the rising edge: hydraulics off at once (the
+// hydraulic brake locks, D4), every move ends (as the park branch interrupts them, #26 one-shot) and, unless the telescope is
+// parked, the park in place is held until the E-stop and the safety error are both gone: the covers may hang on the same
+// circuit, so they close after the release (target "covers as possible after release"). The #86 park on an axis error stays
+// exempt during the E-stop (F_ErrorParkRequest unchanged); this park comes after the release instead. Not for a safety error
+// alone in the Wake&Shake window: the window survives it so that the operator can go on (#155); an E-stop ends the window.
+// After the #86 block for the same reason (the stop branch cannot clear the park in the scan of the release).
+bSafetyStop := bEstopTriggered OR bSafetyError;
+IF bSafetyStop AND NOT bSafetyStopLast THEN
+	fbHydraulics.Enable := FALSE;
+	bGoHome := FALSE;
+	bGoto := FALSE;
+	bSlew := FALSE;
+	bTrack := FALSE;
+	bInterrupted := TRUE;
+	_HomeTelescope();
+	_GotoTelescope();
+	_SlewTelescope();
+	bInterrupted := FALSE;	// #26: one-shot
+	bMoveAbortPending := FALSE;	// #84: the drives are cut, nothing to wait for
+	bSupersedeRequest := FALSE;	// #83
+	IF NOT bIsParked AND NOT (bWakeShakeWindow AND NOT bEstopTriggered) THEN
+		bSafetyParkPending := TRUE;
+	END_IF
+END_IF
+bSafetyStopLast := bSafetyStop;
+bSafetyPark := bSafetyPark AND (bPark OR bParkAfterStop);	// ends with its park (parked, or cleared by a stop/reset)
+IF bSafetyParkPending AND NOT bSafetyStop THEN
+	bSafetyParkPending := FALSE;
+	IF NOT bIsParked THEN
+		bSafetyPark := TRUE;
+		bSafetyParkStarted := TRUE;
+		Park();
+	END_IF
+END_IF
+
 // set TCS_command according to state variables ordered by precedence
 // Stop outranks everything, including a running power-on
 IF bStop THEN
@@ -715,7 +763,8 @@ ELSIF bPark THEN
 	bTrack := FALSE;
 	// M2: emergency park bypasses the bReady/bBusy gating below entirely, since bReady
 	// requires NOT bError and would otherwise make park unreachable during an error.
-	IF bError THEN
+	// #24 step 7 PR 6: the park after an E-stop / safety error too (the axes are disabled, it parks in place)
+	IF bError OR bSafetyPark THEN
 		bInterrupted := FALSE;
 		TCS_command := E_TCSCommand.park;
 	// If lower presedence commands are ongoing, let them know they are interupted
@@ -934,7 +983,8 @@ IF NOT (fbElevation.Error OR fbAzimuth.bError OR fbFocus.Error OR fbDerotator.bE
 	bReset := FALSE;
 END_IF
 
-IF bEstopTriggered THEN
+// #24 step 7 PR 6 (D8): also on a safety error without E-stop (was: E-stop only); the drives are cut (STO), the lock is the stop
+IF bSafetyStop THEN
 	fbElevation.Enable := FALSE;
 	fbAzimuth.Enable := FALSE;
 	fbDerotator.Enable := FALSE;
@@ -1855,6 +1905,12 @@ FocusErrorParkEvent(	Trigger := bFocusErrorParkStarted,
 				OnMessage := 'focus error: controlled stop of the axes if they move, then emergency park to the park position',
 				Comm := fbComm);
 bFocusErrorParkStarted := FALSE;
+SafetyParkEvent(	Trigger := bSafetyParkStarted,
+				Level := ADSLOG_MSGTYPE_WARN,
+				FormatString := '%s',
+				OnMessage := 'E-stop / safety error released: park in place (covers close)',
+				Comm := fbComm);
+bSafetyParkStarted := FALSE;
 WakeShakeBlockEvent(	Trigger := bWakeShakeBrakeBlocked,
 				Level := ADSLOG_MSGTYPE_WARN,
 				FormatString := '%s',
