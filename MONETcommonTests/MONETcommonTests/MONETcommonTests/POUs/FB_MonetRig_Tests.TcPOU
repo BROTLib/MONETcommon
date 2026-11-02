@@ -375,7 +375,7 @@ TEST_FINISHED();
     <Method Name="_Expect" Id="{40f596b7-904a-4c35-b012-c2cfdcd0fd7a}">
       <Declaration><![CDATA[// #24 step 4a: record nIndex of rec is a call of sMethod for sTopic with the value (fValue for PublishLREAL, within 1E-9;
 // nValue for PublishINT; sValue for Publish/PublishString). The first mismatch is written to sMismatch ('index topic').
-METHOD PRIVATE _Expect : BOOL
+METHOD PRIVATE _Expect
 VAR_IN_OUT
 	rec			: FB_RecordingComm;
 	sMismatch	: STRING(255);
@@ -388,20 +388,23 @@ VAR_INPUT
 	nValue		: LINT;
 	sValue		: STRING(80);
 END_VAR
+VAR
+	bOk			: BOOL;
+END_VAR
 ]]></Declaration>
       <Implementation>
         <ST><![CDATA[IF nIndex < 1 OR nIndex > 64 THEN
-	_Expect := FALSE;
+	bOk := FALSE;
 ELSIF rec.aMethod[nIndex] <> sMethod OR rec.aTopic[nIndex] <> sTopic THEN
-	_Expect := FALSE;
+	bOk := FALSE;
 ELSIF sMethod = 'PublishLREAL' THEN
-	_Expect := ABS(rec.aLREAL[nIndex] - fValue) <= 1.0E-9;
+	bOk := ABS(rec.aLREAL[nIndex] - fValue) <= 1.0E-9;
 ELSIF sMethod = 'PublishINT' THEN
-	_Expect := rec.aINT[nIndex] = nValue;
+	bOk := rec.aINT[nIndex] = nValue;
 ELSE
-	_Expect := rec.aString[nIndex] = sValue;
+	bOk := rec.aString[nIndex] = sValue;
 END_IF
-IF NOT _Expect AND sMismatch = '' THEN
+IF NOT bOk AND sMismatch = '' THEN
 	sMismatch := CONCAT(INT_TO_STRING(nIndex), CONCAT(' ', sTopic));
 END_IF
 ]]></ST>
