@@ -11,4 +11,6 @@ Living design docs for MONETcommon, one per topic, updated in place as the code 
   `feat/timeout-error-reaction`;
   PR 4, the cover error reaction (row implemented: park on the error, the park ends without closed covers with software error 16#21, the power-on fails before the cover command), written on `feat/cover-error-reaction`;
   PR 7, the power failure reaction (row implemented), written on
-  `feat/power-failure-reaction`).
+  `feat/power-failure-reaction`;
+  PR 8, the focus error reaction (row implemented), written on
+  `feat/focus-error-reaction`).

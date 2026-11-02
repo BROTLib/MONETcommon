@@ -460,8 +460,8 @@ bTimeoutErrorLast := bTimeoutError;
 // drives to the park position. Decided before the error branch below, which would otherwise disable the axes in this scan.
 bFocusErrorOnly := fbFocus.Error AND NOT bEstopTriggered AND NOT bSafetyError AND
 	NOT (fbElevation.Error OR fbAzimuth.bError OR fbDerotator.bError OR bHydraulicsError OR bMainPowerLost OR bSoftwareError);
-// it ends when the focus error is no longer the only error (another error incl. a power failure, E-stop, safety error, or the focus error is gone),
-// when the park is over (bIsParked) or not requested any more (a stop dropped it), or on the timeout of its ramp (the lock takes over)
+// it ends when the focus error is no longer the only error (another error, also a power failure, E-stop, safety error, or the
+// focus error is gone), when the park is over (bIsParked) or not requested any more (a stop dropped it), or on the timeout of its ramp (the lock takes over)
 IF bFocusErrorPark AND (NOT bFocusErrorOnly OR bIsParked OR NOT (bPark OR bParkAfterStop OR bStop) OR
 		(tonCommandTimeout.Q AND TCS_command = E_TCSCommand.stop)) THEN
 	bFocusErrorPark := FALSE;
