@@ -5,7 +5,8 @@ the open items left are in section 8.** Steps 0-1 written 2026-11-02 on `feat/sa
 table is [../design/monetcommon-safe-states.md](../design/monetcommon-safe-states.md) (cells corrected against 0.11.2), the suite
 `MonetSafeState_Tests`; not compiled or run yet. Step 2a released in BROTLib 0.17.0. Step 2c written 2026-11-02 on
 `feat/motion-config-input` (status at the step); not compiled or run yet. Step 3 written 2026-11-02 on
-`refactor/stage-machines` (status at the step); not compiled or run yet.
+`refactor/stage-machines` (status at the step); not compiled or run yet. Step 4a written 2026-11-02 on
+`refactor/telemetry-split` (status at the step); not compiled or run yet.
 Repo: BROTLib/MONETcommon (steps 2a/2b also BROTLib and IAG50cm). Base: read at `develop` @ `adc1013` (0.11.1, pins
 BROTLib 0.15.1, HalfBROT 0.10.1); line numbers are from that commit. `origin/develop` has since moved to `c34470f`
 (0.11.2, pins BROTLib 0.16.0 / HalfBROT 0.10.2; pendant release-on-exit #3, null-reference fix #156); none of that
@@ -216,6 +217,45 @@ cases go into existing suites where they fit; step 6 frees slots by moving dupli
   later PR.
 - Release: patch each; consumers unaffected. The command part (arbitration) is SM plan 5.1/5.2, scheduled there
   after this step.
+- **Status 4a (2026-11-02): written on `refactor/telemetry-split` (from `develop` @ `644dce5`, 0.12.0, step 3 merged), not
+  compiled, not run (CI on push). Version not bumped. 4b not started.**
+  - Catalogue of `_SendTelemetry` at `644dce5` (all `'telescope'`/`'dome'`, after `SUPER^._PublishTelemetry()`): 44 publishes per
+    call (54 publish statements with the branches; the "67" above counted something else, probably SUPER's too), in this
+    order: `TELESCOPE.READY_STATE` (LREAL `fReadyState`), `TELESCOPE.MOTION_STATE` (LREAL of the INT `nMotionState`),
+    `TELESCOPE.INTERRUPTED_AUTO_CLEAR_COUNT` (INT of the UDINT counter); `WEATHER.REFRACTION.PRESSURE`/`TEMPERATURE`
+    (`Publish` of `LREAL_TO_STRING`), `PRESSURE_LIVE` (`BOOL_TO_STRING(fRefractionPressure <> 0.0)`), `TEMPERATURE_LIVE`
+    (`BOOL_TO_STRING(bRefractionTemperatureSet)`); `OBJECT.EQUATORIAL.RA_ICRS`/`DEC_ICRS`, `OBJECT.HORIZONTAL.ALT`/`AZ` (calc,
+    unconditional), `POINTING.SLEWTIME`, `POINTING.OFFSETS.ALT`/`AZ`, `POSITION.LOCAL.SIDEREAL_TIME`/`JD`/`LATITUDE`/`LONGITUDE`/
+    `HEIGHT`; per axis ALT then AZ: `POWER_STATE` (LREAL 1.0/0.0 on `Enable`), `REFERENCED` (LREAL 1.0/0.0 on `Calibrated`),
+    `ERROR_STATE` (INT `ErrorID` if `Error`, else 0), `MOTION_STATE` (INT 8 busy+tracking, 1 busy, 0), then ALT `REALPOS`
+    (current - offset), `CURRPOS`, `TARGETPOS` (`Position`), `CURRSPEED` (`Velocity`), `TARGETDISTANCE` (ABS), `OFFSET`; AZ the
+    same but `CURRPOS` before `REALPOS` (current - `F_AzimuthOffsetOnAxis(offset, fElevationCurrent)`, M7);
+    `POSITION.HORIZONTAL.ALT`/`AZ` (sky), `POSITION.EQUATORIAL.RA_ICRS`/`HA_ICRS`/`DEC_ICRS` (current). Rate in the body:
+    `tonMQTTTimer` 500 ms while `bSlewing OR bTrack OR bTracking`, else 1000 ms, restarted after each publish (so PT plus one
+    cycle); manual mode (`SuspendAutomatic`) sends only READY_STATE on the same timer.
+  - Done: `ST_MonetTelemetry` (43 fields, each with the type of its source, so the implicit conversions are the old ones) and
+    `FB_MonetTelescopeTelemetry` (inputs `comm`, `stTelemetry`; no state; the old statements with the sources replaced by
+    snapshot fields, comments kept). `_SendTelemetry` keeps `SUPER^._PublishTelemetry()` first, fills the instance variable
+    `stTelemetry` and calls `fbTelemetry` once; rate and call site unchanged. Checked by a script: the new block's statements
+    with the snapshot fields replaced by the fill's sources are textually the old ones (only `fSlewtime`/`fSlewTime` case).
+    `comm` is a per-call input, not `FB_Init`, because the telescope's `fbComm` is only set in its own `FB_Init`.
+  - Test, in `FB_MonetRig_Tests` (40 of 40 suites): `FB_RecordingComm` (test project, extends `FB_NullComm`, records method/
+    topic/value/address); `Telemetry_Publishes_The_Snapshot` (44 records, order, method, topic, value, all to telescope/dome)
+    and `Telemetry_Axis_State_Branches` (the other side of every condition). The test drives the block directly, so it does not
+    check `_SendTelemetry`'s fill; that is covered by the script comparison only.
+  - Read while doing it, **not changed** (behaviour kept): (1) `_SendTelemetry` has no `fbComm = 0` guard (BROTLib's
+    `_PublishTelemetry` returns on it, #7), so an unassigned comm would stop the task in the first MONET publish; the new block
+    keeps that. (2) Fields published twice per record: `POSITION.LOCAL.*` (5, identical, SUPER and here),
+    `POSITION.INSTRUMENTAL.AZ/ALT.OFFSET` (FB_AltAzTelescopeControl and here, identical), `OBJECT.HORIZONTAL.ALT/AZ` (differ
+    during a slew, the comment says the later one is what is on the wire). (3) `TELESCOPE.READY_STATE` is also sent by the
+    `fbStartup.PublishDue` path before the timer, so it can go out twice in one scan. (4) Type mix on the wire:
+    `TELESCOPE.MOTION_STATE` is LREAL, the per-axis `MOTION_STATE`/`ERROR_STATE` are INT, `POWER_STATE`/`REFERENCED` LREAL, the
+    weather values strings via `Publish`. (5) No derotator telemetry here. (6) `_SendTelemetry` is a public method (no
+    `PRIVATE`), kept so; nothing outside calls it (MONETS/MONETN/HalfBROT grepped).
+  - Unverified until CI: the overrides of `FB_RecordingComm` (signatures copied from `FB_NullComm`), passing the FB instance
+    `rec` to the `I_Comm` input, the `LREAL_TO_STRING` texts `'1000.5'`/`'-12.25'` asserted literally. To run (Tim):
+    `tcbuild.yml` on push, or the library install + `tctool MONETcommonTests.sln build run` of `MONETcommonTests/README.md`;
+    on site: telemetry in Influx/pyobs unchanged (same fields and rate) on MONET/S, then N.
 
 ### Step 4c - Client check before read-only inputs (D3, investigation, no code)
 - Consumers of the command interface: **pybrotlib** (Python library) and its users **pyobs-brot** and **brotgui**.
@@ -292,8 +332,8 @@ are batched with re-pins; 7 is policy and goes row by row. Step 3 can come befor
 - Step 5 can break pybrotlib clients silently (a held `bGoto` no longer re-triggers). Gated on 4c.
 - Overlap with open work in the same file: #168 (mode state machine), #177 (pendant), SM plan 5.x, #26, #17.
   Whoever merges second rebases; do not run two of these in parallel on M.
-- TcUnit suite limit (40, all 40 used after step 3; step 4's telemetry case must go into an existing suite or step 6
-  must free slots first) and per-suite limits (32 tests, 256 asserts).
+- TcUnit suite limit (40, all 40 used after step 3; step 4a's telemetry cases went into `FB_MonetRig_Tests`; step 6
+  frees slots) and per-suite limits (32 tests, 256 asserts).
 
 ## 6. Verification summary
 
