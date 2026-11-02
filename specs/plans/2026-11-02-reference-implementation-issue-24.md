@@ -11,7 +11,8 @@ table is [../design/monetcommon-safe-states.md](../design/monetcommon-safe-state
 `refactor/compute-targets` (status at the step); not compiled or run yet. Step 7 PR 1 (`bCloseRoofRequest`) written
 2026-11-02 on `feat/close-roof-request` (status at step 7); not compiled or run yet. Step 7 PR 3 (hydraulics error reaction)
 written 2026-11-02 on `feat/hydraulics-error-reaction` (status at step 7); not compiled or run yet. Step 7 PR 5 (state-machine
-timeouts ramp, then park) written 2026-11-02 on `feat/timeout-error-reaction` (status at step 7); not compiled or run yet.
+timeouts ramp, then park) written 2026-11-02 on `feat/timeout-error-reaction` (status at step 7); not compiled or run yet. Step 7 PR 7 (power failure
+reaction) written 2026-11-02 on `feat/power-failure-reaction` (status at step 7); not compiled or run yet.
 Repo: BROTLib/MONETcommon (steps 2a/2b also BROTLib and IAG50cm). Base: read at `develop` @ `adc1013` (0.11.1, pins
 BROTLib 0.15.1, HalfBROT 0.10.1); line numbers are from that commit. `origin/develop` has since moved to `c34470f`
 (0.11.2, pins BROTLib 0.16.0 / HalfBROT 0.10.2; pendant release-on-exit #3, null-reference fix #156); none of that
@@ -505,6 +506,51 @@ cases go into existing suites where they fit; step 6 frees slots by moving dupli
     in the next call of the cover block). Not covered by a test: a cover error in the middle of stage 0 (the mock covers open in one
     scan), the manual-mode edge memory. To run (Tim): `tcbuild.yml` on push, or the library install + `tctool MONETcommonTests.sln
     build run`; on site (design doc, order item 4).
+- **Status PR 7 (2026-11-02): written on `feat/power-failure-reaction` (from `develop` @ `40517f9`, 0.13.0 with PR 3 merged; rebased
+  onto `develop` @ `692dbbf`, PR 5 and PR 4 merged), not compiled, not run (CI on push). Version not bumped.** Row "Power failure" of the design doc (now implemented, M lines of that branch).
+  - What "power failure" is: `bMainReady` = `PowerMonitoring.phaseOK` (MONETS; MONETN without the L3 voltage warning), TRUE only while
+    no EL3483 guard bit is set, **warnings included** (frequency, quality, unbalance, voltage per phase), not debounced (the 100 ms / 2 s
+    timers of `FB_MonetPowerMonitoring` only gate its WARN log). So it covers a real phase loss (drives, pump, covers, maybe the roof
+    lose their supply) and a power-quality warning (everything still runs). M cannot tell them apart and does not know whether the
+    drives still have their supply. Reaction chosen to be right for both: ramp while the drives demonstrably can (brake open with
+    pressure, no axis error), else the lock; then park **in place** (not a drive to the park position on a supply in question).
+  - Entry: `bMainPowerLost := NOT bMainReady` goes into `bHwError` (as the hydraulics error in PR 3): `bError`, READY_STATE -1.0
+    (was -2.0), moves rejected, a power-on fails in its first scan (before the covers; was: covers opened, wait in `open_covers`), a
+    running power-on aborts, the #86 emergency park in place on the edge (`F_ErrorParkRequest` unchanged; exemptions parked and
+    E-stop; never the #113 Wake&Shake exemption: `bOtherHwError` gets `bMainPowerLost`). Not latched: `bError` drops by itself when
+    the supply is back. `nErrorID` stays 0. `bReset` not held on it (the hold list of PR 3 is unchanged, only its comment).
+  - Ramp (D8): a second copy of the PR 3 ramp block with its own flags (`bMainPowerRamp`, edge memory `bMainPowerLostLast`,
+    `MainPowerRampEvent`), using the same `bHydraulicsCanRamp` as the "drives can still ramp" test; it also ends when the supply is
+    back. The error branch skips the disable while `bHydraulicsRamp`, `bTimeoutPark` (PR 5) or `bMainPowerRamp`; `F_SuspendStop` gets
+    `bError AND NOT bHydraulicsRamp AND NOT bTimeoutPark AND NOT bMainPowerRamp`. A power failure is a hardware error, so it ends
+    a running timeout park (`bTimeoutCanMove` FALSE, the park finishes in place) and blocks a new one. A real phase loss that stops the pump drops `BrakeOpen`/`OilPressureOK` (and the drives may
+    raise undervoltage errors): that ends the ramp and the lock is the stop, as D8 asks; on a warning-only blip the ramp runs fully.
+  - Flicker: a one-scan blip of any guard bit now parks the telescope (in place at standstill; under motion ramp, and if the supply
+    is back before the stop has settled the queued park drives to the park position). The end state is the ordinary parked state:
+    `reset=1` (roof request), `power=1`. Not hard to recover from, but it ends an observation; no new timer added. If warnings blip on
+    site, the fix belongs into `FB_MonetPowerMonitoring` / `MAIN` (e.g. `phaseOK` from the guard errors only, or a short on-delay),
+    not into M. Alternatives not taken: (a) react only after a delay in M (new timer, delays the stop on a real loss); (b) keep it out
+    of `bError` and only stop + park (keeps READY_STATE -2.0 and the transient interlock, but needs a second in-place park path and a
+    second disable path); (c) drive to the park position after the ramp (needs the supply to be trusted; not conservative); (d) the
+    lock always, no ramp (simpler, but against D8 when the drives are fine, e.g. a warning).
+  - Behaviour changes (all on `NOT bMainReady` only): READY_STATE -1.0 instead of -2.0, also on a parked telescope (0.0 before) and at
+    the PLC start without phase; online is lost (completed startup dropped), a new `power=1` is needed after the supply is back (was:
+    back to 1.0 by itself); moves rejected; under motion: stop (ramp) or disable, then park in place, covers closed, hydraulics off;
+    at standstill online: park in place; power-on refused in its first scan with `bPowerFailure` (READY_STATE -1.0 until the next
+    `power=1`), a running power-on aborted and parked in place; new WARN log on the ramp; the emergency park log says "axis error"
+    (text unchanged). Unchanged: `bCloseRoofRequest` (PR 1), the hydraulics/axis/focus/software/E-stop reactions.
+  - Tests (40 of 40 suites; `MonetSafeState_Tests` 18 tests / 161 asserts, `MonetErrorPark_Tests` 11 / 86 before the rebase;
+    with PR 5 and PR 4: 19 / 189 and 13 / 103): flipped
+    `Power_Failure_During_Goto_Keeps_Moving_Current` -> `Power_Failure_During_Goto_Ramps_Then_Parks_In_Place` (same method Id; also:
+    supply back -> `bError` gone, parked, not online without Init); new `Power_Failure_With_Pressure_Loss_Parks_In_Place_Without_Ramp`
+    (phase loss with the pump: lock), `MonetErrorPark_Tests.Power_Failure_At_Standstill_Parks_In_Place_And_Recovers` (no ramp; reset not
+    held; supply back; reset clears the roof request; `power=1` online), `.Power_Failure_On_A_Parked_Telescope_Does_Not_Park` (no park;
+    `power=1` during the failure opens nothing). Other classes: their suites are unedited (`Roof_Request_On_Power_Failure` holds: the
+    reset during the failure is a pulse).
+  - Unverified until CI: the build; the test timing (as PR 3); the re-Init after the in-place park on the rig. Not modelled: whether
+    the drives, the covers and the roof have their supply on a real phase loss, drive undervoltage errors, how fast `BrakeOpen` drops
+    when the pump stops. To run (Tim): `tcbuild.yml` on push, or the library install + `tctool MONETcommonTests.sln build run`; on site
+    (design doc, order item 7).
 
 Order rationale: 0-1 make the safety net; 2a-2b put the shared types in place before MONETcommon consumes them;
 2c-4 are neutral and unblock tests and the SM plan's 5.2; 4c settles the client question; 5-6 break consumers and
