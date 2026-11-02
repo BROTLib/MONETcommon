@@ -116,6 +116,11 @@ raised in one place (`_RaiseSoftwareError`, text in `sSoftwareErrorText`) and la
 `FB_MonetTelescopeTelemetry` from the snapshot `ST_MonetTelemetry` (instance `stTelemetry`, ADS-readable), which the telescope
 fills once per publish. Topics, order, formats and conditions are those of 0.12.0.
 
+**Targets (#24 step 4b).** Once per automatic scan, after the error reaction and before the horizon guard, the private
+`_ComputeTargets` computes the refraction weather, the commanded target (eq2hor, pointing model, offsets, derotator,
+velocities, the turn inside the axis limits) and the reported position (inverse pointing model, hor2eq). The code is that of
+0.12.0, moved unchanged out of the body.
+
 `bIsParked` means *secured* (covers closed, brake closed, hydraulics off, axes disabled), not *at the park
 position*: the emergency park, and a park after a reset or an aborted power-on, secure the telescope where it stands.
 `bParkedInPlace` (MQTT `diagnostics/base/ParkedInPlace`, WARN log "parked in place at el .. az ..") is TRUE then; it drops

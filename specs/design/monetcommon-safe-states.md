@@ -11,7 +11,9 @@ Line numbers are those of `c34470f` and have moved since (step 2c, 0.12.0; step 
 `_RaiseSoftwareError`). Step 3 is behaviour-neutral, no cell below changes; where a cell cites a stage machine read it by name:
 the stages are `E_GotoStage`/`E_SlewStage`/`E_ParkStage`/`E_PowerOnStage` with the same numbers (stage 0/80 of the park
 is `prepare`/`secure`, stage 0 of the power-on `open_covers`), the software errors 16#10/16#15/16#16/16#30/16#40 are
-raised by `_RaiseSoftwareError`, and each prologue is a row of `F_StageAbort`.
+raised by `_RaiseSoftwareError`, and each prologue is a row of `F_StageAbort`. Step 4b (also neutral) moves the target block
+of the body (refraction weather to the second hor2eq) into `_ComputeTargets`, so the body lines after it moved up by 127;
+no cell cites a line of that block.
 Marking as in the plan: **[verified]** = read in the code on 2026-11-02, **[unverified]** = my reading, to be checked
 by a test, CI or on site. Nothing here has been run on a PLC; the rig tests named below are characterization tests on
 mock axes (`MONETcommonTests`), they do not model NC timing, STO/TwinSAFE or the hydraulic brake under motion.
