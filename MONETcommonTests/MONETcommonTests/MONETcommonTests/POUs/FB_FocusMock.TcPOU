@@ -10,6 +10,7 @@ VAR
 	pLreal	: POINTER TO LREAL;
 	bInjected	: BOOL;
 	nInjectedId	: UDINT;
+	bStuck		: BOOL;	// InjectStuckError: a reset does not clear the error (the focus faults again at once)
 END_VAR
 ]]></Declaration>
     <Implementation>
@@ -39,7 +40,7 @@ fActualPosition := fbCore.fPosition;
 
 IF bReset THEN
 	bReset := FALSE;	// ResetDone at once
-	bInjected := FALSE;
+	bInjected := bStuck;	// a stuck focus (InjectStuckError) keeps its error
 END_IF
 bError := bInjected;
 nErrorID := nInjectedId;
@@ -54,6 +55,20 @@ END_VAR
 ]]></Declaration>
       <Implementation>
         <ST><![CDATA[bInjected := TRUE;
+nInjectedId := nId;
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="InjectStuckError" Id="{b58d865f-2356-4bb8-a9b8-e164b1447c1c}">
+      <Declaration><![CDATA[// #24 step 7 PR 8: the focus reports an error with this id that a reset does not clear (a stuck focus)
+METHOD InjectStuckError
+VAR_INPUT
+	nId	: UDINT;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[bInjected := TRUE;
+bStuck := TRUE;
 nInjectedId := nId;
 ]]></ST>
       </Implementation>
