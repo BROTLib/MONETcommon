@@ -4,6 +4,8 @@
     <Declaration><![CDATA[// Smoke test of the mock rig (spike S0 of the telescope state machine plan (BROTLib specs/plans/2026-10-21-telescope-state-machine-unification.md, step 0.2):
 // can the real FB_MonetTelescopeControl run on axis mocks that subclass the HalfBROT axis blocks? Answers D1 (a) writing the
 // nested fbAxis outputs from the derived block, (b) a body override without SUPER^(), (c) AT%I* of FB_AxisControl on the target.
+// Also the telemetry record of the telescope (#24 step 4a, MONETcommon.FB_MonetTelescopeTelemetry) for a fixed snapshot, recorded
+// by FB_RecordingComm: here because all 40 suite slots are used and this suite is about the parts of FB_MonetTelescopeControl.
 FUNCTION_BLOCK FB_MonetRig_Tests EXTENDS TcUnit.FB_TestSuite
 VAR
 	fbComm			: FB_NullComm;
@@ -29,6 +31,8 @@ END_VAR
       <ST><![CDATA[Mock_Axis_Move_Reports_MoveDone();
 Rig_Instantiates_Telescope_With_Mock_Axes();
 Monets_Elevation_Velocity_Alias_Is_Used();
+Telemetry_Publishes_The_Snapshot();
+Telemetry_Axis_State_Branches();
 ]]></ST>
     </Implementation>
     <Method Name="Mock_Axis_Move_Reports_MoveDone" Id="{4aeb9af3-2d82-44f2-87fd-050f1d95d90d}">
@@ -176,6 +180,233 @@ CASE nStep OF
 	END_IF
 END_CASE
 
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Telemetry_Publishes_The_Snapshot" Id="{d918d0a8-6c18-4fc8-b420-b6fe4e8e1434}">
+      <Declaration><![CDATA[// #24 step 4a: FB_MonetTelescopeTelemetry with a fixed snapshot publishes the 44 fields of _SendTelemetry (0.12.0) in the old order,
+// with the old publish method, topic and value, all to 'telescope'/'dome'. Pins topic names and formats that pyobs/pybrotlib and
+// Telegraf/InfluxDB read. Elevation: enabled, referenced, error 16#4550, busy and tracking (8). Azimuth: disabled, not referenced,
+// no error (its ErrorID 123 is not published), busy not tracking (1); REALPOS uses F_AzimuthOffsetOnAxis(0.5, current elevation 60):
+// 175 - 1.0. Single cycle, guarded. Failed checks are also noted in GVL_Diag.sFailures.
+METHOD PRIVATE Telemetry_Publishes_The_Snapshot
+VAR_INST
+	rec			: FB_RecordingComm;
+	fbTelemetry	: MONETcommon.FB_MonetTelescopeTelemetry;
+	stSnap			: MONETcommon.ST_MonetTelemetry;
+	sMismatch	: STRING(255);
+	bDone		: BOOL;
+END_VAR
+VAR
+	sTest		: STRING(80);
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Telemetry_Publishes_The_Snapshot');
+IF bDone THEN
+	RETURN;
+END_IF
+sTest := 'Telemetry_Publishes_The_Snapshot: ';
+stSnap.fReadyState := 1.0;
+stSnap.nMotionState := 8;
+stSnap.nInterruptedAutoClearCount := 3;
+stSnap.fRefractionPressure := 1000.5;
+stSnap.fRefractionTemperature := -12.25;
+stSnap.bRefractionTemperatureSet := TRUE;
+stSnap.fRightAscension := 150.25;
+stSnap.fDeclination := -20.5;
+stSnap.fElevationCalc := 45.5;
+stSnap.fAzimuthCalc := 181.25;
+stSnap.fSlewTime := 12.5;
+stSnap.fElevationPointingOffset := 0.125;
+stSnap.fAzimuthPointingOffset := -0.25;
+stSnap.fLst := 7.75;
+stSnap.fJd := 2461346.5;
+stSnap.fLatitude := -32.375823;
+stSnap.fLongitude := 20.810808;
+stSnap.fAltitude := 1798.0;
+stSnap.bElevationEnable := TRUE;
+stSnap.bElevationCalibrated := TRUE;
+stSnap.bElevationError := TRUE;
+stSnap.nElevationErrorID := 16#4550;
+stSnap.bElevationBusy := TRUE;
+stSnap.bElevationTracking := TRUE;
+stSnap.fElevationPosition := 61.0;
+stSnap.fElevationVelocity := 0.004;
+stSnap.fElevationCurrent := 60.0;
+stSnap.fElevationOffset := 0.5;
+stSnap.bAzimuthEnable := FALSE;
+stSnap.bAzimuthCalibrated := FALSE;
+stSnap.bAzimuthError := FALSE;
+stSnap.nAzimuthErrorID := 123;
+stSnap.bAzimuthBusy := TRUE;
+stSnap.bAzimuthTracking := FALSE;
+stSnap.fAzimuthPosition := 170.0;
+stSnap.fAzimuthVelocity := 10.0;
+stSnap.fAzimuthCurrent := 175.0;
+stSnap.fAzimuthOffset := 0.5;
+stSnap.fElevationCurrentSky := 59.875;
+stSnap.fAzimuthCurrentSky := 175.25;
+stSnap.fRightAscensionCurrent := 150.5;
+stSnap.fHourAngleCurrent := 30.25;
+stSnap.fDeclinationCurrent := -20.75;
+
+rec.Clear();
+sMismatch := '';
+fbTelemetry(comm := rec, stTelemetry := stSnap);
+
+_Expect(rec := rec, sMismatch := sMismatch, nIndex := 1, sMethod := 'PublishLREAL', sTopic := 'TELESCOPE.READY_STATE', fValue := 1.0, nValue := 0, sValue := '');
+_Expect(rec := rec, sMismatch := sMismatch, nIndex := 2, sMethod := 'PublishLREAL', sTopic := 'TELESCOPE.MOTION_STATE', fValue := 8.0, nValue := 0, sValue := '');
+_Expect(rec := rec, sMismatch := sMismatch, nIndex := 3, sMethod := 'PublishINT', sTopic := 'TELESCOPE.INTERRUPTED_AUTO_CLEAR_COUNT', nValue := 3, fValue := 0.0, sValue := '');
+_Expect(rec := rec, sMismatch := sMismatch, nIndex := 4, sMethod := 'Publish', sTopic := 'WEATHER.REFRACTION.PRESSURE', sValue := '1000.5', fValue := 0.0, nValue := 0);
+_Expect(rec := rec, sMismatch := sMismatch, nIndex := 5, sMethod := 'Publish', sTopic := 'WEATHER.REFRACTION.TEMPERATURE', sValue := '-12.25', fValue := 0.0, nValue := 0);
+_Expect(rec := rec, sMismatch := sMismatch, nIndex := 6, sMethod := 'Publish', sTopic := 'WEATHER.REFRACTION.PRESSURE_LIVE', sValue := 'TRUE', fValue := 0.0, nValue := 0);
+_Expect(rec := rec, sMismatch := sMismatch, nIndex := 7, sMethod := 'Publish', sTopic := 'WEATHER.REFRACTION.TEMPERATURE_LIVE', sValue := 'TRUE', fValue := 0.0, nValue := 0);
+_Expect(rec := rec, sMismatch := sMismatch, nIndex := 8, sMethod := 'PublishLREAL', sTopic := 'OBJECT.EQUATORIAL.RA_ICRS', fValue := 150.25, nValue := 0, sValue := '');
+_Expect(rec := rec, sMismatch := sMismatch, nIndex := 9, sMethod := 'PublishLREAL', sTopic := 'OBJECT.EQUATORIAL.DEC_ICRS', fValue := -20.5, nValue := 0, sValue := '');
+_Expect(rec := rec, sMismatch := sMismatch, nIndex := 10, sMethod := 'PublishLREAL', sTopic := 'OBJECT.HORIZONTAL.ALT', fValue := 45.5, nValue := 0, sValue := '');
+_Expect(rec := rec, sMismatch := sMismatch, nIndex := 11, sMethod := 'PublishLREAL', sTopic := 'OBJECT.HORIZONTAL.AZ', fValue := 181.25, nValue := 0, sValue := '');
+_Expect(rec := rec, sMismatch := sMismatch, nIndex := 12, sMethod := 'PublishLREAL', sTopic := 'POINTING.SLEWTIME', fValue := 12.5, nValue := 0, sValue := '');
+_Expect(rec := rec, sMismatch := sMismatch, nIndex := 13, sMethod := 'PublishLREAL', sTopic := 'POINTING.OFFSETS.ALT', fValue := 0.125, nValue := 0, sValue := '');
+_Expect(rec := rec, sMismatch := sMismatch, nIndex := 14, sMethod := 'PublishLREAL', sTopic := 'POINTING.OFFSETS.AZ', fValue := -0.25, nValue := 0, sValue := '');
+_Expect(rec := rec, sMismatch := sMismatch, nIndex := 15, sMethod := 'PublishLREAL', sTopic := 'POSITION.LOCAL.SIDEREAL_TIME', fValue := 7.75, nValue := 0, sValue := '');
+_Expect(rec := rec, sMismatch := sMismatch, nIndex := 16, sMethod := 'PublishLREAL', sTopic := 'POSITION.LOCAL.JD', fValue := 2461346.5, nValue := 0, sValue := '');
+_Expect(rec := rec, sMismatch := sMismatch, nIndex := 17, sMethod := 'PublishLREAL', sTopic := 'POSITION.LOCAL.LATITUDE', fValue := -32.375823, nValue := 0, sValue := '');
+_Expect(rec := rec, sMismatch := sMismatch, nIndex := 18, sMethod := 'PublishLREAL', sTopic := 'POSITION.LOCAL.LONGITUDE', fValue := 20.810808, nValue := 0, sValue := '');
+_Expect(rec := rec, sMismatch := sMismatch, nIndex := 19, sMethod := 'PublishLREAL', sTopic := 'POSITION.LOCAL.HEIGHT', fValue := 1798.0, nValue := 0, sValue := '');
+_Expect(rec := rec, sMismatch := sMismatch, nIndex := 20, sMethod := 'PublishLREAL', sTopic := 'POSITION.INSTRUMENTAL.ALT.POWER_STATE', fValue := 1.0, nValue := 0, sValue := '');
+_Expect(rec := rec, sMismatch := sMismatch, nIndex := 21, sMethod := 'PublishLREAL', sTopic := 'POSITION.INSTRUMENTAL.ALT.REFERENCED', fValue := 1.0, nValue := 0, sValue := '');
+_Expect(rec := rec, sMismatch := sMismatch, nIndex := 22, sMethod := 'PublishINT', sTopic := 'POSITION.INSTRUMENTAL.ALT.ERROR_STATE', nValue := 16#4550, fValue := 0.0, sValue := '');
+_Expect(rec := rec, sMismatch := sMismatch, nIndex := 23, sMethod := 'PublishINT', sTopic := 'POSITION.INSTRUMENTAL.ALT.MOTION_STATE', nValue := 8, fValue := 0.0, sValue := '');
+_Expect(rec := rec, sMismatch := sMismatch, nIndex := 24, sMethod := 'PublishLREAL', sTopic := 'POSITION.INSTRUMENTAL.ALT.REALPOS', fValue := 59.5, nValue := 0, sValue := '');
+_Expect(rec := rec, sMismatch := sMismatch, nIndex := 25, sMethod := 'PublishLREAL', sTopic := 'POSITION.INSTRUMENTAL.ALT.CURRPOS', fValue := 60.0, nValue := 0, sValue := '');
+_Expect(rec := rec, sMismatch := sMismatch, nIndex := 26, sMethod := 'PublishLREAL', sTopic := 'POSITION.INSTRUMENTAL.ALT.TARGETPOS', fValue := 61.0, nValue := 0, sValue := '');
+_Expect(rec := rec, sMismatch := sMismatch, nIndex := 27, sMethod := 'PublishLREAL', sTopic := 'POSITION.INSTRUMENTAL.ALT.CURRSPEED', fValue := 0.004, nValue := 0, sValue := '');
+_Expect(rec := rec, sMismatch := sMismatch, nIndex := 28, sMethod := 'PublishLREAL', sTopic := 'POSITION.INSTRUMENTAL.ALT.TARGETDISTANCE', fValue := 1.0, nValue := 0, sValue := '');
+_Expect(rec := rec, sMismatch := sMismatch, nIndex := 29, sMethod := 'PublishLREAL', sTopic := 'POSITION.INSTRUMENTAL.ALT.OFFSET', fValue := 0.5, nValue := 0, sValue := '');
+_Expect(rec := rec, sMismatch := sMismatch, nIndex := 30, sMethod := 'PublishLREAL', sTopic := 'POSITION.INSTRUMENTAL.AZ.POWER_STATE', fValue := 0.0, nValue := 0, sValue := '');
+_Expect(rec := rec, sMismatch := sMismatch, nIndex := 31, sMethod := 'PublishLREAL', sTopic := 'POSITION.INSTRUMENTAL.AZ.REFERENCED', fValue := 0.0, nValue := 0, sValue := '');
+_Expect(rec := rec, sMismatch := sMismatch, nIndex := 32, sMethod := 'PublishINT', sTopic := 'POSITION.INSTRUMENTAL.AZ.ERROR_STATE', nValue := 0, fValue := 0.0, sValue := '');
+_Expect(rec := rec, sMismatch := sMismatch, nIndex := 33, sMethod := 'PublishINT', sTopic := 'POSITION.INSTRUMENTAL.AZ.MOTION_STATE', nValue := 1, fValue := 0.0, sValue := '');
+_Expect(rec := rec, sMismatch := sMismatch, nIndex := 34, sMethod := 'PublishLREAL', sTopic := 'POSITION.INSTRUMENTAL.AZ.CURRPOS', fValue := 175.0, nValue := 0, sValue := '');
+_Expect(rec := rec, sMismatch := sMismatch, nIndex := 35, sMethod := 'PublishLREAL', sTopic := 'POSITION.INSTRUMENTAL.AZ.REALPOS', fValue := 174.0, nValue := 0, sValue := '');
+_Expect(rec := rec, sMismatch := sMismatch, nIndex := 36, sMethod := 'PublishLREAL', sTopic := 'POSITION.INSTRUMENTAL.AZ.TARGETPOS', fValue := 170.0, nValue := 0, sValue := '');
+_Expect(rec := rec, sMismatch := sMismatch, nIndex := 37, sMethod := 'PublishLREAL', sTopic := 'POSITION.INSTRUMENTAL.AZ.CURRSPEED', fValue := 10.0, nValue := 0, sValue := '');
+_Expect(rec := rec, sMismatch := sMismatch, nIndex := 38, sMethod := 'PublishLREAL', sTopic := 'POSITION.INSTRUMENTAL.AZ.TARGETDISTANCE', fValue := 5.0, nValue := 0, sValue := '');
+_Expect(rec := rec, sMismatch := sMismatch, nIndex := 39, sMethod := 'PublishLREAL', sTopic := 'POSITION.INSTRUMENTAL.AZ.OFFSET', fValue := 0.5, nValue := 0, sValue := '');
+_Expect(rec := rec, sMismatch := sMismatch, nIndex := 40, sMethod := 'PublishLREAL', sTopic := 'POSITION.HORIZONTAL.ALT', fValue := 59.875, nValue := 0, sValue := '');
+_Expect(rec := rec, sMismatch := sMismatch, nIndex := 41, sMethod := 'PublishLREAL', sTopic := 'POSITION.HORIZONTAL.AZ', fValue := 175.25, nValue := 0, sValue := '');
+_Expect(rec := rec, sMismatch := sMismatch, nIndex := 42, sMethod := 'PublishLREAL', sTopic := 'POSITION.EQUATORIAL.RA_ICRS', fValue := 150.5, nValue := 0, sValue := '');
+_Expect(rec := rec, sMismatch := sMismatch, nIndex := 43, sMethod := 'PublishLREAL', sTopic := 'POSITION.EQUATORIAL.HA_ICRS', fValue := 30.25, nValue := 0, sValue := '');
+_Expect(rec := rec, sMismatch := sMismatch, nIndex := 44, sMethod := 'PublishLREAL', sTopic := 'POSITION.EQUATORIAL.DEC_ICRS', fValue := -20.75, nValue := 0, sValue := '');
+
+AssertEquals_INT(Expected := 44, Actual := rec.nCount, Message := 'one record is 44 publishes');
+F_Note(bFailed := rec.nCount <> 44, sText := CONCAT(sTest, CONCAT('publishes: ', INT_TO_STRING(rec.nCount))));
+AssertEquals_INT(Expected := 0, Actual := rec.nOtherAddress, Message := 'every publish goes to telescope/dome');
+F_Note(bFailed := rec.nOtherAddress <> 0, sText := CONCAT(sTest, 'a publish not to telescope/dome'));
+AssertEquals_STRING(Expected := '', Actual := sMismatch, Message := 'method, topic and value of every publish as in 0.12.0 (first mismatch)');
+F_Note(bFailed := sMismatch <> '', sText := CONCAT(sTest, CONCAT('first mismatch: ', sMismatch)));
+bDone := TRUE;
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Telemetry_Axis_State_Branches" Id="{65159265-dc2f-4426-b3fb-d5b71f667040}">
+      <Declaration><![CDATA[// #24 step 4a: the other side of every condition of the telemetry record. Elevation: disabled, not referenced, no error (ErrorID 99
+// not published), not busy (0, tracking ignored). Azimuth: enabled, referenced, error 16#4FFF, busy and tracking (8). No live
+// pressure (0.0) and no live temperature: both *_LIVE are FALSE. Same order and count as Telemetry_Publishes_The_Snapshot.
+METHOD PRIVATE Telemetry_Axis_State_Branches
+VAR_INST
+	rec			: FB_RecordingComm;
+	fbTelemetry	: MONETcommon.FB_MonetTelescopeTelemetry;
+	stSnap			: MONETcommon.ST_MonetTelemetry;
+	sMismatch	: STRING(255);
+	bDone		: BOOL;
+END_VAR
+VAR
+	sTest		: STRING(80);
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Telemetry_Axis_State_Branches');
+IF bDone THEN
+	RETURN;
+END_IF
+sTest := 'Telemetry_Axis_State_Branches: ';
+stSnap.fRefractionPressure := 0.0;
+stSnap.bRefractionTemperatureSet := FALSE;
+stSnap.bElevationEnable := FALSE;
+stSnap.bElevationCalibrated := FALSE;
+stSnap.bElevationError := FALSE;
+stSnap.nElevationErrorID := 99;
+stSnap.bElevationBusy := FALSE;
+stSnap.bElevationTracking := TRUE;
+stSnap.bAzimuthEnable := TRUE;
+stSnap.bAzimuthCalibrated := TRUE;
+stSnap.bAzimuthError := TRUE;
+stSnap.nAzimuthErrorID := 16#4FFF;
+stSnap.bAzimuthBusy := TRUE;
+stSnap.bAzimuthTracking := TRUE;
+
+rec.Clear();
+sMismatch := '';
+fbTelemetry(comm := rec, stTelemetry := stSnap);
+
+_Expect(rec := rec, sMismatch := sMismatch, nIndex := 6, sMethod := 'Publish', sTopic := 'WEATHER.REFRACTION.PRESSURE_LIVE', sValue := 'FALSE', fValue := 0.0, nValue := 0);
+_Expect(rec := rec, sMismatch := sMismatch, nIndex := 7, sMethod := 'Publish', sTopic := 'WEATHER.REFRACTION.TEMPERATURE_LIVE', sValue := 'FALSE', fValue := 0.0, nValue := 0);
+_Expect(rec := rec, sMismatch := sMismatch, nIndex := 20, sMethod := 'PublishLREAL', sTopic := 'POSITION.INSTRUMENTAL.ALT.POWER_STATE', fValue := 0.0, nValue := 0, sValue := '');
+_Expect(rec := rec, sMismatch := sMismatch, nIndex := 21, sMethod := 'PublishLREAL', sTopic := 'POSITION.INSTRUMENTAL.ALT.REFERENCED', fValue := 0.0, nValue := 0, sValue := '');
+_Expect(rec := rec, sMismatch := sMismatch, nIndex := 22, sMethod := 'PublishINT', sTopic := 'POSITION.INSTRUMENTAL.ALT.ERROR_STATE', nValue := 0, fValue := 0.0, sValue := '');
+_Expect(rec := rec, sMismatch := sMismatch, nIndex := 23, sMethod := 'PublishINT', sTopic := 'POSITION.INSTRUMENTAL.ALT.MOTION_STATE', nValue := 0, fValue := 0.0, sValue := '');
+_Expect(rec := rec, sMismatch := sMismatch, nIndex := 30, sMethod := 'PublishLREAL', sTopic := 'POSITION.INSTRUMENTAL.AZ.POWER_STATE', fValue := 1.0, nValue := 0, sValue := '');
+_Expect(rec := rec, sMismatch := sMismatch, nIndex := 31, sMethod := 'PublishLREAL', sTopic := 'POSITION.INSTRUMENTAL.AZ.REFERENCED', fValue := 1.0, nValue := 0, sValue := '');
+_Expect(rec := rec, sMismatch := sMismatch, nIndex := 32, sMethod := 'PublishINT', sTopic := 'POSITION.INSTRUMENTAL.AZ.ERROR_STATE', nValue := 16#4FFF, fValue := 0.0, sValue := '');
+_Expect(rec := rec, sMismatch := sMismatch, nIndex := 33, sMethod := 'PublishINT', sTopic := 'POSITION.INSTRUMENTAL.AZ.MOTION_STATE', nValue := 8, fValue := 0.0, sValue := '');
+
+AssertEquals_INT(Expected := 44, Actual := rec.nCount, Message := 'every branch publishes, the count stays 44');
+F_Note(bFailed := rec.nCount <> 44, sText := CONCAT(sTest, CONCAT('publishes: ', INT_TO_STRING(rec.nCount))));
+AssertEquals_STRING(Expected := '', Actual := sMismatch, Message := 'the other branch of every condition (first mismatch)');
+F_Note(bFailed := sMismatch <> '', sText := CONCAT(sTest, CONCAT('first mismatch: ', sMismatch)));
+bDone := TRUE;
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="_Expect" Id="{40f596b7-904a-4c35-b012-c2cfdcd0fd7a}">
+      <Declaration><![CDATA[// #24 step 4a: record nIndex of rec is a call of sMethod for sTopic with the value (fValue for PublishLREAL, within 1E-9;
+// nValue for PublishINT; sValue for Publish/PublishString). The first mismatch is written to sMismatch ('index topic').
+METHOD PRIVATE _Expect
+VAR_IN_OUT
+	rec			: FB_RecordingComm;
+	sMismatch	: STRING(255);
+END_VAR
+VAR_INPUT
+	nIndex		: INT;
+	sMethod		: STRING(16);
+	sTopic		: STRING(80);
+	fValue		: LREAL;
+	nValue		: LINT;
+	sValue		: STRING(80);
+END_VAR
+VAR
+	bOk			: BOOL;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF nIndex < 1 OR nIndex > 64 THEN
+	bOk := FALSE;
+ELSIF rec.aMethod[nIndex] <> sMethod OR rec.aTopic[nIndex] <> sTopic THEN
+	bOk := FALSE;
+ELSIF sMethod = 'PublishLREAL' THEN
+	bOk := ABS(rec.aLREAL[nIndex] - fValue) <= 1.0E-9;
+ELSIF sMethod = 'PublishINT' THEN
+	bOk := rec.aINT[nIndex] = nValue;
+ELSE
+	bOk := rec.aString[nIndex] = sValue;
+END_IF
+IF NOT bOk AND sMismatch = '' THEN
+	sMismatch := CONCAT(INT_TO_STRING(nIndex), CONCAT(' ', sTopic));
+END_IF
 ]]></ST>
       </Implementation>
     </Method>

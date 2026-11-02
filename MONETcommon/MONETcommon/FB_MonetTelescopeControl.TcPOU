@@ -65,6 +65,14 @@ VAR_OUTPUT
 	fRefractionPressure		: LREAL;	// hPa, 0.0 = estimate from altitude
 	fRefractionTemperature	: LREAL;	// deg C, only meaningful if bRefractionTemperatureSet
 	bRefractionTemperatureSet	: BOOL;	// FALSE = estimate from altitude
+
+	// #24 step 7 PR 1 (plan D9, specs/design/monetcommon-safe-states.md "Roof"): the roof should be closed. A signal only, nothing
+	// in this library acts on it; the site MAIN closes the roof on it (behind its enable switch, only in automatic). Set by the
+	// serious error classes only: an Az/El/Der axis error, a hydraulics error, E-stop, safety error, power failure (NOT bMainReady).
+	// Not by the focus error or the software errors (bError) and not by bPowerFailure (a power-on failure). Latched on the rising
+	// edge of a cause, cleared by bReset once no cause is active. Updated in every automatic scan; in manual (SuspendAutomatic)
+	// it keeps the value of the last automatic scan.
+	bCloseRoofRequest	: BOOL;
 END_VAR
 VAR
     fbStartup : BROTLib.FB_StartupControl;
@@ -79,6 +87,7 @@ VAR
 	// scan and would silently wipe these within the same cycle they're set in.
 	bSoftwareError		: BOOL;
 	nSoftwareErrorID	: UINT;
+	sSoftwareErrorText	: STRING(80);	// #24 step 3b: what the last _RaiseSoftwareError reported (ADS diagnostics only, not logged), '' after a reset
 	SoftwareErrorEvent	: FB_EventLog;
 
 	// #80: one-scan flag set by Init() when AcceptInit() refuses; logged once by the body.
@@ -119,6 +128,14 @@ VAR
 	tonHomeTimeout		: FB_TimeoutTimer;
 	tonSlewTimeout		: FB_TimeoutTimer;
 
+	// #24 step 3a: the stage of each stage machine (until 0.12.0 a bare USINT nStage in the VAR_INST of the method; here so
+	// the read-only properties GotoStage, SlewStage, ParkStage and PowerOnStage can return it). The values are the old numbers.
+	// _HomeTelescope has no stage.
+	eGotoStage			: E_GotoStage := E_GotoStage.idle;
+	eSlewStage			: E_SlewStage := E_SlewStage.idle;
+	eParkStage			: E_ParkStage := E_ParkStage.prepare;
+	ePowerOnStage		: E_PowerOnStage := E_PowerOnStage.open_covers;
+
 	// #26: safety net for a latched bInterrupted (now a one-shot, see the arbitration): auto-clear after 5 s of
 	// true idle, logged and counted. The counter should stay at 0.
 	bInterruptedIdle			: BOOL;
@@ -134,6 +151,9 @@ VAR
 	MoveAbortEvent		: FB_EventLog;
 	// plan step 3.1: the axis feedback of this scan (1 azimuth, 2 elevation, 3 derotator), filled by _ReadAxes
 	aAxis				: ARRAY[1..3] OF ST_AxisStatus;
+	// #24 step 4a: the telemetry record of the last publish (filled in _SendTelemetry) and the block that publishes it
+	stTelemetry			: ST_MonetTelemetry;
+	fbTelemetry			: FB_MonetTelescopeTelemetry;
 	// #96: one MC_Stop per axis and stop transaction; the stop is over when every axis that was sent one has
 	// reported StopDone and the telescope has been at rest for 3 scans. Replaces bStopIssuedAz/El/Dr (#84).
 	fbStopTx			: FB_MonetStopTransaction;
@@ -181,6 +201,11 @@ VAR
 	bHwErrorLast			: BOOL;	// edge memory, updated only where the request is made
 	bErrorParkStarted		: BOOL;	// one scan, logged
 	ErrorParkEvent			: FB_EventLog;
+	// #24 step 7 PR 1 (D9): a cause of bCloseRoofRequest is active in this scan, and its value of the last automatic scan. The
+	// initial FALSE of bCloseRoofCauseLast means a cause already present at the PLC start (E-stop, no phase) sets the request
+	// (conservative, plan 8.7). To arm only after the start instead, initialise it with TRUE.
+	bCloseRoofCause			: BOOL;
+	bCloseRoofCauseLast		: BOOL := FALSE;
 	// #113: no power-on has completed since the PLC start; its axis error is the expected Wake&Shake fault
 	bFirstPowerOnPending	: BOOL := TRUE;
 	bErrorParkExempt		: BOOL;	// one scan, logged
@@ -302,7 +327,23 @@ bHwError := fbElevation.Error OR
 		 fbFocus.Error OR
 		 fbDerotator.bError;
 bError := bHwError OR bSoftwareError;
-			
+
+// #24 step 7 PR 1 (D9): the roof close request, from the serious classes only (not bError: the focus error and the software
+// errors are recoverable; not bPowerFailure, a power-on failure; power failure is NOT bMainReady, the phase monitor). Latched
+// on the rising edge, so a cause that is gone again (a short E-stop, a phase dip) still requests the close; bReset (held while
+// bError, so one reset that clears an axis error also clears the request in the next scan) clears it only while no cause is
+// active. Here and not later: nothing in the body returns early, so it is evaluated in every automatic scan, also in the
+// error branch below and in E-stop. A signal only: nothing in this block reads it.
+bCloseRoofCause := fbElevation.Error OR fbAzimuth.bError OR fbDerotator.bError OR
+		fbHydraulics.Error OR bEstopTriggered OR bSafetyError OR NOT bMainReady;
+IF bReset AND NOT bCloseRoofCause THEN
+	bCloseRoofRequest := FALSE;
+END_IF
+IF bCloseRoofCause AND NOT bCloseRoofCauseLast THEN
+	bCloseRoofRequest := TRUE;
+END_IF
+bCloseRoofCauseLast := bCloseRoofCause;
+
 // #83: flags set directly (ADS write, pendant) instead of through a method are decided once, on their rising edge.
 // Nested IFs on purpose: ST does not short-circuit AND and _AcceptMove must only run on the edge.
 IF bGoHome AND NOT bGoHomeChecked THEN
@@ -352,137 +393,10 @@ IF fbElevation.bError THEN
 	END_IF
 END_IF
 
-// One weather for the commanded position (eq2hor) and for the reported RA/Dec (both hor2eq below): with different
-// weather the reported coordinates would differ from the commanded ones by the refraction difference.
-IF bLiveWeatherRefraction THEN
-	bRefractionLive := BROTLib.F_RefractionWeather(
-		stWeather := Weather,
-		fSiteAltitude := telescopeConfig.altitude,
-		fPressure => fRefractionPressure,
-		fTemperature => fRefractionTemperature,
-		bTemperatureSet => bRefractionTemperatureSet,
-		bPressureRejected => bRefractionPressureRejected,
-		bTemperatureRejected => bRefractionTemperatureRejected);
-ELSE
-	bRefractionLive := FALSE;
-	fRefractionPressure := 0.0;
-	fRefractionTemperature := 0.0;
-	bRefractionTemperatureSet := FALSE;
-	bRefractionPressureRejected := FALSE;
-	bRefractionTemperatureRejected := FALSE;
-END_IF
-rtrigPressureRejected(CLK := bRefractionPressureRejected);
-IF rtrigPressureRejected.Q THEN
-	ADSLOGSTR( ADSLOG_MSGTYPE_WARN OR ADSLOG_MSGTYPE_LOG, 'Live weather: %s does not fit the site, the estimate is used', 'pressure');
-END_IF
-rtrigTemperatureRejected(CLK := bRefractionTemperatureRejected);
-IF rtrigTemperatureRejected.Q THEN
-	ADSLOGSTR( ADSLOG_MSGTYPE_WARN OR ADSLOG_MSGTYPE_LOG, 'Live weather: %s does not fit the site, the estimate is used', 'temperature');
-END_IF
-
-eq2hor(
-	ra := fRightAscension,
-	dec := fDeclination,
-	lon := telescopeConfig.longitude,
-	lat := telescopeConfig.latitude,
-	altitude := telescopeConfig.altitude,
-	pressure := fRefractionPressure,
-	temperature := fRefractionTemperature,
-	temperature_set := bRefractionTemperatureSet,
-	JD := fJd + fTimeOffset,
-	dut1 := fDut1,
-	refract_to_observed := TRUE,
-	// refract := FALSE,
-	alt => fElevationCalc,
-	az => fAzimuthCalc,
-	ha => fHourAngleCalc);
-
-// apply pointing model
-fbPointing(
-	fAzimuth			:= fAzimuthCalc,
-	fElevation			:= fElevationCalc,
-	fAzimuthOffset		=> fAzimuthPointingOffset,
-	fElevationOffset	=> fElevationPointingOffset
-);
-fElevationCalc := fElevationCalc + fElevationPointingOffset + fElevationOffset;
-// F_AzimuthOffsetOnAxis: fAzimuthOffset / COS(elevation), bounded near the zenith (BROTLib#27)
-fAzimuthCalc := fAzimuthCalc + fAzimuthPointingOffset + F_AzimuthOffsetOnAxis(fAzimuthOffset, fElevationCalc);
-
-// #94: evaluated here, before the arbitration and the Goto/Track dispatch below can clear bGoto/bTrack (error 0x15)
-// in the same scan. Only a requested goto/track makes the RA/Dec target relevant.
-bTargetBelowHorizonWarn := F_TargetBelowHorizonWarning(bGoto := bGoto, bTrack := bTrack, fElevationCalc := fElevationCalc, fHorizon := fHorizon);
-
-// calculate derotator position 
-fDerotatorCalc := F_DerotatorPosition2(fAzimuthCalc, fElevationCalc, telescopeConfig.latitude, fDerotatorSign)  + fDerotatorOffset;
-
-// calculate velocities
-fDerotatorVelocity := F_Derotatorvelocity(fAzimuthCalc, fElevationCalc, telescopeConfig.latitude, fDerotatorSign);
-fElevationVelocity := F_Elevationvelocity(fAzimuthCalc, telescopeConfig.latitude);
-fAzimuthVelocity := F_Azimuthvelocity(fElevationCalc, fAzimuthCalc, telescopeConfig.latitude);
-
-// #2: the turn of the target inside the axis limits (the measured endpoints, never a literal of one site). A target
-// is not clamped to another position: without a turn inside the limits the goto/track is refused. While an axis
-// tracks it keeps the turn it is on, except for a new goto, which chooses freely (the axis may be anywhere).
-bAzimuthTurnOK := F_AxisTurn(
-	fTarget := fAzimuthCalc, fVelocity := fAzimuthVelocity, fCurrent := fbAzimuth.fActualPosition,
-	bHold := fbAzimuth.Tracking AND NOT bGoto, fMin := fbAzimuth.fMinPosition, fMax := fbAzimuth.fMaxPosition,
-	fMargin := stMotionUsed.fAzimuthTrackMargin, fTrackTimeCap := stMotionUsed.fAzimuthTrackTimeCap, fPosition => fAzimuthCalc);
-bDerotatorTurnOK := F_AxisTurn(
-	fTarget := fDerotatorCalc, fVelocity := fDerotatorVelocity, fCurrent := fbDerotator.fActualPosition,
-	bHold := fbDerotator.Tracking AND NOT bGoto, fMin := fbDerotator.fMinPosition, fMax := fbDerotator.fMaxPosition,
-	fMargin := stMotionUsed.fDerotatorTrackMargin, fTrackTimeCap := stMotionUsed.fDerotatorTrackTimeCap, fPosition => fDerotatorCalc);
-// only a requested goto/track makes the target relevant (see #94)
-bAzimuthNoTurn := (bGoto OR bTrack) AND NOT bAzimuthTurnOK;
-bDerotatorNoTurn := (bGoto OR bTrack) AND NOT bDerotatorTurnOK;
-
-// get current coordinates	
-fAzimuthCurrent := fbAzimuth.fActualPosition;
-fElevationCurrent := fbElevation.fActualPosition;
-fDerotatorCurrent := fbDerotator.fActualPosition;
-
-// apply inverse pointing model
-fbPointingInverse(
-	fAzimuth			:= fAzimuthCurrent,
-	fElevation			:= fElevationCurrent,
-	fAzimuthOffset  	=> fAzimuthPointingOffset2,
-	fElevationOffset	=> fElevationPointingOffset2
-);
-fAzimuthCurrentSky := fAzimuthCurrent - fAzimuthPointingOffset2;
-fElevationCurrentSky := fElevationCurrent - fElevationPointingOffset2;
-
-// add offsets
-//fElevationCurrent := fElevationCurrentSky - fElevationOffset;
-//fAzimuthCurrent := fAzimuthCurrentSky - fAzimuthOffset / COS(fElevationCalc * d2r);
-
-// calculate equatorial coordinates
-hor2eq(alt := fElevationCurrentSky - fElevationOffset,
-		az := fAzimuthCurrentSky - F_AzimuthOffsetOnAxis(fAzimuthOffset, fElevationCurrent),	// M7: was fElevationCalc
-		jd := fJd,
-		dut1 := fDut1,
-		lat := telescopeConfig.latitude,
-		lon := telescopeConfig.longitude,
-		altitude := telescopeConfig.altitude,
-		pressure := fRefractionPressure,
-		temperature := fRefractionTemperature,
-		temperature_set := bRefractionTemperatureSet,
-		alt_is_observed := TRUE,
-		// refract := FALSE,
-		ra => fRightAscensionCurrent,
-		dec => fDeclinationCurrent,
-		ha => fHourAngleCurrent);	// M13: was never assigned, HA_ICRS telemetry was stuck at 0.0
-hor2eq(alt := fElevationCurrentSky,
-		az := fAzimuthCurrentSky,
-		jd := fJd,
-		dut1 := fDut1,
-		lat := telescopeConfig.latitude,
-		lon := telescopeConfig.longitude,
-		altitude := telescopeConfig.altitude,
-		pressure := fRefractionPressure,
-		temperature := fRefractionTemperature,
-		temperature_set := bRefractionTemperatureSet,
-		alt_is_observed := TRUE,
-		ra => fRightAscensionCurrentSky,
-		dec => fDeclinationCurrentSky);
+// #24 step 4b: the target of this scan (refraction weather, eq2hor, pointing model, derotator, velocities, turn inside
+// the axis limits) and the reported position (inverse pointing model, both hor2eq); after the error reaction, before the
+// horizon guard and the arbitration below (SM plan D3 hook)
+_ComputeTargets();
 	
 // If the Telescope dips under the fHorizon (e.g. while tracking, stop and gohome)
 IF fbElevation.Calibrated AND fElevationCurrent < (fHorizon + stMotionUsed.fHorizonMargin) THEN
@@ -879,23 +793,21 @@ VAR
 	nTargetError	: UINT;
 END_VAR
 VAR_INST
-	nStage			: USINT := 0;
 	nLastStage		: USINT := 101;
 END_VAR]]></Declaration>
       <Implementation>
-        <ST><![CDATA[_GotoTelescope := nStage;
+        <ST><![CDATA[_GotoTelescope := TO_USINT(eGotoStage);
 // #77: a reset/interrupt/stop call only resets the stage; it must never raise an error from a stale target
-IF bReset OR bError OR bInterrupted OR NOT bGoto THEN
-	nStage := 0;
+// #24 step 3c: bReset OR bError OR bInterrupted OR NOT bGoto (F_StageAbort, row goto)
+IF F_StageAbort(eMachine := E_StageMachine.goto, bReset := bReset, bError := bError, bStop := bStop,
+		bInterrupted := bInterrupted, bCommand := bGoto) THEN
+	eGotoStage := E_GotoStage.idle;
 	RETURN;
 END_IF
 IF tonGotoTimeout.Q THEN	// #17: fed every scan in the body, a method-local TON never kept its state
-	bError := TRUE;
-	nErrorID := 16#10;
-	bSoftwareError := TRUE;
-	nSoftwareErrorID := 16#10;
+	_RaiseSoftwareError(nId := 16#10, sText := 'goto: state machine timeout');
 	bGoto := FALSE;
-	nStage := 0;
+	eGotoStage := E_GotoStage.idle;
 	RETURN;
 END_IF
 
@@ -907,37 +819,34 @@ END_IF
 // above stMotion.fGotoMaxElevation (default 89.5 deg) 16#16 (#24 step 2c)
 nTargetError := F_GotoTargetCheck(fElevationCalc, stMotionUsed.fGotoMinElevation, stMotionUsed.fGotoMaxElevation);
 IF nTargetError <> 0 THEN
-	bError := TRUE;
-	nErrorID := nTargetError;
-	bSoftwareError := TRUE;
-	nSoftwareErrorID := nTargetError;
+	_RaiseSoftwareError(nId := nTargetError, sText := 'goto: target outside the elevation window');
 	bGoto := FALSE;
-	nStage := 0;
+	eGotoStage := E_GotoStage.idle;
 	RETURN;
 END_IF
 
 // #2: no position inside the axis limits (F_AxisTurn): no move, the body warns. Not an error: nothing is latched.
 IF NOT bAzimuthTurnOK OR NOT bDerotatorTurnOK THEN
 	bGoto := FALSE;
-	nStage := 0;
+	eGotoStage := E_GotoStage.idle;
 	RETURN;
 END_IF
 
 
-CASE nStage OF
-	0:	
+CASE eGotoStage OF
+	E_GotoStage.idle:	
 		IF bReady AND NOT bBusy THEN
-			nStage := 10;
+			eGotoStage := E_GotoStage.untrack;
 		END_IF
-	10:
+	E_GotoStage.untrack:
 		IF fbElevation.Tracking = TRUE OR fbAzimuth.Tracking = TRUE OR fbDerotator.Tracking = TRUE THEN
 			fbElevation.Tracking := FALSE;
 			fbAzimuth.Tracking := FALSE;
 			fbDerotator.Tracking := FALSE;
 		ELSE
-			nStage := 25;
+			eGotoStage := E_GotoStage.start_move;
 		END_IF				
-	25:	
+	E_GotoStage.start_move:	
 		fbElevation.Position := fElevationCalc;
 		fbAzimuth.Position := fAzimuthCalc;
 		fbDerotator.Position := fDerotatorCalc;
@@ -951,9 +860,9 @@ CASE nStage OF
 		IF fbElevation.Busy AND
 			fbAzimuth.Busy AND
 			fbDerotator.Busy THEN
-				nStage := 50;
+				eGotoStage := E_GotoStage.wait_moves;
 		END_IF
-	50:
+	E_GotoStage.wait_moves:
 		IF NOT fbElevation.Busy AND fbElevation.MoveDone THEN
 			fbElevation.MoveAxis := FALSE;
 		END_IF
@@ -966,13 +875,13 @@ CASE nStage OF
 		IF NOT fbElevation.MoveAxis AND 
            NOT fbAzimuth.MoveAxis AND 
 		   NOT fbDerotator.MoveAxis THEN
-		   nStage := 75;
+		   eGotoStage := E_GotoStage.wait_standstill;
 		END_IF
-	75:
+	E_GotoStage.wait_standstill:
 		IF NOT bSlewing AND bStopped THEN // all axis standstill
-			nStage := 100;
+			eGotoStage := E_GotoStage.done;
 		END_IF
-	100:
+	E_GotoStage.done:
 		fbElevation.MoveAxis := FALSE;
 		fbAzimuth.MoveAxis := FALSE;
 		fbDerotator.MoveAxis := FALSE;
@@ -981,10 +890,10 @@ CASE nStage OF
 		bGoto := FALSE;
 		// enable automatic tracking
 		bTrack := bAutoTrack;
-		nStage := 0;
+		eGotoStage := E_GotoStage.idle;
 END_CASE
-GoToEvent(Trigger := nStage > nLastStage, FormatString := 'GoTo progress: %s', OnMessage := USINT_TO_STRING(nStage), comm := fbComm);
-nLastStage := nStage;
+GoToEvent(Trigger := TO_USINT(eGotoStage) > nLastStage, FormatString := 'GoTo progress: %s', OnMessage := USINT_TO_STRING(TO_USINT(eGotoStage)), comm := fbComm);
+nLastStage := TO_USINT(eGotoStage);
 ]]></ST>
       </Implementation>
     </Method>
@@ -997,15 +906,14 @@ VAR
 END_VAR]]></Declaration>
       <Implementation>
         <ST><![CDATA[// reset/interrupt aborts the homing without moving anything, like the other stage methods
-IF bReset OR bError OR bInterrupted THEN
+// #24 step 3c: bReset OR bError OR bInterrupted (F_StageAbort, row gohome: bGoHome is not read, no stage to reset)
+IF F_StageAbort(eMachine := E_StageMachine.gohome, bReset := bReset, bError := bError, bStop := bStop,
+		bInterrupted := bInterrupted, bCommand := bGoHome) THEN
     RETURN;
 END_IF
 
 IF tonHomeTimeout.Q THEN	// #17: fed every scan in the body
-    bError := TRUE;
-    nErrorID := 16#30;
-    bSoftwareError := TRUE;
-    nSoftwareErrorID := 16#30;
+    _RaiseSoftwareError(nId := 16#30, sText := 'gohome: state machine timeout');
     bGoHome := FALSE;	// #17: like goto/slew; otherwise the expired timer would raise the error again right after a reset
     _HomeTelescope :=TRUE;
 END_IF
@@ -1052,13 +960,14 @@ VAR_INST
 	rtrigError	: R_TRIG;	// M2: reset the stage only on the rising edge of bError, not every scan; VAR_INST, a plain method VAR is re-created on every call (#17)
 END_VAR
 VAR_INST
-	nStage		: USINT := 0;
 	nLastStage	: USINT := 101;
 END_VAR]]></Declaration>
       <Implementation>
-        <ST><![CDATA[_ParkTelescope := nStage;
-IF bReset OR bStop OR bInterrupted THEN
-	nStage := 0;
+        <ST><![CDATA[_ParkTelescope := TO_USINT(eParkStage);
+// #24 step 3c: bReset OR bStop OR bInterrupted (F_StageAbort, row park: bError does not abort, see M2 below; bPark is not read)
+IF F_StageAbort(eMachine := E_StageMachine.park, bReset := bReset, bError := bError, bStop := bStop,
+		bInterrupted := bInterrupted, bCommand := bPark) THEN
+	eParkStage := E_ParkStage.prepare;
 	RETURN;
 END_IF
 // M2: bError does NOT return early here, unlike the other state machines: stage 0's
@@ -1067,15 +976,15 @@ END_IF
 // progress through its own stages (80 -> 100) on later scans while bError stays TRUE.
 rtrigError(CLK := bError);
 IF rtrigError.Q THEN
-	nStage := 0;
+	eParkStage := E_ParkStage.prepare;
 END_IF
 // parked means: nothing opened since the last park (#113: bIsParked drops with the cover command of a power-on).
 // #158: that is "secured", not "at the park position"; see bParkedInPlace.
 IF bIsParked THEN
-	nStage := 100;
+	eParkStage := E_ParkStage.parked;
 END_IF
-CASE nStage OF
-	0: 
+CASE eParkStage OF
+	E_ParkStage.prepare: 
 		bGoHome := 	FALSE;
 		bTrack := 	FALSE;
 		bGoto := 	FALSE;
@@ -1095,20 +1004,20 @@ CASE nStage OF
 			fbCovers.Close();	
 			bParkedInPlace := TRUE;
 			bParkedInPlaceLogged := TRUE;
-			nStage := 80;
+			eParkStage := E_ParkStage.secure;
 		ELSE
 			bParkedInPlace := FALSE;
-			nStage := 10;
+			eParkStage := E_ParkStage.untrack;
 		END_IF
-	10:
+	E_ParkStage.untrack:
 		IF fbElevation.Tracking = TRUE OR fbAzimuth.Tracking = TRUE OR fbDerotator.Tracking = TRUE THEN
 			fbElevation.Tracking := FALSE;
 			fbAzimuth.Tracking := FALSE;
 			fbDerotator.Tracking := FALSE;
 		ELSE
-			nStage := 20;
+			eParkStage := E_ParkStage.start_move;
 		END_IF		
-	20:
+	E_ParkStage.start_move:
 		fbElevation.Position := telescopeConfig.elevationPark;
 		fbElevation.Velocity := stMotionUsed.fElevationMoveVelocity;
 		fbElevation.MoveAxis := TRUE;
@@ -1121,9 +1030,9 @@ CASE nStage OF
 		IF fbElevation.Busy AND
 			fbAzimuth.Busy AND
 			fbDerotator.Busy THEN
-				nStage := 40;
+				eParkStage := E_ParkStage.wait_moves;
 		END_IF
-	40:
+	E_ParkStage.wait_moves:
 		IF fbElevation.MoveDone THEN
 			fbElevation.MoveAxis := FALSE;
 		END_IF
@@ -1134,11 +1043,11 @@ CASE nStage OF
 			fbDerotator.MoveAxis := FALSE;
 		END_IF
 		IF NOT bSlewing THEN // all axis standstill
-			nStage := 60;
+			eParkStage := E_ParkStage.disable_axes;
 		END_IF
-	60:
+	E_ParkStage.disable_axes:
 		IF NOT fbElevation.Enable AND NOT fbAzimuth.Enable AND NOT fbDerotator.Enable THEN
-			nStage := 80;
+			eParkStage := E_ParkStage.secure;
 		END_IF
 
 		IF bStopped THEN
@@ -1150,25 +1059,25 @@ CASE nStage OF
 		fbElevation.MoveAxis := FALSE;
 		fbAzimuth.MoveAxis := FALSE;
 		fbDerotator.MoveAxis := FALSE;
-	80:
+	E_ParkStage.secure:
 		IF fbElevation.Enable OR fbAzimuth.Enable OR fbDerotator.Enable THEN
-			nStage := 60;
+			eParkStage := E_ParkStage.disable_axes;
 		END_IF
 		IF NOT fbBrake.BrakeOpen THEN
 			fbCovers.Close();
 			fbHydraulics.Enable := FALSE;
 		END_IF
 		IF fbCovers.Closed THEN
-			nStage := 100;
+			eParkStage := E_ParkStage.parked;
 		END_IF
-	100:
+	E_ParkStage.parked:
 			bIsParked := TRUE;
 			bPark := FALSE;
 			_ParkTelescope := 100;
-			nStage := 0;	
+			eParkStage := E_ParkStage.prepare;	
 END_CASE
-ParkEvent(Trigger := nStage > nLastStage, FormatString := 'Parking progress: %s', OnMessage := USINT_TO_STRING(nStage), comm := fbComm);
-nLastStage := nStage;
+ParkEvent(Trigger := TO_USINT(eParkStage) > nLastStage, FormatString := 'Parking progress: %s', OnMessage := USINT_TO_STRING(TO_USINT(eParkStage)), comm := fbComm);
+nLastStage := TO_USINT(eParkStage);
 ]]></ST>
       </Implementation>
     </Method>
@@ -1177,7 +1086,6 @@ nLastStage := nStage;
 VAR_INPUT
 END_VAR
 VAR_INST
-	nStage		: USINT := 0;
 	nLastStage	: USINT := 101;
     elevationDone : BOOL;
     azimuthDone : BOOL;
@@ -1201,10 +1109,13 @@ ELSE
 	bPowerFailure := FALSE;		
 END_IF
 
-IF NOT bPower OR bReset OR bError OR bStop OR bInterrupted THEN
+// #24 step 3c: NOT bPower OR bReset OR bError OR bStop OR bInterrupted (F_StageAbort, row poweron), with bPower as left by
+// the checks above
+IF F_StageAbort(eMachine := E_StageMachine.poweron, bReset := bReset, bError := bError, bStop := bStop,
+		bInterrupted := bInterrupted, bCommand := bPower) THEN
     fbStartup.MarkAborted();
     bPower := FALSE;
-	nStage := 0;
+	ePowerOnStage := E_PowerOnStage.open_covers;
 	// abort without leaving the last written axis commands set
 	fbElevation.MoveAxis := FALSE;
 	fbElevation.HomeAxis := FALSE;
@@ -1216,12 +1127,12 @@ IF NOT bPower OR bReset OR bError OR bStop OR bInterrupted THEN
 	RETURN;
 END_IF
 
-IF nStage >= 10 THEN
+IF ePowerOnStage <> E_PowerOnStage.open_covers THEN	// every stage from home_axes on (was: stage >= 10)
     fbStartup.MarkCalibrating();
 END_IF
 
-CASE nStage OF
-	0:
+CASE ePowerOnStage OF
+	E_PowerOnStage.open_covers:
 		_PowerOn := FALSE;
 		// COVER MUST BE OPENED FOR A SUCCESSFUL WAKE & SHAKE COMMAND!
 		// unconditional by design: does not consult bCoverAutoOpen (see CoverAutoOpen.Set)
@@ -1231,10 +1142,10 @@ CASE nStage OF
 		bParkedInPlace := FALSE;
 		fbCovers.Open();
 		IF bMainReady AND fbCovers.Opened THEN
-			nStage := 10;
+			ePowerOnStage := E_PowerOnStage.home_axes;
 		END_IF
 		
-	10:
+	E_PowerOnStage.home_axes:
 		fbElevation.Enable := TRUE;
 		fbAzimuth.Enable := TRUE;
 		fbDerotator.Enable := TRUE;
@@ -1265,10 +1176,10 @@ CASE nStage OF
 	
 		IF fbCovers.Opened AND fbElevation.Calibrated AND fbAzimuth.Calibrated AND fbDerotator.Calibrated AND fbFocus.Calibrated AND
 			bReady AND bStopped AND NOT bBusy AND NOT bTracking THEN
-			nStage := 30;
+			ePowerOnStage := E_PowerOnStage.start_move_home;
 		END_IF
 		
-	30:
+	E_PowerOnStage.start_move_home:
 		fbElevation.Velocity := stMotionUsed.fElevationMoveVelocity;
 		fbElevation.Position := telescopeConfig.elevationHome;
 		fbElevation.MoveAxis := TRUE;
@@ -1283,8 +1194,8 @@ CASE nStage OF
         elevationDone := FALSE;
         azimuthDone := FALSE;
         derotatorDone := FALSE;
-        nStage := 40;
-    40:
+        ePowerOnStage := E_PowerOnStage.wait_home;
+    E_PowerOnStage.wait_home:
         elevationDone := elevationDone OR fbElevation.MoveDone;
         azimuthDone := azimuthDone OR fbAzimuth.MoveDone;
         derotatorDone := derotatorDone OR fbDerotator.MoveDone;
@@ -1292,9 +1203,9 @@ CASE nStage OF
             fbElevation.MoveAxis := FALSE;
             fbAzimuth.MoveAxis := FALSE;
             fbDerotator.MoveAxis := FALSE;
-            nStage := 100;
+            ePowerOnStage := E_PowerOnStage.complete;
         END_IF
-    100:
+    E_PowerOnStage.complete:
         // #80: same Operational test FB_StartupControl.Update applies this scan; otherwise the completion is ignored
         // while bPower is already FALSE and the startup would stay at 0.8. Wait one more scan instead.
         IF bReady AND bMainReady AND bStopped AND NOT bBusy AND NOT bError AND NOT bEstopTriggered THEN
@@ -1307,7 +1218,7 @@ CASE nStage OF
             _PowerOn := TRUE;
             bIsParked := FALSE;
             bParkedInPlace := FALSE;
-            nStage := 0;
+            ePowerOnStage := E_PowerOnStage.open_covers;
         END_IF
 
 END_CASE]]></ST>
@@ -1447,142 +1358,60 @@ END_VAR
       <Implementation>
         <ST><![CDATA[SUPER^._PublishTelemetry();
 
-fbComm.PublishLREAL('telescope', 'dome', 'TELESCOPE.READY_STATE',	fReadyState);
-fbComm.PublishLREAL('telescope', 'dome', 'TELESCOPE.MOTION_STATE',	nMotionState);
-fbComm.PublishINT('telescope', 'dome', 'TELESCOPE.INTERRUPTED_AUTO_CLEAR_COUNT', nInterruptedAutoClearCount);
+// #24 step 4a: the MONET fields are published by fbTelemetry (FB_MonetTelescopeTelemetry, the code that was here until
+// 0.12.0, unchanged in topics, order, values and conditions). The snapshot is filled once per publish, right before.
+stTelemetry.fReadyState					:= fReadyState;
+stTelemetry.nMotionState				:= nMotionState;
+stTelemetry.nInterruptedAutoClearCount	:= nInterruptedAutoClearCount;
 
-// the weather the refraction actually used (BROTLib#33); *_LIVE is 0 while the estimate is in use (switch off, value
-// stale, missing or implausible), so the values alone cannot be mistaken for a measurement
-fbComm.Publish('telescope', 'dome', 'WEATHER.REFRACTION.PRESSURE', LREAL_TO_STRING(fRefractionPressure));
-fbComm.Publish('telescope', 'dome', 'WEATHER.REFRACTION.TEMPERATURE', LREAL_TO_STRING(fRefractionTemperature));
-fbComm.Publish('telescope', 'dome', 'WEATHER.REFRACTION.PRESSURE_LIVE', BOOL_TO_STRING(fRefractionPressure <> 0.0));
-fbComm.Publish('telescope', 'dome', 'WEATHER.REFRACTION.TEMPERATURE_LIVE', BOOL_TO_STRING(bRefractionTemperatureSet));
+stTelemetry.fRefractionPressure			:= fRefractionPressure;
+stTelemetry.fRefractionTemperature		:= fRefractionTemperature;
+stTelemetry.bRefractionTemperatureSet	:= bRefractionTemperatureSet;
 
-// INFO, CONFIG.MOUNTOPTIONS/MOUNT, STATUS.GLOBAL, OBJECT.INSTRUMENTAL.ALT/AZ and the static
-// OBJECT.EQUATORIAL.EPOCH/EQUINOX/RA_PM/DEC_PM/RA_RATE/DEC_RATE fields used to be republished
-// here too, byte-identical to what SUPER^._PublishTelemetry() above already sends under the same
-// field names from the same source variables -- removed as pure duplication (#22).
-//
-// OBJECT.EQUATORIAL.RA_ICRS/DEC_ICRS kept even though pybrotlib's schema (the Python MQTT
-// consumer, BROTLib/pyBROT src/pybrotlib/telemetry.py) has no such field under
-// object.equatorial -- only object.equatorial.ra/dec, which SUPER already publishes with the
-// same value -- so this specific publish looks like dead weight for that consumer. Not removing
-// it here anyway: Telegraf/InfluxDB ingests the raw MQTT line independent of pybrotlib's schema,
-// so something else could still depend on this exact field name landing in Influx. (For contrast,
-// POSITION.EQUATORIAL.RA_ICRS/DEC_ICRS -- a different field, published further down -- *is* in
-// pybrotlib's schema and is a real, actively consumed field.)
-//
-// OBJECT.HORIZONTAL.ALT/AZ below is also kept even though SUPER publishes those same field names:
-// SUPER's version is conditional on bSlew (fElevation/fAzimuth vs fElevationCalc/fAzimuthCalc);
-// this unconditional republish runs after it and is what has actually been on the wire -- changing
-// that is a behavior change, not a dedup.
+stTelemetry.fRightAscension				:= fRightAscension;
+stTelemetry.fDeclination				:= fDeclination;
+stTelemetry.fElevationCalc				:= fElevationCalc;
+stTelemetry.fAzimuthCalc				:= fAzimuthCalc;
 
-// EQUATORIAL
-// all angles in the telemetry are degrees, RA included, like the rightascension command (BROTLib#37)
-fbComm.PublishLREAL('telescope', 'dome', 'OBJECT.EQUATORIAL.RA_ICRS', fRightAscension);
-fbComm.PublishLREAL('telescope', 'dome', 'OBJECT.EQUATORIAL.DEC_ICRS', fDeclination);
+stTelemetry.fSlewTime					:= fSlewTime;
+stTelemetry.fElevationPointingOffset	:= fElevationPointingOffset;
+stTelemetry.fAzimuthPointingOffset		:= fAzimuthPointingOffset;
 
-// HORIZONTAL
-fbComm.PublishLREAL('telescope', 'dome', 'OBJECT.HORIZONTAL.ALT', fElevationCalc);
-fbComm.PublishLREAL('telescope', 'dome', 'OBJECT.HORIZONTAL.AZ', fAzimuthCalc);
+stTelemetry.fLst						:= fLst;
+stTelemetry.fJd							:= fJd;
+stTelemetry.fLatitude					:= telescopeConfig.latitude;
+stTelemetry.fLongitude					:= telescopeConfig.longitude;
+stTelemetry.fAltitude					:= telescopeConfig.altitude;
 
-(* POINTING *)
-fbComm.PublishLREAL('telescope', 'dome', 'POINTING.SLEWTIME', fSlewtime);
-fbComm.PublishLREAL('telescope', 'dome', 'POINTING.OFFSETS.ALT', fElevationPointingOffset);
-fbComm.PublishLREAL('telescope', 'dome', 'POINTING.OFFSETS.AZ', fAzimuthPointingOffset);
+stTelemetry.bElevationEnable			:= fbElevation.Enable;
+stTelemetry.bElevationCalibrated		:= fbElevation.Calibrated;
+stTelemetry.bElevationError				:= fbElevation.Error;
+stTelemetry.nElevationErrorID			:= fbElevation.ErrorID;
+stTelemetry.bElevationBusy				:= fbElevation.Busy;
+stTelemetry.bElevationTracking			:= fbElevation.isTracking;
+stTelemetry.fElevationPosition			:= fbElevation.Position;
+stTelemetry.fElevationVelocity			:= fbElevation.Velocity;
+stTelemetry.fElevationCurrent			:= fElevationCurrent;
+stTelemetry.fElevationOffset			:= fElevationOffset;
 
-(*POSITION*)
-//LOCAL
-fbComm.PublishLREAL('telescope', 'dome', 'POSITION.LOCAL.SIDEREAL_TIME', fLst);
-fbComm.PublishLREAL('telescope', 'dome', 'POSITION.LOCAL.JD', fJd);
-fbComm.PublishLREAL('telescope', 'dome', 'POSITION.LOCAL.LATITUDE', telescopeConfig.latitude);
-fbComm.PublishLREAL('telescope', 'dome', 'POSITION.LOCAL.LONGITUDE', telescopeConfig.longitude);
-fbComm.PublishLREAL('telescope', 'dome', 'POSITION.LOCAL.HEIGHT', telescopeConfig.altitude);
+stTelemetry.bAzimuthEnable				:= fbAzimuth.Enable;
+stTelemetry.bAzimuthCalibrated			:= fbAzimuth.Calibrated;
+stTelemetry.bAzimuthError				:= fbAzimuth.Error;
+stTelemetry.nAzimuthErrorID				:= fbAzimuth.ErrorID;
+stTelemetry.bAzimuthBusy				:= fbAzimuth.Busy;
+stTelemetry.bAzimuthTracking			:= fbAzimuth.isTracking;
+stTelemetry.fAzimuthPosition			:= fbAzimuth.Position;
+stTelemetry.fAzimuthVelocity			:= fbAzimuth.Velocity;
+stTelemetry.fAzimuthCurrent				:= fAzimuthCurrent;
+stTelemetry.fAzimuthOffset				:= fAzimuthOffset;
 
-// INSTRUMENTAL
-// > ALT
-// POWER_STATE
-IF fbElevation.Enable THEN
-	fbComm.PublishLREAL('telescope', 'dome', 'POSITION.INSTRUMENTAL.ALT.POWER_STATE', 1.0);
-ELSE
-	fbComm.PublishLREAL('telescope', 'dome', 'POSITION.INSTRUMENTAL.ALT.POWER_STATE', 0.0);
-END_IF
-//REFERENCED
-IF fbElevation.Calibrated THEN
-	fbComm.PublishLREAL('telescope', 'dome', 'POSITION.INSTRUMENTAL.ALT.REFERENCED', 1.0);
-ELSE
-	fbComm.PublishLREAL('telescope', 'dome', 'POSITION.INSTRUMENTAL.ALT.REFERENCED', 0.0);
-END_IF
-//ERROR_STATE
-IF fbElevation.Error THEN
-	fbComm.PublishINT('telescope', 'dome', 'POSITION.INSTRUMENTAL.ALT.ERROR_STATE', fbElevation.ErrorID);
-ELSE
-	fbComm.PublishINT('telescope', 'dome', 'POSITION.INSTRUMENTAL.ALT.ERROR_STATE', 0);
-END_IF
-//MOTION_STATE
-IF fbElevation.Busy THEN
-	IF fbElevation.isTracking THEN
-		fbComm.PublishINT('telescope', 'dome', 'POSITION.INSTRUMENTAL.ALT.MOTION_STATE', 8);
-	ELSE
-		fbComm.PublishINT('telescope', 'dome', 'POSITION.INSTRUMENTAL.ALT.MOTION_STATE', 1);
-	END_IF
-ELSE
-	fbComm.PublishINT('telescope', 'dome', 'POSITION.INSTRUMENTAL.ALT.MOTION_STATE', 0);
-END_IF
-fbComm.PublishLREAL('telescope', 'dome', 'POSITION.INSTRUMENTAL.ALT.REALPOS', fElevationCurrent-fElevationOffset);
-fbComm.PublishLREAL('telescope', 'dome', 'POSITION.INSTRUMENTAL.ALT.CURRPOS', fElevationCurrent);
-fbComm.PublishLREAL('telescope', 'dome', 'POSITION.INSTRUMENTAL.ALT.TARGETPOS', fbElevation.Position);
-fbComm.PublishLREAL('telescope', 'dome', 'POSITION.INSTRUMENTAL.ALT.CURRSPEED', fbElevation.Velocity);
-fbComm.PublishLREAL('telescope', 'dome', 'POSITION.INSTRUMENTAL.ALT.TARGETDISTANCE', ABS(fElevationCurrent-fbElevation.Position));
-fbComm.PublishLREAL('telescope', 'dome', 'POSITION.INSTRUMENTAL.ALT.OFFSET', fElevationOffset);
+stTelemetry.fElevationCurrentSky		:= fElevationCurrentSky;
+stTelemetry.fAzimuthCurrentSky			:= fAzimuthCurrentSky;
+stTelemetry.fRightAscensionCurrent		:= fRightAscensionCurrent;
+stTelemetry.fHourAngleCurrent			:= fHourAngleCurrent;
+stTelemetry.fDeclinationCurrent			:= fDeclinationCurrent;
 
-// > AZ
-// POWER_STATE
-IF fbAzimuth.Enable THEN
-	fbComm.PublishLREAL('telescope', 'dome', 'POSITION.INSTRUMENTAL.AZ.POWER_STATE', 1.0);
-ELSE
-	fbComm.PublishLREAL('telescope', 'dome', 'POSITION.INSTRUMENTAL.AZ.POWER_STATE', 0.0);
-END_IF
-//REFERENCED
-IF fbAzimuth.Calibrated THEN
-	fbComm.PublishLREAL('telescope', 'dome', 'POSITION.INSTRUMENTAL.AZ.REFERENCED', 1.0);
-ELSE
-	fbComm.PublishLREAL('telescope', 'dome', 'POSITION.INSTRUMENTAL.AZ.REFERENCED', 0.0);
-END_IF
-//ERROR_STATE
-IF fbAzimuth.Error THEN
-	fbComm.PublishINT('telescope', 'dome', 'POSITION.INSTRUMENTAL.AZ.ERROR_STATE', fbAzimuth.ErrorID);
-ELSE
-	fbComm.PublishINT('telescope', 'dome', 'POSITION.INSTRUMENTAL.AZ.ERROR_STATE', 0);
-END_IF
-//MOTION_STATE
-IF fbAzimuth.Busy THEN
-	IF fbAzimuth.isTracking THEN
-		fbComm.PublishINT('telescope', 'dome', 'POSITION.INSTRUMENTAL.AZ.MOTION_STATE', 8);
-	ELSE
-		fbComm.PublishINT('telescope', 'dome', 'POSITION.INSTRUMENTAL.AZ.MOTION_STATE', 1);
-	END_IF
-ELSE
-	fbComm.PublishINT('telescope', 'dome', 'POSITION.INSTRUMENTAL.AZ.MOTION_STATE', 0);
-END_IF
-
-fbComm.PublishLREAL('telescope', 'dome', 'POSITION.INSTRUMENTAL.AZ.CURRPOS', fAzimuthCurrent);
-fbComm.PublishLREAL('telescope', 'dome', 'POSITION.INSTRUMENTAL.AZ.REALPOS', fAzimuthCurrent-F_AzimuthOffsetOnAxis(fAzimuthOffset, fElevationCurrent));	// M7: was fElevation (stale)
-fbComm.PublishLREAL('telescope', 'dome', 'POSITION.INSTRUMENTAL.AZ.TARGETPOS', fbAzimuth.Position);
-fbComm.PublishLREAL('telescope', 'dome', 'POSITION.INSTRUMENTAL.AZ.CURRSPEED', fbAzimuth.Velocity);
-fbComm.PublishLREAL('telescope', 'dome', 'POSITION.INSTRUMENTAL.AZ.TARGETDISTANCE', ABS(fAzimuthCurrent-fbAzimuth.Position));
-fbComm.PublishLREAL('telescope', 'dome', 'POSITION.INSTRUMENTAL.AZ.OFFSET', fAzimuthOffset);
-
-
-(*HORIZONTAL*)
-fbComm.PublishLREAL('telescope', 'dome', 'POSITION.HORIZONTAL.ALT', fElevationCurrentSky);
-fbComm.PublishLREAL('telescope', 'dome', 'POSITION.HORIZONTAL.AZ', fAzimuthCurrentSky);
-//fbComm.Publish('telescope', 'dome', 'POSITION.HORIZONTAL.DOME', LREAL_TO_STRING(fbDome.Position));
-
-(*EQUITORIAL*)
-fbComm.PublishLREAL('telescope', 'dome', 'POSITION.EQUATORIAL.RA_ICRS', fRightAscensionCurrent);	// degrees (BROTLib#37)
-fbComm.PublishLREAL('telescope', 'dome', 'POSITION.EQUATORIAL.HA_ICRS', fHourAngleCurrent);
-fbComm.PublishLREAL('telescope', 'dome', 'POSITION.EQUATORIAL.DEC_ICRS', fDeclinationCurrent);
+fbTelemetry(comm := fbComm, stTelemetry := stTelemetry);
 ]]></ST>
       </Implementation>
     </Method>
@@ -1596,39 +1425,37 @@ VAR
 	fSlewDerotator:	LREAL;
 END_VAR
 VAR_INST
-	nStage:		USINT := 0;
 	nLastStage:	USINT := 101;
 END_VAR]]></Declaration>
       <Implementation>
-        <ST><![CDATA[_SlewTelescope := nStage;
+        <ST><![CDATA[_SlewTelescope := TO_USINT(eSlewStage);
 // #77: see _GotoTelescope
-IF bReset OR bError OR bInterrupted OR NOT bSlew THEN
-	nStage := 0;
+// #24 step 3c: bReset OR bError OR bInterrupted OR NOT bSlew (F_StageAbort, row slew)
+IF F_StageAbort(eMachine := E_StageMachine.slew, bReset := bReset, bError := bError, bStop := bStop,
+		bInterrupted := bInterrupted, bCommand := bSlew) THEN
+	eSlewStage := E_SlewStage.idle;
 	RETURN;
 END_IF
 IF tonSlewTimeout.Q THEN	// #17: fed every scan in the body
-	bError := TRUE;
-	nErrorID := 16#40;
-	bSoftwareError := TRUE;
-	nSoftwareErrorID := 16#40;
+	_RaiseSoftwareError(nId := 16#40, sText := 'slew: state machine timeout');
 	bSlew := FALSE;
-	nStage := 0;
+	eSlewStage := E_SlewStage.idle;
 	RETURN;
 END_IF
-CASE nStage OF
-	0:	
+CASE eSlewStage OF
+	E_SlewStage.idle:	
 		IF bReady AND bStopped AND NOT bBusy AND NOT bTracking THEN
-			nStage := 10;
+			eSlewStage := E_SlewStage.untrack;
 		END_IF
-	10:
+	E_SlewStage.untrack:
 		IF fbElevation.Tracking = TRUE OR fbAzimuth.Tracking = TRUE OR fbDerotator.Tracking = TRUE THEN
 			fbElevation.Tracking := FALSE;
 			fbAzimuth.Tracking := FALSE;
 			fbDerotator.Tracking := FALSE;
 		ELSE
-			nStage := 25;
+			eSlewStage := E_SlewStage.start_move;
 		END_IF				
-	25:
+	E_SlewStage.start_move:
 		fbPointing(
 			fAzimuth			:= fAzimuth,
 			fElevation			:= fElevation,
@@ -1642,7 +1469,7 @@ CASE nStage OF
 			OR fSlewDerotator < fbDerotator.fMinPosition - 1.0E-6 OR fSlewDerotator > fbDerotator.fMaxPosition + 1.0E-6 THEN
 			bSlewOutOfLimits := TRUE;
 			bSlew := FALSE;
-			nStage := 0;
+			eSlewStage := E_SlewStage.idle;
 			RETURN;
 		END_IF
 		fbElevation.Position := fElevation + fElevationPointingOffset + fElevationOffset;
@@ -1657,9 +1484,9 @@ CASE nStage OF
 		IF fbElevation.Busy AND
 			fbAzimuth.Busy AND
 			fbDerotator.Busy THEN
-				nStage := 50;
+				eSlewStage := E_SlewStage.wait_standstill;
 		END_IF
-	50:
+	E_SlewStage.wait_standstill:
 		IF fbElevation.MoveDone THEN
 			fbElevation.MoveAxis := FALSE;
 		END_IF
@@ -1672,19 +1499,19 @@ CASE nStage OF
 			fbDerotator.MoveAxis := FALSE;
 		END_IF
 		IF NOT bSlewing AND bStopped THEN // all axis standstill
-			nStage := 100;
+			eSlewStage := E_SlewStage.done;
 		END_IF
-	100:
+	E_SlewStage.done:
 		fbElevation.MoveAxis := FALSE;
 		fbAzimuth.MoveAxis := FALSE;
 		fbDerotator.MoveAxis := FALSE;
 		fRightAscension := fRightAscensionCalc;
 		fDeclination := fDeclinationCalc;
 		bSlew := FALSE;
-		nStage := 0;
+		eSlewStage := E_SlewStage.idle;
 END_CASE
-SlewEvent(Trigger := nStage > nLastStage, FormatString := 'Slew progress: %s', OnMessage := USINT_TO_STRING(nStage), Comm := fbComm);
-nLastStage := nStage;		
+SlewEvent(Trigger := TO_USINT(eSlewStage) > nLastStage, FormatString := 'Slew progress: %s', OnMessage := USINT_TO_STRING(TO_USINT(eSlewStage)), Comm := fbComm);
+nLastStage := TO_USINT(eSlewStage);		
 ]]></ST>
       </Implementation>
     </Method>
@@ -1880,6 +1707,7 @@ IF bReset THEN
 	bHorizonError := FALSE; // if reset, the bHorizonError can be switched off
 	bSoftwareError := FALSE;
 	nSoftwareErrorID := 0;	// #88
+	sSoftwareErrorText := '';	// #24 step 3b
 
 	// #85: a reset drops every pending move command; nothing may move later because of a command sent
 	// before the reset. bPark is kept on purpose (safe direction, emergency park).
@@ -1906,6 +1734,28 @@ IF bReset THEN
 	bInterrupted := FALSE;
 END_IF
 
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="_RaiseSoftwareError" Id="{d7269f1a-1a39-4d9c-9ab8-9d3ec12c3042}" FolderPath="internal methods\">
+      <Declaration><![CDATA[// #24 step 3b: the one path of the software errors of the stage machines (goto 16#10, goto target 16#15/16#16, home 16#30,
+// slew 16#40), until 0.12.0 four copies of the same four assignments. bError/nErrorID act in the rest of this scan,
+// bSoftwareError/nSoftwareErrorID are latched until bReset (M1, cleared in _HandleReset), so bError and nErrorID follow them
+// again from the next scan. The log is unchanged ('Internal command error, ID: %s', _LogEvents); sText is kept for ADS only.
+// The configuration errors 16#31/16#32 of the body set only the latch (bError follows from it in the same scan) and do not
+// use this method.
+METHOD PRIVATE _RaiseSoftwareError
+VAR_INPUT
+	nId		: UINT;		// software error ID, also nErrorID
+	sText	: STRING;	// what failed, stored in sSoftwareErrorText
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[bError := TRUE;
+nErrorID := nId;
+bSoftwareError := TRUE;
+nSoftwareErrorID := nId;
+sSoftwareErrorText := sText;
 ]]></ST>
       </Implementation>
     </Method>
@@ -1992,6 +1842,151 @@ aAxis[3].bHoming := fbDerotator.fbAxis.Homing;
 aAxis[3].bStopping := fbDerotator.fbAxis.Stopping;
 aAxis[3].bBusy := fbDerotator.fbAxis.Busy;
 aAxis[3].bTracking := fbDerotator.fbAxis.isTracking;
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="_ComputeTargets" Id="{28b41640-2b40-49f6-a70c-a35d1a2deacc}" FolderPath="internal methods\">
+      <Declaration><![CDATA[// #24 step 4b (D5 option A, SM plan D3 hook): once per scan in the body, after the error reaction and before the horizon
+// guard. The weather of the refraction, the commanded target (eq2hor, pointing model, offsets, #94 warning, derotator,
+// velocities, #2 turn inside the axis limits) and the reported position (inverse pointing model, both hor2eq). Moved
+// unchanged from the body; every variable it reads or writes is in the FB's VAR (the body, the state machines and the
+// telemetry use them), so the method has no state of its own.
+METHOD PRIVATE _ComputeTargets
+VAR_INPUT
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[// One weather for the commanded position (eq2hor) and for the reported RA/Dec (both hor2eq below): with different
+// weather the reported coordinates would differ from the commanded ones by the refraction difference.
+IF bLiveWeatherRefraction THEN
+	bRefractionLive := BROTLib.F_RefractionWeather(
+		stWeather := Weather,
+		fSiteAltitude := telescopeConfig.altitude,
+		fPressure => fRefractionPressure,
+		fTemperature => fRefractionTemperature,
+		bTemperatureSet => bRefractionTemperatureSet,
+		bPressureRejected => bRefractionPressureRejected,
+		bTemperatureRejected => bRefractionTemperatureRejected);
+ELSE
+	bRefractionLive := FALSE;
+	fRefractionPressure := 0.0;
+	fRefractionTemperature := 0.0;
+	bRefractionTemperatureSet := FALSE;
+	bRefractionPressureRejected := FALSE;
+	bRefractionTemperatureRejected := FALSE;
+END_IF
+rtrigPressureRejected(CLK := bRefractionPressureRejected);
+IF rtrigPressureRejected.Q THEN
+	ADSLOGSTR( ADSLOG_MSGTYPE_WARN OR ADSLOG_MSGTYPE_LOG, 'Live weather: %s does not fit the site, the estimate is used', 'pressure');
+END_IF
+rtrigTemperatureRejected(CLK := bRefractionTemperatureRejected);
+IF rtrigTemperatureRejected.Q THEN
+	ADSLOGSTR( ADSLOG_MSGTYPE_WARN OR ADSLOG_MSGTYPE_LOG, 'Live weather: %s does not fit the site, the estimate is used', 'temperature');
+END_IF
+
+eq2hor(
+	ra := fRightAscension,
+	dec := fDeclination,
+	lon := telescopeConfig.longitude,
+	lat := telescopeConfig.latitude,
+	altitude := telescopeConfig.altitude,
+	pressure := fRefractionPressure,
+	temperature := fRefractionTemperature,
+	temperature_set := bRefractionTemperatureSet,
+	JD := fJd + fTimeOffset,
+	dut1 := fDut1,
+	refract_to_observed := TRUE,
+	// refract := FALSE,
+	alt => fElevationCalc,
+	az => fAzimuthCalc,
+	ha => fHourAngleCalc);
+
+// apply pointing model
+fbPointing(
+	fAzimuth			:= fAzimuthCalc,
+	fElevation			:= fElevationCalc,
+	fAzimuthOffset		=> fAzimuthPointingOffset,
+	fElevationOffset	=> fElevationPointingOffset
+);
+fElevationCalc := fElevationCalc + fElevationPointingOffset + fElevationOffset;
+// F_AzimuthOffsetOnAxis: fAzimuthOffset / COS(elevation), bounded near the zenith (BROTLib#27)
+fAzimuthCalc := fAzimuthCalc + fAzimuthPointingOffset + F_AzimuthOffsetOnAxis(fAzimuthOffset, fElevationCalc);
+
+// #94: evaluated here, before the arbitration and the Goto/Track dispatch below can clear bGoto/bTrack (error 0x15)
+// in the same scan. Only a requested goto/track makes the RA/Dec target relevant.
+bTargetBelowHorizonWarn := F_TargetBelowHorizonWarning(bGoto := bGoto, bTrack := bTrack, fElevationCalc := fElevationCalc, fHorizon := fHorizon);
+
+// calculate derotator position 
+fDerotatorCalc := F_DerotatorPosition2(fAzimuthCalc, fElevationCalc, telescopeConfig.latitude, fDerotatorSign)  + fDerotatorOffset;
+
+// calculate velocities
+fDerotatorVelocity := F_Derotatorvelocity(fAzimuthCalc, fElevationCalc, telescopeConfig.latitude, fDerotatorSign);
+fElevationVelocity := F_Elevationvelocity(fAzimuthCalc, telescopeConfig.latitude);
+fAzimuthVelocity := F_Azimuthvelocity(fElevationCalc, fAzimuthCalc, telescopeConfig.latitude);
+
+// #2: the turn of the target inside the axis limits (the measured endpoints, never a literal of one site). A target
+// is not clamped to another position: without a turn inside the limits the goto/track is refused. While an axis
+// tracks it keeps the turn it is on, except for a new goto, which chooses freely (the axis may be anywhere).
+bAzimuthTurnOK := F_AxisTurn(
+	fTarget := fAzimuthCalc, fVelocity := fAzimuthVelocity, fCurrent := fbAzimuth.fActualPosition,
+	bHold := fbAzimuth.Tracking AND NOT bGoto, fMin := fbAzimuth.fMinPosition, fMax := fbAzimuth.fMaxPosition,
+	fMargin := stMotionUsed.fAzimuthTrackMargin, fTrackTimeCap := stMotionUsed.fAzimuthTrackTimeCap, fPosition => fAzimuthCalc);
+bDerotatorTurnOK := F_AxisTurn(
+	fTarget := fDerotatorCalc, fVelocity := fDerotatorVelocity, fCurrent := fbDerotator.fActualPosition,
+	bHold := fbDerotator.Tracking AND NOT bGoto, fMin := fbDerotator.fMinPosition, fMax := fbDerotator.fMaxPosition,
+	fMargin := stMotionUsed.fDerotatorTrackMargin, fTrackTimeCap := stMotionUsed.fDerotatorTrackTimeCap, fPosition => fDerotatorCalc);
+// only a requested goto/track makes the target relevant (see #94)
+bAzimuthNoTurn := (bGoto OR bTrack) AND NOT bAzimuthTurnOK;
+bDerotatorNoTurn := (bGoto OR bTrack) AND NOT bDerotatorTurnOK;
+
+// get current coordinates	
+fAzimuthCurrent := fbAzimuth.fActualPosition;
+fElevationCurrent := fbElevation.fActualPosition;
+fDerotatorCurrent := fbDerotator.fActualPosition;
+
+// apply inverse pointing model
+fbPointingInverse(
+	fAzimuth			:= fAzimuthCurrent,
+	fElevation			:= fElevationCurrent,
+	fAzimuthOffset  	=> fAzimuthPointingOffset2,
+	fElevationOffset	=> fElevationPointingOffset2
+);
+fAzimuthCurrentSky := fAzimuthCurrent - fAzimuthPointingOffset2;
+fElevationCurrentSky := fElevationCurrent - fElevationPointingOffset2;
+
+// add offsets
+//fElevationCurrent := fElevationCurrentSky - fElevationOffset;
+//fAzimuthCurrent := fAzimuthCurrentSky - fAzimuthOffset / COS(fElevationCalc * d2r);
+
+// calculate equatorial coordinates
+hor2eq(alt := fElevationCurrentSky - fElevationOffset,
+		az := fAzimuthCurrentSky - F_AzimuthOffsetOnAxis(fAzimuthOffset, fElevationCurrent),	// M7: was fElevationCalc
+		jd := fJd,
+		dut1 := fDut1,
+		lat := telescopeConfig.latitude,
+		lon := telescopeConfig.longitude,
+		altitude := telescopeConfig.altitude,
+		pressure := fRefractionPressure,
+		temperature := fRefractionTemperature,
+		temperature_set := bRefractionTemperatureSet,
+		alt_is_observed := TRUE,
+		// refract := FALSE,
+		ra => fRightAscensionCurrent,
+		dec => fDeclinationCurrent,
+		ha => fHourAngleCurrent);	// M13: was never assigned, HA_ICRS telemetry was stuck at 0.0
+hor2eq(alt := fElevationCurrentSky,
+		az := fAzimuthCurrentSky,
+		jd := fJd,
+		dut1 := fDut1,
+		lat := telescopeConfig.latitude,
+		lon := telescopeConfig.longitude,
+		altitude := telescopeConfig.altitude,
+		pressure := fRefractionPressure,
+		temperature := fRefractionTemperature,
+		temperature_set := bRefractionTemperatureSet,
+		alt_is_observed := TRUE,
+		ra => fRightAscensionCurrentSky,
+		dec => fDeclinationCurrentSky);
 ]]></ST>
       </Implementation>
     </Method>
@@ -2411,6 +2406,58 @@ END_VAR
 ]]></Declaration>
         <Implementation>
           <ST><![CDATA[InitRequired := THIS^.bInitRequired;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Property Name="GotoStage" Id="{959e1a2d-fcd5-4c79-9600-4efa7a99e801}">
+      <Declaration><![CDATA[// #24 step 3a: stage of the goto state machine (_GotoTelescope), read-only (diagnostics, rig tests)
+PROPERTY GotoStage : E_GotoStage
+]]></Declaration>
+      <Get Name="Get" Id="{a0c6ebf9-67a0-45f2-b933-7fe31b9d3dcb}">
+        <Declaration><![CDATA[VAR
+END_VAR
+]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[GotoStage := THIS^.eGotoStage;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Property Name="SlewStage" Id="{1f9ae3ba-2aee-475c-b044-f7960f958733}">
+      <Declaration><![CDATA[// #24 step 3a: stage of the slew state machine (_SlewTelescope), read-only (diagnostics, rig tests)
+PROPERTY SlewStage : E_SlewStage
+]]></Declaration>
+      <Get Name="Get" Id="{85e22bac-7f1b-41b0-b47f-156467a8e558}">
+        <Declaration><![CDATA[VAR
+END_VAR
+]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[SlewStage := THIS^.eSlewStage;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Property Name="ParkStage" Id="{37e0eba2-3ab4-48d7-a482-9be393ca5938}">
+      <Declaration><![CDATA[// #24 step 3a: stage of the park state machine (_ParkTelescope), read-only (diagnostics, rig tests)
+PROPERTY ParkStage : E_ParkStage
+]]></Declaration>
+      <Get Name="Get" Id="{6ff74361-666d-47a2-b0f8-469420406ebe}">
+        <Declaration><![CDATA[VAR
+END_VAR
+]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[ParkStage := THIS^.eParkStage;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Property Name="PowerOnStage" Id="{3b74f511-c8e4-483e-9c1d-cfda7087ce6d}">
+      <Declaration><![CDATA[// #24 step 3a: stage of the power-on state machine (_PowerOn), read-only (diagnostics, rig tests)
+PROPERTY PowerOnStage : E_PowerOnStage
+]]></Declaration>
+      <Get Name="Get" Id="{0616118d-3653-4238-b6c7-5db7d1292808}">
+        <Declaration><![CDATA[VAR
+END_VAR
+]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[PowerOnStage := THIS^.ePowerOnStage;]]></ST>
         </Implementation>
       </Get>
     </Property>

@@ -276,5 +276,16 @@ END_VAR
 ]]></ST>
       </Implementation>
     </Method>
+    <Method Name="InjectDerotatorError" Id="{b1bf17dc-df53-46f0-a8d3-000210700a06}">
+      <Declaration><![CDATA[METHOD InjectDerotatorError
+VAR_INPUT
+	nId	: UDINT;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[fbDero.InjectError(nId);
+]]></ST>
+      </Implementation>
+    </Method>
   </POU>
 </TcPlcObject>

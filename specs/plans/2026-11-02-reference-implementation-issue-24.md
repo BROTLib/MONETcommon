@@ -1,10 +1,15 @@
 # MONETcommon as a reference implementation (#24, code review finding D)
 
-Date: 2026-11-02. Status: **proposed, plan only, no code changed. Decisions D1-D7 taken (Tim, 2026-11-02, section 7);
-the open items left are in section 8.** Steps 0-1 written 2026-11-02 on `feat/safe-state-table-and-tests`: the
+Date: 2026-11-02. Status: **proposed, plan only, no code changed. Decisions D1-D9 taken (Tim, 2026-11-02, section 7;
+D8/D9 settle the old open points 8.1/8.2, the safe-state table is final for step 7); the open items left are in
+section 8.** Steps 0-1 written 2026-11-02 on `feat/safe-state-table-and-tests`: the
 table is [../design/monetcommon-safe-states.md](../design/monetcommon-safe-states.md) (cells corrected against 0.11.2), the suite
 `MonetSafeState_Tests`; not compiled or run yet. Step 2a released in BROTLib 0.17.0. Step 2c written 2026-11-02 on
-`feat/motion-config-input` (status at the step); not compiled or run yet.
+`feat/motion-config-input` (status at the step); not compiled or run yet. Step 3 written 2026-11-02 on
+`refactor/stage-machines` (status at the step); not compiled or run yet. Step 4a written 2026-11-02 on
+`refactor/telemetry-split` (status at the step); not compiled or run yet. Step 4b written 2026-11-02 on
+`refactor/compute-targets` (status at the step); not compiled or run yet. Step 7 PR 1 (`bCloseRoofRequest`) written
+2026-11-02 on `feat/close-roof-request` (status at step 7); not compiled or run yet.
 Repo: BROTLib/MONETcommon (steps 2a/2b also BROTLib and IAG50cm). Base: read at `develop` @ `adc1013` (0.11.1, pins
 BROTLib 0.15.1, HalfBROT 0.10.1); line numbers are from that commit. `origin/develop` has since moved to `c34470f`
 (0.11.2, pins BROTLib 0.16.0 / HalfBROT 0.10.2; pendant release-on-exit #3, null-reference fix #156); none of that
@@ -69,7 +74,8 @@ cases go into existing suites where they fit; step 6 frees slots by moving dupli
 - The open point per class is whether the axes get a **controlled stop (ramp, `FB_MonetStopTransaction`) before the
   hydraulics drop**, or whether the brake lock is accepted as the stop (axes may still be moving when the pressure
   goes). Rule proposed below: ramp first whenever the drives are still controllable; the lock is the stop only when
-  they are not. The draft table (to copy into the design doc and check against the code in step 1):
+  they are not (decided as D8). The draft table (to copy into the design doc and check against the code in step 1;
+  the design doc is the current version, its roof column follows D9, which this draft predates):
 
 | Error class | Drives controllable? | Stop before hydraulics off | Park | Covers | Roof | Today [read from code, pin in step 1] |
 |---|---|---|---|---|---|---|
@@ -88,6 +94,8 @@ cases go into existing suites where they fit; step 6 frees slots by moving dupli
 
 - Who closes the roof for classes other than the watchdog is the site `MAIN` / MONETRoof, not this library; the
   table names the signal M provides (e.g. `bError`, READY_STATE) and the `MAIN` line that should act on it.
+  Decided (D9): a new M output (proposed `bCloseRoofRequest`) for the serious classes only, acted on in each `MAIN`
+  behind an enable switch and only in automatic; the design doc has the derivation and the `MAIN` line.
 - Verified by review only. Release: none.
 
 ### Step 1 - Characterization suites for the untested error classes (aim 6, tests only)
@@ -167,6 +175,42 @@ cases go into existing suites where they fit; step 6 frees slots by moving dupli
   `F_StageAbort_Tests` with one row per machine and flag.
 - Tests: all rig suites unedited and green; new pure suite. Consumers: none (private). Release: MONETcommon patch.
   On-site smoke test as step 2c.
+- **Status (2026-11-02): written on `refactor/stage-machines` (from `develop` @ `359ce5b`, 0.12.0), one commit per
+  sub-step, not compiled, not run (CI on push). Version not bumped.**
+  - 3a: the four enums (values = old numbers; `E_GotoStage` idle/untrack/start_move/wait_moves/wait_standstill/done,
+    `E_SlewStage` idle/untrack/start_move/wait_standstill/done, `E_ParkStage` prepare/untrack/start_move/wait_moves/
+    disable_axes/secure/parked, `E_PowerOnStage` open_covers/home_axes/start_move_home/wait_home/complete), no explicit base
+    type (INT, like every enum in the BROT repos; the base type syntax has no precedent here). Deviation: the stage is not
+    in the method's `VAR_INST` any more but in the FB's `VAR` (`eGotoStage`, ...), because a property cannot read a
+    method's `VAR_INST`; both live in the instance, so nothing changes at run time. `nLastStage` stays a `USINT` in
+    `VAR_INST`; the progress log compares and prints `TO_USINT(eStage)`, so `GoTo progress: 25` is unchanged. The power-on's
+    `nStage >= 10` is `ePowerOnStage <> open_covers` (same set). No rig suite read `nStage` (it was not reachable from
+    outside), so no suite was touched.
+  - 3b: `_RaiseSoftwareError(nId, sText)`, the same four assignments in the same order. `sText` goes to a new diagnostic
+    `sSoftwareErrorText : STRING(80)` (ADS only, cleared in `_HandleReset` with the latch); the log line is unchanged.
+    16#31/16#32 in the body set only the latch (no `bError`/`nErrorID` before the recompute) and were left as they are.
+  - 3c: `F_StageAbort` + `E_StageMachine` (goto/slew/gohome/park/poweron, the `E_TCSCommand` names), the table is a
+    `CASE` with five policy booleans per row. Exact rows: goto/slew `bReset OR bError OR bInterrupted OR NOT bGoto/bSlew`;
+    home `bReset OR bError OR bInterrupted`; park `bReset OR bStop OR bInterrupted`; power-on `NOT bPower OR bReset OR
+    bError OR bStop OR bInterrupted`, after the failure checks that may clear `bPower` (those checks, which use their own
+    `bReset OR bStop OR bInterrupted`, stay in `_PowerOn`). Correction to the step text and to SM plan 3.5: the power-on
+    also aborts on `bError` and on `NOT bPower`, not only on stop. `F_StageAbort_Tests` takes the 40th suite slot (40 of
+    40 now): five per-machine tests (one assertion per input) and an exhaustive 32-combination check per machine against
+    the old IF conditions.
+  - Read while doing it, **not changed** (behaviour kept, for Tim / step 5.1): (1) `_HomeTelescope`'s timeout branch sets
+    `_HomeTelescope := TRUE` without `RETURN`; the done check below overwrites it, and if all three `MoveDone` were TRUE in
+    that scan it would also log "Telescope is homed." and copy the current position after raising 16#30 [unverified
+    whether reachable]. (2) Home does not abort on `NOT bGoHome` and park not on `NOT bPark`; both are dispatched only with
+    their flag set, so today this only matters if a later caller (the arbiter) calls them otherwise. (3) The park's
+    `rtrigError` is clocked only when the prologue passes, so an error edge during a call that aborts (reset/stop/
+    interrupt) or while no park runs is seen as an edge at the next park call. (4) The `#77` comment says "a
+    reset/interrupt/stop call", but `bStop` is not in the goto/slew/home rows: a stop reaches them only through the
+    arbitration (flags dropped, `bInterrupted`). (5) Not a prologue: stage 0 of the slew waits for `bStopped AND NOT
+    bTracking`, stage 0 of the goto does not.
+  - Unverified until CI: `TO_USINT` of a strict enum (HalfBROT uses `TO_INT(eManualHome)`), enum return type of the
+    properties, several statements per line in the `CASE` of `F_StageAbort`. Safe-state doc: line numbers noted as moved,
+    no cell changed. To run (Tim): `tcbuild.yml` on push, or the library install + `tctool MONETcommonTests.sln build run`
+    of `MONETcommonTests/README.md`; on site the step-2c smoke test (power-on, goto, slew, stop, park) on MONET/S, then N.
 
 ### Step 4 - Split telemetry and targets (aim 2, neutral; D5)
 - 4a telemetry: `_SendTelemetry` (67 publishes) into `FB_MonetTelescopeTelemetry` fed with a snapshot struct
@@ -179,6 +223,76 @@ cases go into existing suites where they fit; step 6 frees slots by moving dupli
   later PR.
 - Release: patch each; consumers unaffected. The command part (arbitration) is SM plan 5.1/5.2, scheduled there
   after this step.
+- **Status 4a (2026-11-02): written on `refactor/telemetry-split` (from `develop` @ `644dce5`, 0.12.0, step 3 merged), not
+  compiled, not run (CI on push). Version not bumped. 4b: see its status below.**
+  - Catalogue of `_SendTelemetry` at `644dce5` (all `'telescope'`/`'dome'`, after `SUPER^._PublishTelemetry()`): 44 publishes per
+    call (54 publish statements with the branches; the "67" above counted something else, probably SUPER's too), in this
+    order: `TELESCOPE.READY_STATE` (LREAL `fReadyState`), `TELESCOPE.MOTION_STATE` (LREAL of the INT `nMotionState`),
+    `TELESCOPE.INTERRUPTED_AUTO_CLEAR_COUNT` (INT of the UDINT counter); `WEATHER.REFRACTION.PRESSURE`/`TEMPERATURE`
+    (`Publish` of `LREAL_TO_STRING`), `PRESSURE_LIVE` (`BOOL_TO_STRING(fRefractionPressure <> 0.0)`), `TEMPERATURE_LIVE`
+    (`BOOL_TO_STRING(bRefractionTemperatureSet)`); `OBJECT.EQUATORIAL.RA_ICRS`/`DEC_ICRS`, `OBJECT.HORIZONTAL.ALT`/`AZ` (calc,
+    unconditional), `POINTING.SLEWTIME`, `POINTING.OFFSETS.ALT`/`AZ`, `POSITION.LOCAL.SIDEREAL_TIME`/`JD`/`LATITUDE`/`LONGITUDE`/
+    `HEIGHT`; per axis ALT then AZ: `POWER_STATE` (LREAL 1.0/0.0 on `Enable`), `REFERENCED` (LREAL 1.0/0.0 on `Calibrated`),
+    `ERROR_STATE` (INT `ErrorID` if `Error`, else 0), `MOTION_STATE` (INT 8 busy+tracking, 1 busy, 0), then ALT `REALPOS`
+    (current - offset), `CURRPOS`, `TARGETPOS` (`Position`), `CURRSPEED` (`Velocity`), `TARGETDISTANCE` (ABS), `OFFSET`; AZ the
+    same but `CURRPOS` before `REALPOS` (current - `F_AzimuthOffsetOnAxis(offset, fElevationCurrent)`, M7);
+    `POSITION.HORIZONTAL.ALT`/`AZ` (sky), `POSITION.EQUATORIAL.RA_ICRS`/`HA_ICRS`/`DEC_ICRS` (current). Rate in the body:
+    `tonMQTTTimer` 500 ms while `bSlewing OR bTrack OR bTracking`, else 1000 ms, restarted after each publish (so PT plus one
+    cycle); manual mode (`SuspendAutomatic`) sends only READY_STATE on the same timer.
+  - Done: `ST_MonetTelemetry` (43 fields, each with the type of its source, so the implicit conversions are the old ones) and
+    `FB_MonetTelescopeTelemetry` (inputs `comm`, `stTelemetry`; no state; the old statements with the sources replaced by
+    snapshot fields, comments kept). `_SendTelemetry` keeps `SUPER^._PublishTelemetry()` first, fills the instance variable
+    `stTelemetry` and calls `fbTelemetry` once; rate and call site unchanged. Checked by a script: the new block's statements
+    with the snapshot fields replaced by the fill's sources are textually the old ones (only `fSlewtime`/`fSlewTime` case).
+    `comm` is a per-call input, not `FB_Init`, because the telescope's `fbComm` is only set in its own `FB_Init`.
+  - Test, in `FB_MonetRig_Tests` (40 of 40 suites): `FB_RecordingComm` (test project, extends `FB_NullComm`, records method/
+    topic/value/address); `Telemetry_Publishes_The_Snapshot` (44 records, order, method, topic, value, all to telescope/dome)
+    and `Telemetry_Axis_State_Branches` (the other side of every condition). The test drives the block directly, so it does not
+    check `_SendTelemetry`'s fill; that is covered by the script comparison only.
+  - Read while doing it, **not changed** (behaviour kept): (1) `_SendTelemetry` has no `fbComm = 0` guard (BROTLib's
+    `_PublishTelemetry` returns on it, #7), so an unassigned comm would stop the task in the first MONET publish; the new block
+    keeps that. (2) Fields published twice per record: `POSITION.LOCAL.*` (5, identical, SUPER and here),
+    `POSITION.INSTRUMENTAL.AZ/ALT.OFFSET` (FB_AltAzTelescopeControl and here, identical), `OBJECT.HORIZONTAL.ALT/AZ` (differ
+    during a slew, the comment says the later one is what is on the wire). (3) `TELESCOPE.READY_STATE` is also sent by the
+    `fbStartup.PublishDue` path before the timer, so it can go out twice in one scan. (4) Type mix on the wire:
+    `TELESCOPE.MOTION_STATE` is LREAL, the per-axis `MOTION_STATE`/`ERROR_STATE` are INT, `POWER_STATE`/`REFERENCED` LREAL, the
+    weather values strings via `Publish`. (5) No derotator telemetry here. (6) `_SendTelemetry` is a public method (no
+    `PRIVATE`), kept so; nothing outside calls it (MONETS/MONETN/HalfBROT grepped).
+  - Unverified until CI: the overrides of `FB_RecordingComm` (signatures copied from `FB_NullComm`), passing the FB instance
+    `rec` to the `I_Comm` input, the `LREAL_TO_STRING` texts `'1000.5'`/`'-12.25'` asserted literally. To run (Tim):
+    `tcbuild.yml` on push, or the library install + `tctool MONETcommonTests.sln build run` of `MONETcommonTests/README.md`;
+    on site: telemetry in Influx/pyobs unchanged (same fields and rate) on MONET/S, then N.
+- **Status 4b (2026-11-02): written on `refactor/compute-targets` (from `develop` @ `87197a0`, 0.12.0, steps 3 and 4a merged),
+  not compiled, not run (CI on push). Version not bumped.**
+  - The block at `87197a0` (M:367-497, after the #155 brake-on-error block, before the horizon guard): refraction weather
+    (`F_RefractionWeather` or the zero estimate, the two rejected-value `R_TRIG`/`ADSLOGSTR`), `eq2hor` (JD `fJd + fTimeOffset`),
+    `fbPointing` and the offsets, `F_TargetBelowHorizonWarning` (#94), `F_DerotatorPosition2` + `fDerotatorOffset`, the three
+    velocities, `F_AxisTurn` of azimuth and derotator (#2) and `bAzimuthNoTurn`/`bDerotatorNoTurn`, the current axis positions,
+    `fbPointingInverse`, both `hor2eq`. The plan's "M:322-466" was the same block at `adc1013` (approximate there too). The
+    weather is included because it feeds eq2hor and both hor2eq (its own comment: one weather for commanded and reported); the
+    horizon guard is not (SM plan D3 has it as its own hook `_HorizonGuard`).
+  - Done: `METHOD PRIVATE _ComputeTargets` (no return value, no inputs, no variables of its own), folder `internal methods`, the
+    131 lines moved verbatim (checked by `diff` against the old body lines); the body calls `_ComputeTargets();` at the same
+    place. Every variable read or written stays in the FB's `VAR` (body, stage machines, properties and telemetry read them);
+    `eq2hor`/`hor2eq` are the instances of `FB_AltAzTelescopeControl`. No `LineIds` entry added (the siblings `_ReadAxes`,
+    `_StopTx*` have none either; TwinCAT regenerates them).
+  - Test: none added. The rig suites run the body every scan and so the method (goto/track/slew/stop suites); the pure parts
+    have their own suites (`F_AxisTurn_Tests`, `F_TargetBelowHorizonWarning_Tests`, `F_AzimuthOffsetOnAxis_Tests`,
+    `F_GotoTargetCheck_Tests`). A case could not check anything specific to the move (a private method is not callable from a
+    test, and the order is the old one textually). Gap that exists before and after: no rig test asserts the computed target or
+    reported position values, nor the body-level no-turn refusal (`bAzimuthNoTurn` path) or the live-weather path.
+  - Read while doing it, **not changed** (behaviour kept): (1) `eq2hor` uses `fJd + fTimeOffset`, both `hor2eq` use `fJd`, so with a
+    non-zero `fTimeOffset` the reported RA/Dec are not the inverse of the commanded ones; BROTLib's `FB_RaDecCoordinates` adds
+    the offset to all its conversions [unverified whether `fTimeOffset` is ever non-zero on MONET]. (2) The second `hor2eq`
+    (sky position) has no `ha =>`, so there is no sky hour angle (none is published). (3) `fbPointing`/`fbPointingInverse` are
+    `REFERENCE TO` and called without `__ISVALIDREF` (like the axes before #156); `SuspendAutomatic` does not call the block, so
+    in manual mode `fElevationCurrent`/`fAzimuthCurrent` (the `Altitude`/`Azimuth` properties) and the RA/Dec stay at the last
+    automatic scan. (4) The block runs also while `fbTime.bValid` is FALSE (with the last valid `fJd`); only the motion is
+    refused then (`bStop`). (5) The velocities are computed from the azimuth before `F_AxisTurn` moves it by a turn
+    (turn-invariant, so harmless).
+  - Unverified until CI: that the method compiles as the body did (same scope, no locals). To run (Tim): `tcbuild.yml` on push,
+    or the library install + `tctool MONETcommonTests.sln build run` of `MONETcommonTests/README.md`; on site the step-2c smoke
+    test (goto, track: commanded and reported RA/Dec as before) on MONET/S, then N.
 
 ### Step 4c - Client check before read-only inputs (D3, investigation, no code)
 - Consumers of the command interface: **pybrotlib** (Python library) and its users **pyobs-brot** and **brotgui**.
@@ -223,6 +337,38 @@ cases go into existing suites where they fit; step 6 frees slots by moving dupli
 - Each row where today differs from the target becomes a PR: flip the `_Current` test, change M (expected first
   candidates: software errors and hydraulics/cover errors park; hydraulics off at the end of every emergency park).
   Safety-relevant: on-site check per PR, E-stop at hand. Release: minor per behaviour change, MONETS first.
+- Order (2026-11-02, after D8/D9; details per PR in the design doc, "Step 7: proposed order"): 1 `bCloseRoofRequest`
+  output in M (signal only); 2 roof close in MONETS then MONETN `MAIN` behind the enable switch; 3 hydraulics error
+  reaction; 4 cover error hangs (park, power-on); 5 software-error timeouts ramp and park; 6 E-stop/safety error park
+  and hydraulics off; 7 power failure; 8 focus error drive to park; 9 invalid clock (optional). The emergency-park
+  hydraulics-off candidate is already true (design doc, findings).
+- **Status PR 1 (2026-11-02): written on `feat/close-roof-request` (from `develop` @ `1c157aa`), not compiled, not run (CI on
+  push). Version not bumped.**
+  - M: `VAR_OUTPUT bCloseRoofRequest : BOOL`, derived right after `bError` from `bCloseRoofCause := fbElevation.Error OR
+    fbAzimuth.bError OR fbDerotator.bError OR fbHydraulics.Error OR bEstopTriggered OR bSafetyError OR NOT bMainReady`; set on
+    its rising edge (`bCloseRoofCauseLast`), cleared by `bReset` while no cause is active (clear before set). Nothing reads it;
+    no existing output changed. Evaluated in every automatic scan (no early return in the body, so also in the error branch and
+    in E-stop); in manual (`SuspendAutomatic`) it keeps its last value, the `MAIN` of PR 2 gates on automatic anyway.
+  - Settled here (8.5): name `bCloseRoofRequest`; latch on the rising edge, cleared by `bReset` once no cause is active. The
+    clear is next to the set, not in `_HandleReset` (deviation from the design doc's wording; the cause is computed after it).
+    Because `bReset` is held while `bError`, one reset clears an axis error and, in the next scan, the request; a hydraulics
+    error needs its HalfBROT reset first, then a second `reset=1`. The `MAIN` switch name (`bRoofCloseOnErrorEnable`) is PR 2.
+  - Chosen for 8.7 (PLC start), easy to change: **no arming**. `bCloseRoofCauseLast` starts FALSE, so an E-stop or a missing
+    phase at the start sets the request (conservative: closing is the safe direction; needs `reset=1` after the cause is gone).
+    Arming instead = initialise `bCloseRoofCauseLast` with TRUE (one line). Check on site before PR 2 whether the restart
+    case is a nuisance.
+  - Tests (`MonetSafeState_Tests`, 40 of 40 suites, 16 tests): `Roof_Request_On_Axis_Errors` (El, Az, Der in turn; one reset
+    clears error and request), `Roof_Request_On_Hydraulics_Error`, `Roof_Request_On_Estop`, `Roof_Request_On_Safety_Error`,
+    `Roof_Request_On_Power_Failure` (each: set, kept by a reset with the cause active, latched after the cause is gone, cleared
+    by a reset without a cause), `No_Roof_Request_On_Focus_Error`; one extra assert each in
+    `Goto_Times_Out_Without_Park_Current` (16#10) and `Invalid_Motion_Config_Is_Software_Error_32` (16#32): no request. No clock
+    and no power-on needed (the request is computed from the first scan; the rig is parked at the start, so an axis error does
+    not start the emergency park). New rig method `FB_MonetRig.InjectDerotatorError`.
+  - Unverified until CI: the build (new output and variables, the rig method), the test timing (3 scans per step), and that the
+    HalfBROT `Reset()` of the axis mocks clears the injected error within the reset scan as assumed. Not covered by a test: the
+    manual-mode behaviour (output held) and the PLC-start case. To run (Tim): `tcbuild.yml` on push, or the library install +
+    `tctool MONETcommonTests.sln build run` of `MONETcommonTests/README.md`; on site (design doc, order item 1): ADS watch of
+    `bCloseRoofRequest` on an E-stop and a hydraulics stop, and after a PLC restart with the E-stop pressed.
 
 Order rationale: 0-1 make the safety net; 2a-2b put the shared types in place before MONETcommon consumes them;
 2c-4 are neutral and unblock tests and the SM plan's 5.2; 4c settles the client question; 5-6 break consumers and
@@ -255,7 +401,8 @@ are batched with re-pins; 7 is policy and goes row by row. Step 3 can come befor
 - Step 5 can break pybrotlib clients silently (a held `bGoto` no longer re-triggers). Gated on 4c.
 - Overlap with open work in the same file: #168 (mode state machine), #177 (pendant), SM plan 5.x, #26, #17.
   Whoever merges second rebases; do not run two of these in parallel on M.
-- TcUnit suite limit (40, about 37 used) and per-suite limits (32 tests, 256 asserts).
+- TcUnit suite limit (40, all 40 used after step 3; step 4a's telemetry cases went into `FB_MonetRig_Tests`; step 6
+  frees slots) and per-suite limits (32 tests, 256 asserts).
 
 ## 6. Verification summary
 
@@ -289,15 +436,35 @@ are batched with re-pins; 7 is policy and goes row by row. Step 3 can come befor
 - **D6 Axes coupling.** Keep `REFERENCE TO` the concrete axes, rationale in the README, `I_Axis` not widened.
 - **D7 Internal timings.** Tracking delay, Wake&Shake window, interrupted auto-clear (and the other internal timers)
   are not site policy and stay constants outside the config.
+- **D8 Stop before hydraulics off** (was 8.1). Ramp first: a controlled stop (`FB_MonetStopTransaction`), then
+  hydraulics off, so the brake locks on a standing axis, whenever the drives can still ramp. The brake lock is the stop
+  only for axis errors, E-stop/safety errors, and a hydraulics error where the pressure is already gone. The hydraulic
+  brakes lock by themselves when the hydraulics go off.
+- **D9 Roof** (was 8.2). Close the roof only for serious errors: E-stop/safety error, power failure, hydraulics error,
+  axis errors. Not for the recoverable ones: timeouts 16#10/16#30/16#40, config errors 16#31/16#32, goto target
+  16#15/16#16, invalid clock, cover error, focus error (kept as no close, see 8.4). The closing logic lives in the site
+  `MAIN` (MONETS, MONETN) behind an enable switch that can be turned off for test runs, and does not close while the
+  cabinet selector is on manual. The library only provides the signal (proposed: M output `bCloseRoofRequest`,
+  derivation in the design doc). The MQTT watchdog is unchanged (always closes). The E-stop circuit also cuts the roof
+  drives: a close during an active E-stop cannot act, the request is held and takes effect after release and restart.
+  Step 7 PR 1 (the signal) written on `feat/close-roof-request`; PR 2 (`MAIN`) not started.
 
 ## 8. Still open
 
-1. **Ramp or lock per error class** (step 0 table, column "Stop before hydraulics off"): confirm the proposed rule
-   (controlled stop first whenever the drives can still ramp; the hydraulic brake lock is the stop only for axis
-   error, E-stop/safety error, and a hydraulics error with the pressure already gone). Settle in the step-0 PR.
-2. **Roof for classes other than the watchdog:** which `MAIN`/MONETRoof signal closes it (e.g. on `bError` or
-   READY_STATE -1), so the table can name it. Settle in step 0.
+1. Decided as D8 (ramp or lock per error class).
+2. Decided as D9 (roof for classes other than the watchdog); what is left of it is in 8.4-8.7.
 3. **pybrotlib findings** (step 4c) decide edge-triggered inputs vs methods only for step 5.
+4. **Focus error and the roof:** kept as no close (D9); is a focus error serious enough to close the roof?
+5. **Exact signal:** name (`bCloseRoofRequest` proposed), latch and reset (proposed: latched on the rising edge,
+   cleared by `bReset` once no cause is active) and the name of the `MAIN` enable switch (`bRoofCloseOnErrorEnable`
+   proposed; a variable, a Visu switch or a cabinet input). Settled in step 7 PR 1: name and latch/reset as proposed (status
+   at step 7); the `MAIN` switch is left to PR 2.
+6. **Cabinet over-temperature (#32) and the roof:** not in the D9 list; today no close ("this is not weather").
+7. **Request at PLC start:** does `NOT bMainReady` or an active E-stop at boot set the request on every restart, so
+   that it needs an arming (like the watchdog's first connect) or a debounce? Check on site before step 7 PR 2. PR 1 chose
+   no arming (a cause at the start sets it; one-line change to arm, status at step 7).
+   Also [unverified]: whether the roof drives have power on a phase loss, and whether a safety error (no E-stop)
+   cuts them like the E-stop.
 
 ## 9. Not in this plan
 

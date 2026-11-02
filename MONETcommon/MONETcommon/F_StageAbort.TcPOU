@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="F_StageAbort" Id="{651f413c-cf13-4d07-865a-5244d2d1474e}" SpecialFunc="None">
+    <Declaration><![CDATA[// #24 step 3c: the guard prologue of the stage machines of FB_MonetTelescopeControl as one policy table. TRUE = the machine
+// aborts in this call: it returns before any stage runs (goto/slew/park reset their stage, home has no stage, the power-on
+// marks the startup aborted and drops its axis commands; what an abort does stays in the caller).
+// Until 0.12.0 these were five different IF conditions. Each row reproduces its prologue exactly, differences included; they
+// are the site-policy divergences of BROTLib's state-machine plan (decision 3: does a stop abort a power-on, does an error
+// abort a park), so step 5.1 (FB_CommandArbiter) can take this table as its stage-abort policy input.
+//
+//   machine  | bReset | bError | bStop | bInterrupted | NOT bCommand | bCommand
+//   goto     | abort  | abort  |   -   |    abort     |    abort     | bGoto
+//   slew     | abort  | abort  |   -   |    abort     |    abort     | bSlew
+//   gohome   | abort  | abort  |   -   |    abort     |      -       | bGoHome, not read
+//   park     | abort  |   -    | abort |    abort     |      -       | bPark, not read (bError is the emergency park, M2)
+//   poweron  | abort  | abort  | abort |    abort     |    abort     | bPower, after the failure checks of _PowerOn
+//
+// A stop reaches goto/slew/home through the arbitration (flags dropped, bInterrupted), not through this table.
+FUNCTION F_StageAbort : BOOL
+VAR_INPUT
+	eMachine		: E_StageMachine;
+	bReset			: BOOL;
+	bError			: BOOL;
+	bStop			: BOOL;
+	bInterrupted	: BOOL;
+	bCommand		: BOOL;		// the machine's own command flag (column bCommand above)
+END_VAR
+VAR
+	bOnReset		: BOOL;		// policy of the row: which input aborts
+	bOnError		: BOOL;
+	bOnStop			: BOOL;
+	bOnInterrupted	: BOOL;
+	bOnCommandDrop	: BOOL;		// NOT bCommand aborts
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[CASE eMachine OF
+	E_StageMachine.goto:
+		bOnReset := TRUE;	bOnError := TRUE;	bOnStop := FALSE;	bOnInterrupted := TRUE;	bOnCommandDrop := TRUE;
+	E_StageMachine.slew:
+		bOnReset := TRUE;	bOnError := TRUE;	bOnStop := FALSE;	bOnInterrupted := TRUE;	bOnCommandDrop := TRUE;
+	E_StageMachine.gohome:
+		bOnReset := TRUE;	bOnError := TRUE;	bOnStop := FALSE;	bOnInterrupted := TRUE;	bOnCommandDrop := FALSE;
+	E_StageMachine.park:
+		bOnReset := TRUE;	bOnError := FALSE;	bOnStop := TRUE;	bOnInterrupted := TRUE;	bOnCommandDrop := FALSE;
+	E_StageMachine.poweron:
+		bOnReset := TRUE;	bOnError := TRUE;	bOnStop := TRUE;	bOnInterrupted := TRUE;	bOnCommandDrop := TRUE;
+ELSE
+	// not reachable with the strict enum; abort is the safe answer
+	bOnReset := TRUE;	bOnError := TRUE;	bOnStop := TRUE;	bOnInterrupted := TRUE;	bOnCommandDrop := TRUE;
+END_CASE
+
+F_StageAbort := (bOnReset AND bReset) OR (bOnError AND bError) OR (bOnStop AND bStop) OR
+	(bOnInterrupted AND bInterrupted) OR (bOnCommandDrop AND NOT bCommand);
+]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

@@ -4,7 +4,8 @@
     <Declaration><![CDATA[// Characterization of the safe state per error class that had no test (#24 aim 6, step 1 of specs/plans/2026-11-02-reference-
 // implementation-issue-24.md; the table is specs/design/monetcommon-safe-states.md). These tests pin what FB_MonetTelescopeControl
 // does today on mock axes, with the line of the behaviour in a comment; they are not a specification. A test whose name ends in
-// _Current pins a behaviour that differs from the target of the table (decision D4) and is flipped by the fix (step 7). Every test
+// _Current pins a behaviour that differs from the target of the table (decision D4) and is flipped by the fix (step 7). The
+// Roof_Request_* tests and No_Roof_Request_On_Focus_Error specify bCloseRoofRequest (step 7 PR 1, D9; no clock, no power-on). Every test
 // owns a rig and runs over many PLC cycles (VAR_INST of the method, one Scan() per cycle). Failed checks are also noted in
 // GVL_Diag.sFailures (printed by Run-Tests.ps1).
 FUNCTION_BLOCK MonetSafeState_Tests EXTENDS TcUnit.FB_TestSuite
@@ -22,6 +23,12 @@ Home_Times_Out_Without_Park_Current();
 Clock_Invalid_Slew_Takes_The_Stop_Path();
 Watchdog_Parks_And_Closes_The_Roof_In_One_Scan();
 Invalid_Motion_Config_Is_Software_Error_32();
+Roof_Request_On_Axis_Errors();
+Roof_Request_On_Hydraulics_Error();
+Roof_Request_On_Estop();
+Roof_Request_On_Safety_Error();
+Roof_Request_On_Power_Failure();
+No_Roof_Request_On_Focus_Error();
 ]]></ST>
     </Implementation>
     <Method Name="Hydraulics_Error_While_Tracking_Keeps_Tracking_Current" Id="{f533c953-e643-4316-8d3d-4e35919c0034}">
@@ -525,6 +532,9 @@ CASE nStep OF
 		F_Note(bFailed := NOT (rig.fbBrakeHyd.nDisableCalls = 0), sText := CONCAT(sTest, 'the hydraulics stay on'));
 		AssertTrue(Condition := rig.fbTel.bError AND rig.fbTel.ReadyState = -1.0, Message := 'the error is latched, READY_STATE -1.0');
 		F_Note(bFailed := NOT (rig.fbTel.bError AND rig.fbTel.ReadyState = -1.0), sText := CONCAT(sTest, 'the error is latched, READY_STATE -1.0'));
+		// step 7 PR 1 (D9): a software error is recoverable, no roof close request (stays so after the flip of this test)
+		AssertFalse(Condition := rig.fbTel.bCloseRoofRequest, Message := 'no roof close request for 16#10');
+		F_Note(bFailed := (rig.fbTel.bCloseRoofRequest), sText := CONCAT(sTest, 'no roof close request for 16#10'));
 		nStep := 99;
 		TEST_FINISHED();
 	END_IF
@@ -787,6 +797,9 @@ CASE nStep OF
 			Message := 'the defaults stay in use');
 		F_Note(bFailed := NOT (rig.fbTel.stMotionUsed.fGotoMinElevation = 2.0 AND rig.fbTel.stMotionUsed.fGotoMaxElevation = 89.5),
 			sText := CONCAT(sTest, 'the defaults stay in use'));
+		// step 7 PR 1 (D9): a configuration error is recoverable, no roof close request
+		AssertFalse(Condition := rig.fbTel.bCloseRoofRequest, Message := 'no roof close request for 16#32');
+		F_Note(bFailed := (rig.fbTel.bCloseRoofRequest), sText := CONCAT(sTest, 'no roof close request for 16#32'));
 		rig.fbTel.Reset();
 		nStep := 20;
 		nCycles := 0;
@@ -808,6 +821,330 @@ CASE nStep OF
 		TEST_FINISHED();
 	END_IF
 END_CASE
+
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Roof_Request_On_Axis_Errors" Id="{7dd8bf42-fdcb-48ef-8970-6f1739a986dc}">
+      <Declaration><![CDATA[// #24 step 7 PR 1 (D9, row axis error): an elevation, azimuth and derotator error each set bCloseRoofRequest (M: next to bError).
+// The axis error goes only with a reset: the telescope resets the axis in the reset scan (the cause is still active, the
+// request stays), bReset is held while bError, so in the next scan the request is cleared without a second reset.
+// No clock, no power-on (the telescope is parked at the start, so no emergency park).
+METHOD PRIVATE Roof_Request_On_Axis_Errors
+VAR_INST
+	rig			: FB_MonetRig;
+	nStep		: INT;
+	nCycles		: UINT;
+	sTest		: STRING(80);
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Roof_Request_On_Axis_Errors');
+sTest := 'Roof_Request_On_Axis_Errors: ';
+IF nStep >= 90 THEN
+	RETURN;
+END_IF
+rig.Scan();
+nCycles := nCycles + 1;
+// one step every 3 scans: the cause or the reset of the step before has been scanned
+IF nCycles >= 3 THEN
+	nCycles := 0;
+	CASE nStep OF
+	0:
+		AssertFalse(Condition := rig.fbTel.bCloseRoofRequest, Message := 'no request without a cause');
+		F_Note(bFailed := (rig.fbTel.bCloseRoofRequest), sText := CONCAT(sTest, 'no request without a cause'));
+		rig.InjectElevationError(16#4550);
+		nStep := 10;
+	10:
+		AssertTrue(Condition := rig.fbTel.bCloseRoofRequest, Message := 'the elevation error sets the request');
+		F_Note(bFailed := NOT (rig.fbTel.bCloseRoofRequest), sText := CONCAT(sTest, 'the elevation error sets the request'));
+		rig.fbTel.Reset();
+		nStep := 20;
+	20:
+		AssertTrue(Condition := NOT rig.fbTel.bCloseRoofRequest AND NOT rig.fbTel.bError, Message := 'one reset clears the elevation error and the request');
+		F_Note(bFailed := NOT (NOT rig.fbTel.bCloseRoofRequest AND NOT rig.fbTel.bError), sText := CONCAT(sTest, 'one reset clears the elevation error and the request'));
+		rig.InjectAzimuthError(16#4550);
+		nStep := 30;
+	30:
+		AssertTrue(Condition := rig.fbTel.bCloseRoofRequest, Message := 'the azimuth error sets the request');
+		F_Note(bFailed := NOT (rig.fbTel.bCloseRoofRequest), sText := CONCAT(sTest, 'the azimuth error sets the request'));
+		rig.fbTel.Reset();
+		nStep := 40;
+	40:
+		AssertTrue(Condition := NOT rig.fbTel.bCloseRoofRequest AND NOT rig.fbTel.bError, Message := 'one reset clears the azimuth error and the request');
+		F_Note(bFailed := NOT (NOT rig.fbTel.bCloseRoofRequest AND NOT rig.fbTel.bError), sText := CONCAT(sTest, 'one reset clears the azimuth error and the request'));
+		rig.InjectDerotatorError(16#4550);
+		nStep := 50;
+	50:
+		AssertTrue(Condition := rig.fbTel.bCloseRoofRequest, Message := 'the derotator error sets the request');
+		F_Note(bFailed := NOT (rig.fbTel.bCloseRoofRequest), sText := CONCAT(sTest, 'the derotator error sets the request'));
+		rig.fbTel.Reset();
+		nStep := 60;
+	60:
+		AssertTrue(Condition := NOT rig.fbTel.bCloseRoofRequest AND NOT rig.fbTel.bError, Message := 'one reset clears the derotator error and the request');
+		F_Note(bFailed := NOT (NOT rig.fbTel.bCloseRoofRequest AND NOT rig.fbTel.bError), sText := CONCAT(sTest, 'one reset clears the derotator error and the request'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_CASE
+END_IF
+
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Roof_Request_On_Hydraulics_Error" Id="{020b97fd-3bb6-4c6c-912e-b4e6b5eef17d}">
+      <Declaration><![CDATA[// #24 step 7 PR 1 (D9, row hydraulics error): fbHydraulics.Error sets bCloseRoofRequest although it is no telescope error. The
+// telescope reset does not reset the hydraulics (HalfBROT Reset(), the MAIN reset button), so a reset with the error still
+// there keeps the request; after the hydraulics reset it stays latched until the next telescope reset.
+METHOD PRIVATE Roof_Request_On_Hydraulics_Error
+VAR_INST
+	rig			: FB_MonetRig;
+	nStep		: INT;
+	nCycles		: UINT;
+	sTest		: STRING(80);
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Roof_Request_On_Hydraulics_Error');
+sTest := 'Roof_Request_On_Hydraulics_Error: ';
+IF nStep >= 90 THEN
+	RETURN;
+END_IF
+rig.Scan();
+nCycles := nCycles + 1;
+// one step every 3 scans: the cause or the reset of the step before has been scanned
+IF nCycles >= 3 THEN
+	nCycles := 0;
+	CASE nStep OF
+	0:
+		AssertFalse(Condition := rig.fbTel.bCloseRoofRequest, Message := 'no request without a cause');
+		F_Note(bFailed := (rig.fbTel.bCloseRoofRequest), sText := CONCAT(sTest, 'no request without a cause'));
+		rig.fbBrakeHyd.InjectError();
+		nStep := 10;
+	10:
+		AssertTrue(Condition := rig.fbTel.bCloseRoofRequest, Message := 'the hydraulics error sets the request');
+		F_Note(bFailed := NOT (rig.fbTel.bCloseRoofRequest), sText := CONCAT(sTest, 'the hydraulics error sets the request'));
+		rig.fbTel.Reset();
+		nStep := 20;
+	20:
+		AssertTrue(Condition := rig.fbTel.bCloseRoofRequest, Message := 'a reset with the hydraulics error keeps it');
+		F_Note(bFailed := NOT (rig.fbTel.bCloseRoofRequest), sText := CONCAT(sTest, 'a reset with the hydraulics error keeps it'));
+		rig.fbBrakeHyd.Reset();
+		nStep := 30;
+	30:
+		AssertTrue(Condition := rig.fbTel.bCloseRoofRequest, Message := 'latched after the hydraulics reset');
+		F_Note(bFailed := NOT (rig.fbTel.bCloseRoofRequest), sText := CONCAT(sTest, 'latched after the hydraulics reset'));
+		rig.fbTel.Reset();
+		nStep := 40;
+	40:
+		AssertFalse(Condition := rig.fbTel.bCloseRoofRequest, Message := 'a reset without a cause clears it');
+		F_Note(bFailed := (rig.fbTel.bCloseRoofRequest), sText := CONCAT(sTest, 'a reset without a cause clears it'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_CASE
+END_IF
+
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Roof_Request_On_Estop" Id="{880f3c99-15e7-4f8e-8783-ead830e388fc}">
+      <Declaration><![CDATA[// #24 step 7 PR 1 (D9, row E-stop): the E-stop sets bCloseRoofRequest. The E-stop circuit also cuts the roof drives, so the request
+// must outlive it: a reset during the E-stop keeps it, it stays latched after the release, and only a reset without a cause
+// clears it.
+METHOD PRIVATE Roof_Request_On_Estop
+VAR_INST
+	rig			: FB_MonetRig;
+	nStep		: INT;
+	nCycles		: UINT;
+	sTest		: STRING(80);
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Roof_Request_On_Estop');
+sTest := 'Roof_Request_On_Estop: ';
+IF nStep >= 90 THEN
+	RETURN;
+END_IF
+rig.Scan();
+nCycles := nCycles + 1;
+// one step every 3 scans: the cause or the reset of the step before has been scanned
+IF nCycles >= 3 THEN
+	nCycles := 0;
+	CASE nStep OF
+	0:
+		AssertFalse(Condition := rig.fbTel.bCloseRoofRequest, Message := 'no request without a cause');
+		F_Note(bFailed := (rig.fbTel.bCloseRoofRequest), sText := CONCAT(sTest, 'no request without a cause'));
+		rig.SetEstop(TRUE);
+		nStep := 10;
+	10:
+		AssertTrue(Condition := rig.fbTel.bCloseRoofRequest, Message := 'the E-stop sets the request');
+		F_Note(bFailed := NOT (rig.fbTel.bCloseRoofRequest), sText := CONCAT(sTest, 'the E-stop sets the request'));
+		rig.fbTel.Reset();
+		nStep := 20;
+	20:
+		AssertTrue(Condition := rig.fbTel.bCloseRoofRequest, Message := 'a reset during the E-stop keeps it');
+		F_Note(bFailed := NOT (rig.fbTel.bCloseRoofRequest), sText := CONCAT(sTest, 'a reset during the E-stop keeps it'));
+		rig.SetEstop(FALSE);
+		nStep := 30;
+	30:
+		AssertTrue(Condition := rig.fbTel.bCloseRoofRequest, Message := 'latched after the release');
+		F_Note(bFailed := NOT (rig.fbTel.bCloseRoofRequest), sText := CONCAT(sTest, 'latched after the release'));
+		rig.fbTel.Reset();
+		nStep := 40;
+	40:
+		AssertFalse(Condition := rig.fbTel.bCloseRoofRequest, Message := 'a reset without a cause clears it');
+		F_Note(bFailed := (rig.fbTel.bCloseRoofRequest), sText := CONCAT(sTest, 'a reset without a cause clears it'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_CASE
+END_IF
+
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Roof_Request_On_Safety_Error" Id="{81dfce06-d633-456d-ae15-e1171c532a06}">
+      <Declaration><![CDATA[// #24 step 7 PR 1 (D9, row safety error): bSafetyError (SafetyHandling.error, no E-stop) sets bCloseRoofRequest; latched and reset
+// as for the E-stop.
+METHOD PRIVATE Roof_Request_On_Safety_Error
+VAR_INST
+	rig			: FB_MonetRig;
+	nStep		: INT;
+	nCycles		: UINT;
+	sTest		: STRING(80);
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Roof_Request_On_Safety_Error');
+sTest := 'Roof_Request_On_Safety_Error: ';
+IF nStep >= 90 THEN
+	RETURN;
+END_IF
+rig.Scan();
+nCycles := nCycles + 1;
+// one step every 3 scans: the cause or the reset of the step before has been scanned
+IF nCycles >= 3 THEN
+	nCycles := 0;
+	CASE nStep OF
+	0:
+		AssertFalse(Condition := rig.fbTel.bCloseRoofRequest, Message := 'no request without a cause');
+		F_Note(bFailed := (rig.fbTel.bCloseRoofRequest), sText := CONCAT(sTest, 'no request without a cause'));
+		rig.SetSafetyError(TRUE);
+		nStep := 10;
+	10:
+		AssertTrue(Condition := rig.fbTel.bCloseRoofRequest, Message := 'the safety error sets the request');
+		F_Note(bFailed := NOT (rig.fbTel.bCloseRoofRequest), sText := CONCAT(sTest, 'the safety error sets the request'));
+		rig.fbTel.Reset();
+		nStep := 20;
+	20:
+		AssertTrue(Condition := rig.fbTel.bCloseRoofRequest, Message := 'a reset with the safety error keeps it');
+		F_Note(bFailed := NOT (rig.fbTel.bCloseRoofRequest), sText := CONCAT(sTest, 'a reset with the safety error keeps it'));
+		rig.SetSafetyError(FALSE);
+		nStep := 30;
+	30:
+		AssertTrue(Condition := rig.fbTel.bCloseRoofRequest, Message := 'latched after the safety error is gone');
+		F_Note(bFailed := NOT (rig.fbTel.bCloseRoofRequest), sText := CONCAT(sTest, 'latched after the safety error is gone'));
+		rig.fbTel.Reset();
+		nStep := 40;
+	40:
+		AssertFalse(Condition := rig.fbTel.bCloseRoofRequest, Message := 'a reset without a cause clears it');
+		F_Note(bFailed := (rig.fbTel.bCloseRoofRequest), sText := CONCAT(sTest, 'a reset without a cause clears it'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_CASE
+END_IF
+
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Roof_Request_On_Power_Failure" Id="{00264b16-ba15-4b5e-b428-f8b71d6b9d53}">
+      <Declaration><![CDATA[// #24 step 7 PR 1 (D9, row power failure): bMainReady FALSE (PowerMonitoring.phaseOK) sets bCloseRoofRequest, so a phase dip that is
+// gone again still requests the close; latched and reset as for the E-stop. Not M's bPowerFailure (a power-on failure).
+METHOD PRIVATE Roof_Request_On_Power_Failure
+VAR_INST
+	rig			: FB_MonetRig;
+	nStep		: INT;
+	nCycles		: UINT;
+	sTest		: STRING(80);
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Roof_Request_On_Power_Failure');
+sTest := 'Roof_Request_On_Power_Failure: ';
+IF nStep >= 90 THEN
+	RETURN;
+END_IF
+rig.Scan();
+nCycles := nCycles + 1;
+// one step every 3 scans: the cause or the reset of the step before has been scanned
+IF nCycles >= 3 THEN
+	nCycles := 0;
+	CASE nStep OF
+	0:
+		AssertFalse(Condition := rig.fbTel.bCloseRoofRequest, Message := 'no request without a cause');
+		F_Note(bFailed := (rig.fbTel.bCloseRoofRequest), sText := CONCAT(sTest, 'no request without a cause'));
+		rig.SetMainReady(FALSE);
+		nStep := 10;
+	10:
+		AssertTrue(Condition := rig.fbTel.bCloseRoofRequest, Message := 'the power failure sets the request');
+		F_Note(bFailed := NOT (rig.fbTel.bCloseRoofRequest), sText := CONCAT(sTest, 'the power failure sets the request'));
+		rig.fbTel.Reset();
+		nStep := 20;
+	20:
+		AssertTrue(Condition := rig.fbTel.bCloseRoofRequest, Message := 'a reset during the power failure keeps it');
+		F_Note(bFailed := NOT (rig.fbTel.bCloseRoofRequest), sText := CONCAT(sTest, 'a reset during the power failure keeps it'));
+		rig.SetMainReady(TRUE);
+		nStep := 30;
+	30:
+		AssertTrue(Condition := rig.fbTel.bCloseRoofRequest, Message := 'latched when the supply is back');
+		F_Note(bFailed := NOT (rig.fbTel.bCloseRoofRequest), sText := CONCAT(sTest, 'latched when the supply is back'));
+		rig.fbTel.Reset();
+		nStep := 40;
+	40:
+		AssertFalse(Condition := rig.fbTel.bCloseRoofRequest, Message := 'a reset without a cause clears it');
+		F_Note(bFailed := (rig.fbTel.bCloseRoofRequest), sText := CONCAT(sTest, 'a reset without a cause clears it'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_CASE
+END_IF
+
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="No_Roof_Request_On_Focus_Error" Id="{750cde95-081b-44f0-9886-388f38ea3f96}">
+      <Declaration><![CDATA[// #24 step 7 PR 1 (D9, row focus error): a focus error is a telescope error (bHwError, bError) but recoverable: no
+// bCloseRoofRequest (open: plan 8.4). The software errors are checked in Goto_Times_Out_Without_Park_Current (16#10) and
+// Invalid_Motion_Config_Is_Software_Error_32 (16#32).
+METHOD PRIVATE No_Roof_Request_On_Focus_Error
+VAR_INST
+	rig			: FB_MonetRig;
+	nStep		: INT;
+	nCycles		: UINT;
+	sTest		: STRING(80);
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('No_Roof_Request_On_Focus_Error');
+sTest := 'No_Roof_Request_On_Focus_Error: ';
+IF nStep >= 90 THEN
+	RETURN;
+END_IF
+rig.Scan();
+nCycles := nCycles + 1;
+// one step every 3 scans: the cause or the reset of the step before has been scanned
+IF nCycles >= 3 THEN
+	nCycles := 0;
+	CASE nStep OF
+	0:
+		rig.InjectFocusError(16#4550);
+		nStep := 10;
+	10:
+		AssertTrue(Condition := rig.fbTel.bError, Message := 'the focus error is a telescope error');
+		F_Note(bFailed := NOT (rig.fbTel.bError), sText := CONCAT(sTest, 'the focus error is a telescope error'));
+		AssertFalse(Condition := rig.fbTel.bCloseRoofRequest, Message := 'no request for a focus error');
+		F_Note(bFailed := (rig.fbTel.bCloseRoofRequest), sText := CONCAT(sTest, 'no request for a focus error'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_CASE
+END_IF
 
 ]]></ST>
       </Implementation>

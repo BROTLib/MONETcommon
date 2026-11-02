@@ -53,6 +53,7 @@ were orphaned forks of HalfBROT's actively-maintained versions.
 | `FB_MonetPendantControl` covers | Selection 1-3 with the key on: hold-to-run open/close of all covers via `HalfBROT.FB_CoverControl` (one copy since 0.10.0, needs HalfBROT with `Stop()`) |
 | `FB_MonetMqttWatchdog` | Parks the telescope and closes the roof after 30 s without an MQTT broker connection (armed after the first connect) |
 | `FB_MonetDiagnostics` | `diagnostics/base/*` telemetry: telescope interrupted/ready/busy/stopped, per-axis error/error ID/enable, safety error/estop/state; on change plus a 30 s heartbeat |
+| `FB_MonetTelescopeTelemetry` | The `telescope/dome` telemetry record of `FB_MonetTelescopeControl` from an `ST_MonetTelemetry` snapshot (used internally) |
 
 ### FB_MonetTelescopeControl
 
@@ -86,6 +87,16 @@ What the block does for each error class (axis, focus, software, hydraulics, cov
 cabinet temperature, manual mode, PLC restart), with the code line, the target safe state and the test that pins it:
 [specs/design/monetcommon-safe-states.md](specs/design/monetcommon-safe-states.md).
 
+**Roof close request (`bCloseRoofRequest`, #24 step 7, D9).** An output that says the roof should be closed, set only by the
+serious error classes: an azimuth/elevation/derotator axis error, a hydraulics error (`fbHydraulics.Error`), the E-stop
+(`bEstopTriggered`), a safety error (`bSafetyError`) or a power failure (`bMainReady` FALSE). Not by a focus error, the
+software errors (timeouts, config, goto target) or `bError`/READY_STATE -1.0 in general. Latched on the rising edge, so a
+short E-stop or phase dip still requests the close; `reset=1` clears it only once no cause is active (an axis error and the
+request go with one reset; a hydraulics error needs the hydraulics reset first). A cause already present at the PLC start
+sets it too. It is a signal only: the library does not act on it, the site `MAIN` closes the roof on it (behind its enable
+switch, only in automatic; not wired yet, step 7 PR 2). It is updated in every automatic scan; in manual
+(`SuspendAutomatic`) it keeps its last value. The MQTT watchdog closes the roof on its own, as before.
+
 **Motion limits (`stMotion`, #24).** The input `stMotion : BROTLib.ST_MotionConfig` (BROTLib >= 0.17.0, alt-az only)
 holds the move velocities (azimuth/derotator 10.0, elevation 5.0 deg/s), the timeouts (goto/home/slew state machine
 600 s, park/gohome/goto/slew command 2 min, idle park, power-on and track 12 h, stop and suspend stop 15 s), the goto
@@ -100,6 +111,25 @@ Deprecated for one release (removed in the next minor): `fElevationMoveVelocity`
 (5.0, 1.0, 1.0, 14400.0, 14400.0) wins over the `stMotion` field and is logged once (WARN `deprecated inputs override
 stMotion ...`). MONET/S passes `fElevationMoveVelocity := 3.0` and needs no change; move it to
 `stMotion.fElevationMoveVelocity` at the next re-pin.
+
+**Stage machines (#24 step 3).** Goto, slew, park and power-on step through the enumerations `E_GotoStage`,
+`E_SlewStage`, `E_ParkStage` and `E_PowerOnStage`, whose values are the old stage numbers (the progress log, e.g.
+`GoTo progress: 25`, reads as before); the read-only properties `GotoStage`, `SlewStage`, `ParkStage` and `PowerOnStage`
+return the current stage. Home (`_HomeTelescope`) has no stage. When a machine aborts is one table, `F_StageAbort` (goto/slew: reset,
+error, interrupt or the flag dropped; home: reset, error, interrupt; park: reset, stop, interrupt, not an error, which is
+the emergency park; power-on: all of them). The software errors of the machines (16#10, 16#15/16#16, 16#30, 16#40) are
+raised in one place (`_RaiseSoftwareError`, text in `sSoftwareErrorText`) and latched until `reset=1` as before.
+
+**Telemetry (#24 step 4a).** The MONET fields of the telescope telemetry (`TELESCOPE.READY_STATE`/`MOTION_STATE`/
+`INTERRUPTED_AUTO_CLEAR_COUNT`, `WEATHER.REFRACTION.*`, `OBJECT.*`, `POINTING.*`, `POSITION.LOCAL/INSTRUMENTAL/HORIZONTAL/EQUATORIAL.*`,
+44 publishes after BROTLib's `_PublishTelemetry`, every 500 ms while moving or tracking, otherwise every second) are published by
+`FB_MonetTelescopeTelemetry` from the snapshot `ST_MonetTelemetry` (instance `stTelemetry`, ADS-readable), which the telescope
+fills once per publish. Topics, order, formats and conditions are those of 0.12.0.
+
+**Targets (#24 step 4b).** Once per automatic scan, after the error reaction and before the horizon guard, the private
+`_ComputeTargets` computes the refraction weather, the commanded target (eq2hor, pointing model, offsets, derotator,
+velocities, the turn inside the axis limits) and the reported position (inverse pointing model, hor2eq). The code is that of
+0.12.0, moved unchanged out of the body.
 
 `bIsParked` means *secured* (covers closed, brake closed, hydraulics off, axes disabled), not *at the park
 position*: the emergency park, and a park after a reset or an aborted power-on, secure the telescope where it stands.
