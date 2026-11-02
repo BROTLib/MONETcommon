@@ -65,6 +65,14 @@ VAR_OUTPUT
 	fRefractionPressure		: LREAL;	// hPa, 0.0 = estimate from altitude
 	fRefractionTemperature	: LREAL;	// deg C, only meaningful if bRefractionTemperatureSet
 	bRefractionTemperatureSet	: BOOL;	// FALSE = estimate from altitude
+
+	// #24 step 7 PR 1 (plan D9, specs/design/monetcommon-safe-states.md "Roof"): the roof should be closed. A signal only, nothing
+	// in this library acts on it; the site MAIN closes the roof on it (behind its enable switch, only in automatic). Set by the
+	// serious error classes only: an Az/El/Der axis error, a hydraulics error, E-stop, safety error, power failure (NOT bMainReady).
+	// Not by the focus error or the software errors (bError) and not by bPowerFailure (a power-on failure). Latched on the rising
+	// edge of a cause, cleared by bReset once no cause is active. Updated in every automatic scan; in manual (SuspendAutomatic)
+	// it keeps the value of the last automatic scan.
+	bCloseRoofRequest	: BOOL;
 END_VAR
 VAR
     fbStartup : BROTLib.FB_StartupControl;
@@ -193,6 +201,11 @@ VAR
 	bHwErrorLast			: BOOL;	// edge memory, updated only where the request is made
 	bErrorParkStarted		: BOOL;	// one scan, logged
 	ErrorParkEvent			: FB_EventLog;
+	// #24 step 7 PR 1 (D9): a cause of bCloseRoofRequest is active in this scan, and its value of the last automatic scan. The
+	// initial FALSE of bCloseRoofCauseLast means a cause already present at the PLC start (E-stop, no phase) sets the request
+	// (conservative, plan 8.7). To arm only after the start instead, initialise it with TRUE.
+	bCloseRoofCause			: BOOL;
+	bCloseRoofCauseLast		: BOOL := FALSE;
 	// #113: no power-on has completed since the PLC start; its axis error is the expected Wake&Shake fault
 	bFirstPowerOnPending	: BOOL := TRUE;
 	bErrorParkExempt		: BOOL;	// one scan, logged
@@ -314,7 +327,23 @@ bHwError := fbElevation.Error OR
 		 fbFocus.Error OR
 		 fbDerotator.bError;
 bError := bHwError OR bSoftwareError;
-			
+
+// #24 step 7 PR 1 (D9): the roof close request, from the serious classes only (not bError: the focus error and the software
+// errors are recoverable; not bPowerFailure, a power-on failure; power failure is NOT bMainReady, the phase monitor). Latched
+// on the rising edge, so a cause that is gone again (a short E-stop, a phase dip) still requests the close; bReset (held while
+// bError, so one reset that clears an axis error also clears the request in the next scan) clears it only while no cause is
+// active. Here and not later: nothing in the body returns early, so it is evaluated in every automatic scan, also in the
+// error branch below and in E-stop. A signal only: nothing in this block reads it.
+bCloseRoofCause := fbElevation.Error OR fbAzimuth.bError OR fbDerotator.bError OR
+		fbHydraulics.Error OR bEstopTriggered OR bSafetyError OR NOT bMainReady;
+IF bReset AND NOT bCloseRoofCause THEN
+	bCloseRoofRequest := FALSE;
+END_IF
+IF bCloseRoofCause AND NOT bCloseRoofCauseLast THEN
+	bCloseRoofRequest := TRUE;
+END_IF
+bCloseRoofCauseLast := bCloseRoofCause;
+
 // #83: flags set directly (ADS write, pendant) instead of through a method are decided once, on their rising edge.
 // Nested IFs on purpose: ST does not short-circuit AND and _AcceptMove must only run on the edge.
 IF bGoHome AND NOT bGoHomeChecked THEN
