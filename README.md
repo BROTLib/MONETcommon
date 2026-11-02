@@ -82,6 +82,10 @@ The brake can be opened in the window with the elevation error latched, without 
 the brake once, and while the window is open the brake is closed again only by an E-stop, a hydraulics error, a safety
 error (input `bSafetyError`, wire it to `SafetyHandling.error`; FALSE = not enforced) or covers that are not open (#155).
 
+What the block does for each error class (axis, focus, software, hydraulics, covers, E-stop, power, clock, MQTT,
+cabinet temperature, manual mode, PLC restart), with the code line, the target safe state and the test that pins it:
+[specs/design/monetcommon-safe-states.md](specs/design/monetcommon-safe-states.md).
+
 `bIsParked` means *secured* (covers closed, brake closed, hydraulics off, axes disabled), not *at the park
 position*: the emergency park, and a park after a reset or an aborted power-on, secure the telescope where it stands.
 `bParkedInPlace` (MQTT `diagnostics/base/ParkedInPlace`, WARN log "parked in place at el .. az ..") is TRUE then; it drops

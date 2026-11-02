@@ -1,7 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
   <POU Name="FB_CoversMock" Id="{f17dfb05-8c2f-48a0-9523-e0aa4e3eb81e}" SpecialFunc="None">
-    <Declaration><![CDATA[// Mock of the mirror covers (I_MirrorCovers): Open/Close take effect at once.
+    <Declaration><![CDATA[// Mock of the mirror covers (I_MirrorCovers): Open/Close take effect at once. After InjectError() the covers report an error
+// and do not move (HalfBROT FB_CoverControl inhibits every cover output while bError), until Reset(); Open/Close are still counted.
 FUNCTION_BLOCK FB_CoversMock IMPLEMENTS BROTLib.I_MirrorCovers
 VAR
 	bOpened		: BOOL;
@@ -19,10 +20,12 @@ END_VAR
       <Declaration><![CDATA[METHOD Open : BOOL
 ]]></Declaration>
       <Implementation>
-        <ST><![CDATA[bOpened := TRUE;
-bClosed := FALSE;
+        <ST><![CDATA[IF NOT bFailed THEN
+	bOpened := TRUE;
+	bClosed := FALSE;
+END_IF
 nOpenCalls := nOpenCalls + 1;
-Open := TRUE;
+Open := NOT bFailed;
 ]]></ST>
       </Implementation>
     </Method>
@@ -30,10 +33,21 @@ Open := TRUE;
       <Declaration><![CDATA[METHOD Close : BOOL
 ]]></Declaration>
       <Implementation>
-        <ST><![CDATA[bOpened := FALSE;
-bClosed := TRUE;
+        <ST><![CDATA[IF NOT bFailed THEN
+	bOpened := FALSE;
+	bClosed := TRUE;
+END_IF
 nCloseCalls := nCloseCalls + 1;
-Close := TRUE;
+Close := NOT bFailed;
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="InjectError" Id="{63619404-82d7-479d-8d28-e715d56d9cfa}">
+      <Declaration><![CDATA[// the covers report an error (Error) and stop where they are until Reset() (MonetSafeState_Tests)
+METHOD InjectError
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[bFailed := TRUE;
 ]]></ST>
       </Implementation>
     </Method>

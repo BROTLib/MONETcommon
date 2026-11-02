@@ -1,7 +1,9 @@
 # MONETcommon as a reference implementation (#24, code review finding D)
 
 Date: 2026-11-02. Status: **proposed, plan only, no code changed. Decisions D1-D7 taken (Tim, 2026-11-02, section 7);
-the open items left are in section 8.**
+the open items left are in section 8.** Steps 0-1 written 2026-11-02 on `feat/safe-state-table-and-tests`: the
+table is [../design/monetcommon-safe-states.md](../design/monetcommon-safe-states.md) (cells corrected against 0.11.2), the suite
+`MonetSafeState_Tests`; not compiled or run yet.
 Repo: BROTLib/MONETcommon (steps 2a/2b also BROTLib and IAG50cm). Base: read at `develop` @ `adc1013` (0.11.1, pins
 BROTLib 0.15.1, HalfBROT 0.10.1); line numbers are from that commit. `origin/develop` has since moved to `c34470f`
 (0.11.2, pins BROTLib 0.16.0 / HalfBROT 0.10.2; pendant release-on-exit #3, null-reference fix #156); none of that
