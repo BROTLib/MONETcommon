@@ -43,6 +43,7 @@ VAR
 	fbMonetBrakeReleaseTests	: MonetBrakeRelease_Tests;
 	fbMonetTimeoutsTests : MonetTimeouts_Tests;
 	fbMonetSafeStateTests	: MonetSafeState_Tests;
+	fbStageAbortTests	: F_StageAbort_Tests;	// suite 40 of 40 (MAXNUMBEROFTESTSUITES)
 END_VAR
 ]]></Declaration>
     <Implementation>

@@ -6,6 +6,12 @@ Code read at `develop` @ `c34470f` (MONETcommon 0.11.2, pins BROTLib 0.16.0 / Ha
 MONETS `develop` @ `3757306` and MONETN `develop` @ `9ae07bb`.
 
 **M** = `MONETcommon/MONETcommon/FB_MonetTelescopeControl.TcPOU`; `M:n` is the line in that file (XML included).
+Line numbers are those of `c34470f` and have moved since (step 2c, 0.12.0; step 3 of the plan alone shifts the body by
++9 lines from the new declarations, and more in and after the stage-machine methods, the properties and
+`_RaiseSoftwareError`). Step 3 is behaviour-neutral, no cell below changes; where a cell cites a stage machine read it by name:
+the stages are `E_GotoStage`/`E_SlewStage`/`E_ParkStage`/`E_PowerOnStage` with the same numbers (stage 0/80 of the park
+is `prepare`/`secure`, stage 0 of the power-on `open_covers`), the software errors 16#10/16#15/16#16/16#30/16#40 are
+raised by `_RaiseSoftwareError`, and each prologue is a row of `F_StageAbort`.
 Marking as in the plan: **[verified]** = read in the code on 2026-11-02, **[unverified]** = my reading, to be checked
 by a test, CI or on site. Nothing here has been run on a PLC; the rig tests named below are characterization tests on
 mock axes (`MONETcommonTests`), they do not model NC timing, STO/TwinSAFE or the hydraulic brake under motion.

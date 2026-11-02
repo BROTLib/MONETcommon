@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="E_ParkStage" Id="{324b041c-0e61-470d-a5ad-136002d664d6}">
+    <Declaration><![CDATA[// #24 step 3a: stage of FB_MonetTelescopeControl._ParkTelescope (property ParkStage). The values are the stage numbers of
+// 0.12.0 and earlier, so the log ('Parking progress: %s') and ADS watch values read as before.
+{attribute 'qualified_only'}
+{attribute 'strict'}
+TYPE E_ParkStage :
+(
+	prepare := 0,			// move flags dropped; drive to the park position (untrack) or park in place (secure, #86/#87)
+	untrack := 10,			// tracking of the three axes switched off
+	start_move := 20,		// park targets written, MoveAxis until all three axes are busy
+	wait_moves := 40,		// MoveAxis dropped per axis when its move is done, until nothing slews
+	disable_axes := 60,		// axes disabled at standstill
+	secure := 80,			// brake closed: covers closed, hydraulics off; waits for the covers closed
+	parked := 100			// bIsParked, bPark dropped (one call), then prepare
+);
+END_TYPE
+]]></Declaration>
+  </DUT>
+</TcPlcObject>
