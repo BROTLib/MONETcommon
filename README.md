@@ -87,6 +87,16 @@ What the block does for each error class (axis, focus, software, hydraulics, cov
 cabinet temperature, manual mode, PLC restart), with the code line, the target safe state and the test that pins it:
 [specs/design/monetcommon-safe-states.md](specs/design/monetcommon-safe-states.md).
 
+**Roof close request (`bCloseRoofRequest`, #24 step 7, D9).** An output that says the roof should be closed, set only by the
+serious error classes: an azimuth/elevation/derotator axis error, a hydraulics error (`fbHydraulics.Error`), the E-stop
+(`bEstopTriggered`), a safety error (`bSafetyError`) or a power failure (`bMainReady` FALSE). Not by a focus error, the
+software errors (timeouts, config, goto target) or `bError`/READY_STATE -1.0 in general. Latched on the rising edge, so a
+short E-stop or phase dip still requests the close; `reset=1` clears it only once no cause is active (an axis error and the
+request go with one reset; a hydraulics error needs the hydraulics reset first). A cause already present at the PLC start
+sets it too. It is a signal only: the library does not act on it, the site `MAIN` closes the roof on it (behind its enable
+switch, only in automatic; not wired yet, step 7 PR 2). It is updated in every automatic scan; in manual
+(`SuspendAutomatic`) it keeps its last value. The MQTT watchdog closes the roof on its own, as before.
+
 **Motion limits (`stMotion`, #24).** The input `stMotion : BROTLib.ST_MotionConfig` (BROTLib >= 0.17.0, alt-az only)
 holds the move velocities (azimuth/derotator 10.0, elevation 5.0 deg/s), the timeouts (goto/home/slew state machine
 600 s, park/gohome/goto/slew command 2 min, idle park, power-on and track 12 h, stop and suspend stop 15 s), the goto

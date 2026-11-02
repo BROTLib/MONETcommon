@@ -8,7 +8,8 @@ table is [../design/monetcommon-safe-states.md](../design/monetcommon-safe-state
 `feat/motion-config-input` (status at the step); not compiled or run yet. Step 3 written 2026-11-02 on
 `refactor/stage-machines` (status at the step); not compiled or run yet. Step 4a written 2026-11-02 on
 `refactor/telemetry-split` (status at the step); not compiled or run yet. Step 4b written 2026-11-02 on
-`refactor/compute-targets` (status at the step); not compiled or run yet.
+`refactor/compute-targets` (status at the step); not compiled or run yet. Step 7 PR 1 (`bCloseRoofRequest`) written
+2026-11-02 on `feat/close-roof-request` (status at step 7); not compiled or run yet.
 Repo: BROTLib/MONETcommon (steps 2a/2b also BROTLib and IAG50cm). Base: read at `develop` @ `adc1013` (0.11.1, pins
 BROTLib 0.15.1, HalfBROT 0.10.1); line numbers are from that commit. `origin/develop` has since moved to `c34470f`
 (0.11.2, pins BROTLib 0.16.0 / HalfBROT 0.10.2; pendant release-on-exit #3, null-reference fix #156); none of that
@@ -341,6 +342,33 @@ cases go into existing suites where they fit; step 6 frees slots by moving dupli
   reaction; 4 cover error hangs (park, power-on); 5 software-error timeouts ramp and park; 6 E-stop/safety error park
   and hydraulics off; 7 power failure; 8 focus error drive to park; 9 invalid clock (optional). The emergency-park
   hydraulics-off candidate is already true (design doc, findings).
+- **Status PR 1 (2026-11-02): written on `feat/close-roof-request` (from `develop` @ `1c157aa`), not compiled, not run (CI on
+  push). Version not bumped.**
+  - M: `VAR_OUTPUT bCloseRoofRequest : BOOL`, derived right after `bError` from `bCloseRoofCause := fbElevation.Error OR
+    fbAzimuth.bError OR fbDerotator.bError OR fbHydraulics.Error OR bEstopTriggered OR bSafetyError OR NOT bMainReady`; set on
+    its rising edge (`bCloseRoofCauseLast`), cleared by `bReset` while no cause is active (clear before set). Nothing reads it;
+    no existing output changed. Evaluated in every automatic scan (no early return in the body, so also in the error branch and
+    in E-stop); in manual (`SuspendAutomatic`) it keeps its last value, the `MAIN` of PR 2 gates on automatic anyway.
+  - Settled here (8.5): name `bCloseRoofRequest`; latch on the rising edge, cleared by `bReset` once no cause is active. The
+    clear is next to the set, not in `_HandleReset` (deviation from the design doc's wording; the cause is computed after it).
+    Because `bReset` is held while `bError`, one reset clears an axis error and, in the next scan, the request; a hydraulics
+    error needs its HalfBROT reset first, then a second `reset=1`. The `MAIN` switch name (`bRoofCloseOnErrorEnable`) is PR 2.
+  - Chosen for 8.7 (PLC start), easy to change: **no arming**. `bCloseRoofCauseLast` starts FALSE, so an E-stop or a missing
+    phase at the start sets the request (conservative: closing is the safe direction; needs `reset=1` after the cause is gone).
+    Arming instead = initialise `bCloseRoofCauseLast` with TRUE (one line). Check on site before PR 2 whether the restart
+    case is a nuisance.
+  - Tests (`MonetSafeState_Tests`, 40 of 40 suites, 16 tests): `Roof_Request_On_Axis_Errors` (El, Az, Der in turn; one reset
+    clears error and request), `Roof_Request_On_Hydraulics_Error`, `Roof_Request_On_Estop`, `Roof_Request_On_Safety_Error`,
+    `Roof_Request_On_Power_Failure` (each: set, kept by a reset with the cause active, latched after the cause is gone, cleared
+    by a reset without a cause), `No_Roof_Request_On_Focus_Error`; one extra assert each in
+    `Goto_Times_Out_Without_Park_Current` (16#10) and `Invalid_Motion_Config_Is_Software_Error_32` (16#32): no request. No clock
+    and no power-on needed (the request is computed from the first scan; the rig is parked at the start, so an axis error does
+    not start the emergency park). New rig method `FB_MonetRig.InjectDerotatorError`.
+  - Unverified until CI: the build (new output and variables, the rig method), the test timing (3 scans per step), and that the
+    HalfBROT `Reset()` of the axis mocks clears the injected error within the reset scan as assumed. Not covered by a test: the
+    manual-mode behaviour (output held) and the PLC-start case. To run (Tim): `tcbuild.yml` on push, or the library install +
+    `tctool MONETcommonTests.sln build run` of `MONETcommonTests/README.md`; on site (design doc, order item 1): ADS watch of
+    `bCloseRoofRequest` on an E-stop and a hydraulics stop, and after a PLC restart with the E-stop pressed.
 
 Order rationale: 0-1 make the safety net; 2a-2b put the shared types in place before MONETcommon consumes them;
 2c-4 are neutral and unblock tests and the SM plan's 5.2; 4c settles the client question; 5-6 break consumers and
@@ -419,7 +447,7 @@ are batched with re-pins; 7 is policy and goes row by row. Step 3 can come befor
   cabinet selector is on manual. The library only provides the signal (proposed: M output `bCloseRoofRequest`,
   derivation in the design doc). The MQTT watchdog is unchanged (always closes). The E-stop circuit also cuts the roof
   drives: a close during an active E-stop cannot act, the request is held and takes effect after release and restart.
-  Nothing implemented yet (step 7, PRs 1-2).
+  Step 7 PR 1 (the signal) written on `feat/close-roof-request`; PR 2 (`MAIN`) not started.
 
 ## 8. Still open
 
@@ -429,10 +457,12 @@ are batched with re-pins; 7 is policy and goes row by row. Step 3 can come befor
 4. **Focus error and the roof:** kept as no close (D9); is a focus error serious enough to close the roof?
 5. **Exact signal:** name (`bCloseRoofRequest` proposed), latch and reset (proposed: latched on the rising edge,
    cleared by `bReset` once no cause is active) and the name of the `MAIN` enable switch (`bRoofCloseOnErrorEnable`
-   proposed; a variable, a Visu switch or a cabinet input). Settle in step 7 PR 1.
+   proposed; a variable, a Visu switch or a cabinet input). Settled in step 7 PR 1: name and latch/reset as proposed (status
+   at step 7); the `MAIN` switch is left to PR 2.
 6. **Cabinet over-temperature (#32) and the roof:** not in the D9 list; today no close ("this is not weather").
 7. **Request at PLC start:** does `NOT bMainReady` or an active E-stop at boot set the request on every restart, so
-   that it needs an arming (like the watchdog's first connect) or a debounce? Check on site before step 7 PR 2.
+   that it needs an arming (like the watchdog's first connect) or a debounce? Check on site before step 7 PR 2. PR 1 chose
+   no arming (a cause at the start sets it; one-line change to arm, status at step 7).
    Also [unverified]: whether the roof drives have power on a phase loss, and whether a safety error (no E-stop)
    cuts them like the E-stop.
 
