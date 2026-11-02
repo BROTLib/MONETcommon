@@ -6,7 +6,8 @@ table is [../design/monetcommon-safe-states.md](../design/monetcommon-safe-state
 `MonetSafeState_Tests`; not compiled or run yet. Step 2a released in BROTLib 0.17.0. Step 2c written 2026-11-02 on
 `feat/motion-config-input` (status at the step); not compiled or run yet. Step 3 written 2026-11-02 on
 `refactor/stage-machines` (status at the step); not compiled or run yet. Step 4a written 2026-11-02 on
-`refactor/telemetry-split` (status at the step); not compiled or run yet.
+`refactor/telemetry-split` (status at the step); not compiled or run yet. Step 4b written 2026-11-02 on
+`refactor/compute-targets` (status at the step); not compiled or run yet.
 Repo: BROTLib/MONETcommon (steps 2a/2b also BROTLib and IAG50cm). Base: read at `develop` @ `adc1013` (0.11.1, pins
 BROTLib 0.15.1, HalfBROT 0.10.1); line numbers are from that commit. `origin/develop` has since moved to `c34470f`
 (0.11.2, pins BROTLib 0.16.0 / HalfBROT 0.10.2; pendant release-on-exit #3, null-reference fix #156); none of that
@@ -218,7 +219,7 @@ cases go into existing suites where they fit; step 6 frees slots by moving dupli
 - Release: patch each; consumers unaffected. The command part (arbitration) is SM plan 5.1/5.2, scheduled there
   after this step.
 - **Status 4a (2026-11-02): written on `refactor/telemetry-split` (from `develop` @ `644dce5`, 0.12.0, step 3 merged), not
-  compiled, not run (CI on push). Version not bumped. 4b not started.**
+  compiled, not run (CI on push). Version not bumped. 4b: see its status below.**
   - Catalogue of `_SendTelemetry` at `644dce5` (all `'telescope'`/`'dome'`, after `SUPER^._PublishTelemetry()`): 44 publishes per
     call (54 publish statements with the branches; the "67" above counted something else, probably SUPER's too), in this
     order: `TELESCOPE.READY_STATE` (LREAL `fReadyState`), `TELESCOPE.MOTION_STATE` (LREAL of the INT `nMotionState`),
@@ -256,6 +257,37 @@ cases go into existing suites where they fit; step 6 frees slots by moving dupli
     `rec` to the `I_Comm` input, the `LREAL_TO_STRING` texts `'1000.5'`/`'-12.25'` asserted literally. To run (Tim):
     `tcbuild.yml` on push, or the library install + `tctool MONETcommonTests.sln build run` of `MONETcommonTests/README.md`;
     on site: telemetry in Influx/pyobs unchanged (same fields and rate) on MONET/S, then N.
+- **Status 4b (2026-11-02): written on `refactor/compute-targets` (from `develop` @ `87197a0`, 0.12.0, steps 3 and 4a merged),
+  not compiled, not run (CI on push). Version not bumped.**
+  - The block at `87197a0` (M:367-497, after the #155 brake-on-error block, before the horizon guard): refraction weather
+    (`F_RefractionWeather` or the zero estimate, the two rejected-value `R_TRIG`/`ADSLOGSTR`), `eq2hor` (JD `fJd + fTimeOffset`),
+    `fbPointing` and the offsets, `F_TargetBelowHorizonWarning` (#94), `F_DerotatorPosition2` + `fDerotatorOffset`, the three
+    velocities, `F_AxisTurn` of azimuth and derotator (#2) and `bAzimuthNoTurn`/`bDerotatorNoTurn`, the current axis positions,
+    `fbPointingInverse`, both `hor2eq`. The plan's "M:322-466" was the same block at `adc1013` (approximate there too). The
+    weather is included because it feeds eq2hor and both hor2eq (its own comment: one weather for commanded and reported); the
+    horizon guard is not (SM plan D3 has it as its own hook `_HorizonGuard`).
+  - Done: `METHOD PRIVATE _ComputeTargets` (no return value, no inputs, no variables of its own), folder `internal methods`, the
+    131 lines moved verbatim (checked by `diff` against the old body lines); the body calls `_ComputeTargets();` at the same
+    place. Every variable read or written stays in the FB's `VAR` (body, stage machines, properties and telemetry read them);
+    `eq2hor`/`hor2eq` are the instances of `FB_AltAzTelescopeControl`. No `LineIds` entry added (the siblings `_ReadAxes`,
+    `_StopTx*` have none either; TwinCAT regenerates them).
+  - Test: none added. The rig suites run the body every scan and so the method (goto/track/slew/stop suites); the pure parts
+    have their own suites (`F_AxisTurn_Tests`, `F_TargetBelowHorizonWarning_Tests`, `F_AzimuthOffsetOnAxis_Tests`,
+    `F_GotoTargetCheck_Tests`). A case could not check anything specific to the move (a private method is not callable from a
+    test, and the order is the old one textually). Gap that exists before and after: no rig test asserts the computed target or
+    reported position values, nor the body-level no-turn refusal (`bAzimuthNoTurn` path) or the live-weather path.
+  - Read while doing it, **not changed** (behaviour kept): (1) `eq2hor` uses `fJd + fTimeOffset`, both `hor2eq` use `fJd`, so with a
+    non-zero `fTimeOffset` the reported RA/Dec are not the inverse of the commanded ones; BROTLib's `FB_RaDecCoordinates` adds
+    the offset to all its conversions [unverified whether `fTimeOffset` is ever non-zero on MONET]. (2) The second `hor2eq`
+    (sky position) has no `ha =>`, so there is no sky hour angle (none is published). (3) `fbPointing`/`fbPointingInverse` are
+    `REFERENCE TO` and called without `__ISVALIDREF` (like the axes before #156); `SuspendAutomatic` does not call the block, so
+    in manual mode `fElevationCurrent`/`fAzimuthCurrent` (the `Altitude`/`Azimuth` properties) and the RA/Dec stay at the last
+    automatic scan. (4) The block runs also while `fbTime.bValid` is FALSE (with the last valid `fJd`); only the motion is
+    refused then (`bStop`). (5) The velocities are computed from the azimuth before `F_AxisTurn` moves it by a turn
+    (turn-invariant, so harmless).
+  - Unverified until CI: that the method compiles as the body did (same scope, no locals). To run (Tim): `tcbuild.yml` on push,
+    or the library install + `tctool MONETcommonTests.sln build run` of `MONETcommonTests/README.md`; on site the step-2c smoke
+    test (goto, track: commanded and reported RA/Dec as before) on MONET/S, then N.
 
 ### Step 4c - Client check before read-only inputs (D3, investigation, no code)
 - Consumers of the command interface: **pybrotlib** (Python library) and its users **pyobs-brot** and **brotgui**.
