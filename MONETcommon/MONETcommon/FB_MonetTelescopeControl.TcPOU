@@ -364,137 +364,10 @@ IF fbElevation.bError THEN
 	END_IF
 END_IF
 
-// One weather for the commanded position (eq2hor) and for the reported RA/Dec (both hor2eq below): with different
-// weather the reported coordinates would differ from the commanded ones by the refraction difference.
-IF bLiveWeatherRefraction THEN
-	bRefractionLive := BROTLib.F_RefractionWeather(
-		stWeather := Weather,
-		fSiteAltitude := telescopeConfig.altitude,
-		fPressure => fRefractionPressure,
-		fTemperature => fRefractionTemperature,
-		bTemperatureSet => bRefractionTemperatureSet,
-		bPressureRejected => bRefractionPressureRejected,
-		bTemperatureRejected => bRefractionTemperatureRejected);
-ELSE
-	bRefractionLive := FALSE;
-	fRefractionPressure := 0.0;
-	fRefractionTemperature := 0.0;
-	bRefractionTemperatureSet := FALSE;
-	bRefractionPressureRejected := FALSE;
-	bRefractionTemperatureRejected := FALSE;
-END_IF
-rtrigPressureRejected(CLK := bRefractionPressureRejected);
-IF rtrigPressureRejected.Q THEN
-	ADSLOGSTR( ADSLOG_MSGTYPE_WARN OR ADSLOG_MSGTYPE_LOG, 'Live weather: %s does not fit the site, the estimate is used', 'pressure');
-END_IF
-rtrigTemperatureRejected(CLK := bRefractionTemperatureRejected);
-IF rtrigTemperatureRejected.Q THEN
-	ADSLOGSTR( ADSLOG_MSGTYPE_WARN OR ADSLOG_MSGTYPE_LOG, 'Live weather: %s does not fit the site, the estimate is used', 'temperature');
-END_IF
-
-eq2hor(
-	ra := fRightAscension,
-	dec := fDeclination,
-	lon := telescopeConfig.longitude,
-	lat := telescopeConfig.latitude,
-	altitude := telescopeConfig.altitude,
-	pressure := fRefractionPressure,
-	temperature := fRefractionTemperature,
-	temperature_set := bRefractionTemperatureSet,
-	JD := fJd + fTimeOffset,
-	dut1 := fDut1,
-	refract_to_observed := TRUE,
-	// refract := FALSE,
-	alt => fElevationCalc,
-	az => fAzimuthCalc,
-	ha => fHourAngleCalc);
-
-// apply pointing model
-fbPointing(
-	fAzimuth			:= fAzimuthCalc,
-	fElevation			:= fElevationCalc,
-	fAzimuthOffset		=> fAzimuthPointingOffset,
-	fElevationOffset	=> fElevationPointingOffset
-);
-fElevationCalc := fElevationCalc + fElevationPointingOffset + fElevationOffset;
-// F_AzimuthOffsetOnAxis: fAzimuthOffset / COS(elevation), bounded near the zenith (BROTLib#27)
-fAzimuthCalc := fAzimuthCalc + fAzimuthPointingOffset + F_AzimuthOffsetOnAxis(fAzimuthOffset, fElevationCalc);
-
-// #94: evaluated here, before the arbitration and the Goto/Track dispatch below can clear bGoto/bTrack (error 0x15)
-// in the same scan. Only a requested goto/track makes the RA/Dec target relevant.
-bTargetBelowHorizonWarn := F_TargetBelowHorizonWarning(bGoto := bGoto, bTrack := bTrack, fElevationCalc := fElevationCalc, fHorizon := fHorizon);
-
-// calculate derotator position 
-fDerotatorCalc := F_DerotatorPosition2(fAzimuthCalc, fElevationCalc, telescopeConfig.latitude, fDerotatorSign)  + fDerotatorOffset;
-
-// calculate velocities
-fDerotatorVelocity := F_Derotatorvelocity(fAzimuthCalc, fElevationCalc, telescopeConfig.latitude, fDerotatorSign);
-fElevationVelocity := F_Elevationvelocity(fAzimuthCalc, telescopeConfig.latitude);
-fAzimuthVelocity := F_Azimuthvelocity(fElevationCalc, fAzimuthCalc, telescopeConfig.latitude);
-
-// #2: the turn of the target inside the axis limits (the measured endpoints, never a literal of one site). A target
-// is not clamped to another position: without a turn inside the limits the goto/track is refused. While an axis
-// tracks it keeps the turn it is on, except for a new goto, which chooses freely (the axis may be anywhere).
-bAzimuthTurnOK := F_AxisTurn(
-	fTarget := fAzimuthCalc, fVelocity := fAzimuthVelocity, fCurrent := fbAzimuth.fActualPosition,
-	bHold := fbAzimuth.Tracking AND NOT bGoto, fMin := fbAzimuth.fMinPosition, fMax := fbAzimuth.fMaxPosition,
-	fMargin := stMotionUsed.fAzimuthTrackMargin, fTrackTimeCap := stMotionUsed.fAzimuthTrackTimeCap, fPosition => fAzimuthCalc);
-bDerotatorTurnOK := F_AxisTurn(
-	fTarget := fDerotatorCalc, fVelocity := fDerotatorVelocity, fCurrent := fbDerotator.fActualPosition,
-	bHold := fbDerotator.Tracking AND NOT bGoto, fMin := fbDerotator.fMinPosition, fMax := fbDerotator.fMaxPosition,
-	fMargin := stMotionUsed.fDerotatorTrackMargin, fTrackTimeCap := stMotionUsed.fDerotatorTrackTimeCap, fPosition => fDerotatorCalc);
-// only a requested goto/track makes the target relevant (see #94)
-bAzimuthNoTurn := (bGoto OR bTrack) AND NOT bAzimuthTurnOK;
-bDerotatorNoTurn := (bGoto OR bTrack) AND NOT bDerotatorTurnOK;
-
-// get current coordinates	
-fAzimuthCurrent := fbAzimuth.fActualPosition;
-fElevationCurrent := fbElevation.fActualPosition;
-fDerotatorCurrent := fbDerotator.fActualPosition;
-
-// apply inverse pointing model
-fbPointingInverse(
-	fAzimuth			:= fAzimuthCurrent,
-	fElevation			:= fElevationCurrent,
-	fAzimuthOffset  	=> fAzimuthPointingOffset2,
-	fElevationOffset	=> fElevationPointingOffset2
-);
-fAzimuthCurrentSky := fAzimuthCurrent - fAzimuthPointingOffset2;
-fElevationCurrentSky := fElevationCurrent - fElevationPointingOffset2;
-
-// add offsets
-//fElevationCurrent := fElevationCurrentSky - fElevationOffset;
-//fAzimuthCurrent := fAzimuthCurrentSky - fAzimuthOffset / COS(fElevationCalc * d2r);
-
-// calculate equatorial coordinates
-hor2eq(alt := fElevationCurrentSky - fElevationOffset,
-		az := fAzimuthCurrentSky - F_AzimuthOffsetOnAxis(fAzimuthOffset, fElevationCurrent),	// M7: was fElevationCalc
-		jd := fJd,
-		dut1 := fDut1,
-		lat := telescopeConfig.latitude,
-		lon := telescopeConfig.longitude,
-		altitude := telescopeConfig.altitude,
-		pressure := fRefractionPressure,
-		temperature := fRefractionTemperature,
-		temperature_set := bRefractionTemperatureSet,
-		alt_is_observed := TRUE,
-		// refract := FALSE,
-		ra => fRightAscensionCurrent,
-		dec => fDeclinationCurrent,
-		ha => fHourAngleCurrent);	// M13: was never assigned, HA_ICRS telemetry was stuck at 0.0
-hor2eq(alt := fElevationCurrentSky,
-		az := fAzimuthCurrentSky,
-		jd := fJd,
-		dut1 := fDut1,
-		lat := telescopeConfig.latitude,
-		lon := telescopeConfig.longitude,
-		altitude := telescopeConfig.altitude,
-		pressure := fRefractionPressure,
-		temperature := fRefractionTemperature,
-		temperature_set := bRefractionTemperatureSet,
-		alt_is_observed := TRUE,
-		ra => fRightAscensionCurrentSky,
-		dec => fDeclinationCurrentSky);
+// #24 step 4b: the target of this scan (refraction weather, eq2hor, pointing model, derotator, velocities, turn inside
+// the axis limits) and the reported position (inverse pointing model, both hor2eq); after the error reaction, before the
+// horizon guard and the arbitration below (SM plan D3 hook)
+_ComputeTargets();
 	
 // If the Telescope dips under the fHorizon (e.g. while tracking, stop and gohome)
 IF fbElevation.Calibrated AND fElevationCurrent < (fHorizon + stMotionUsed.fHorizonMargin) THEN
@@ -1940,6 +1813,151 @@ aAxis[3].bHoming := fbDerotator.fbAxis.Homing;
 aAxis[3].bStopping := fbDerotator.fbAxis.Stopping;
 aAxis[3].bBusy := fbDerotator.fbAxis.Busy;
 aAxis[3].bTracking := fbDerotator.fbAxis.isTracking;
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="_ComputeTargets" Id="{28b41640-2b40-49f6-a70c-a35d1a2deacc}" FolderPath="internal methods\">
+      <Declaration><![CDATA[// #24 step 4b (D5 option A, SM plan D3 hook): once per scan in the body, after the error reaction and before the horizon
+// guard. The weather of the refraction, the commanded target (eq2hor, pointing model, offsets, #94 warning, derotator,
+// velocities, #2 turn inside the axis limits) and the reported position (inverse pointing model, both hor2eq). Moved
+// unchanged from the body; every variable it reads or writes is in the FB's VAR (the body, the state machines and the
+// telemetry use them), so the method has no state of its own.
+METHOD PRIVATE _ComputeTargets
+VAR_INPUT
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[// One weather for the commanded position (eq2hor) and for the reported RA/Dec (both hor2eq below): with different
+// weather the reported coordinates would differ from the commanded ones by the refraction difference.
+IF bLiveWeatherRefraction THEN
+	bRefractionLive := BROTLib.F_RefractionWeather(
+		stWeather := Weather,
+		fSiteAltitude := telescopeConfig.altitude,
+		fPressure => fRefractionPressure,
+		fTemperature => fRefractionTemperature,
+		bTemperatureSet => bRefractionTemperatureSet,
+		bPressureRejected => bRefractionPressureRejected,
+		bTemperatureRejected => bRefractionTemperatureRejected);
+ELSE
+	bRefractionLive := FALSE;
+	fRefractionPressure := 0.0;
+	fRefractionTemperature := 0.0;
+	bRefractionTemperatureSet := FALSE;
+	bRefractionPressureRejected := FALSE;
+	bRefractionTemperatureRejected := FALSE;
+END_IF
+rtrigPressureRejected(CLK := bRefractionPressureRejected);
+IF rtrigPressureRejected.Q THEN
+	ADSLOGSTR( ADSLOG_MSGTYPE_WARN OR ADSLOG_MSGTYPE_LOG, 'Live weather: %s does not fit the site, the estimate is used', 'pressure');
+END_IF
+rtrigTemperatureRejected(CLK := bRefractionTemperatureRejected);
+IF rtrigTemperatureRejected.Q THEN
+	ADSLOGSTR( ADSLOG_MSGTYPE_WARN OR ADSLOG_MSGTYPE_LOG, 'Live weather: %s does not fit the site, the estimate is used', 'temperature');
+END_IF
+
+eq2hor(
+	ra := fRightAscension,
+	dec := fDeclination,
+	lon := telescopeConfig.longitude,
+	lat := telescopeConfig.latitude,
+	altitude := telescopeConfig.altitude,
+	pressure := fRefractionPressure,
+	temperature := fRefractionTemperature,
+	temperature_set := bRefractionTemperatureSet,
+	JD := fJd + fTimeOffset,
+	dut1 := fDut1,
+	refract_to_observed := TRUE,
+	// refract := FALSE,
+	alt => fElevationCalc,
+	az => fAzimuthCalc,
+	ha => fHourAngleCalc);
+
+// apply pointing model
+fbPointing(
+	fAzimuth			:= fAzimuthCalc,
+	fElevation			:= fElevationCalc,
+	fAzimuthOffset		=> fAzimuthPointingOffset,
+	fElevationOffset	=> fElevationPointingOffset
+);
+fElevationCalc := fElevationCalc + fElevationPointingOffset + fElevationOffset;
+// F_AzimuthOffsetOnAxis: fAzimuthOffset / COS(elevation), bounded near the zenith (BROTLib#27)
+fAzimuthCalc := fAzimuthCalc + fAzimuthPointingOffset + F_AzimuthOffsetOnAxis(fAzimuthOffset, fElevationCalc);
+
+// #94: evaluated here, before the arbitration and the Goto/Track dispatch below can clear bGoto/bTrack (error 0x15)
+// in the same scan. Only a requested goto/track makes the RA/Dec target relevant.
+bTargetBelowHorizonWarn := F_TargetBelowHorizonWarning(bGoto := bGoto, bTrack := bTrack, fElevationCalc := fElevationCalc, fHorizon := fHorizon);
+
+// calculate derotator position 
+fDerotatorCalc := F_DerotatorPosition2(fAzimuthCalc, fElevationCalc, telescopeConfig.latitude, fDerotatorSign)  + fDerotatorOffset;
+
+// calculate velocities
+fDerotatorVelocity := F_Derotatorvelocity(fAzimuthCalc, fElevationCalc, telescopeConfig.latitude, fDerotatorSign);
+fElevationVelocity := F_Elevationvelocity(fAzimuthCalc, telescopeConfig.latitude);
+fAzimuthVelocity := F_Azimuthvelocity(fElevationCalc, fAzimuthCalc, telescopeConfig.latitude);
+
+// #2: the turn of the target inside the axis limits (the measured endpoints, never a literal of one site). A target
+// is not clamped to another position: without a turn inside the limits the goto/track is refused. While an axis
+// tracks it keeps the turn it is on, except for a new goto, which chooses freely (the axis may be anywhere).
+bAzimuthTurnOK := F_AxisTurn(
+	fTarget := fAzimuthCalc, fVelocity := fAzimuthVelocity, fCurrent := fbAzimuth.fActualPosition,
+	bHold := fbAzimuth.Tracking AND NOT bGoto, fMin := fbAzimuth.fMinPosition, fMax := fbAzimuth.fMaxPosition,
+	fMargin := stMotionUsed.fAzimuthTrackMargin, fTrackTimeCap := stMotionUsed.fAzimuthTrackTimeCap, fPosition => fAzimuthCalc);
+bDerotatorTurnOK := F_AxisTurn(
+	fTarget := fDerotatorCalc, fVelocity := fDerotatorVelocity, fCurrent := fbDerotator.fActualPosition,
+	bHold := fbDerotator.Tracking AND NOT bGoto, fMin := fbDerotator.fMinPosition, fMax := fbDerotator.fMaxPosition,
+	fMargin := stMotionUsed.fDerotatorTrackMargin, fTrackTimeCap := stMotionUsed.fDerotatorTrackTimeCap, fPosition => fDerotatorCalc);
+// only a requested goto/track makes the target relevant (see #94)
+bAzimuthNoTurn := (bGoto OR bTrack) AND NOT bAzimuthTurnOK;
+bDerotatorNoTurn := (bGoto OR bTrack) AND NOT bDerotatorTurnOK;
+
+// get current coordinates	
+fAzimuthCurrent := fbAzimuth.fActualPosition;
+fElevationCurrent := fbElevation.fActualPosition;
+fDerotatorCurrent := fbDerotator.fActualPosition;
+
+// apply inverse pointing model
+fbPointingInverse(
+	fAzimuth			:= fAzimuthCurrent,
+	fElevation			:= fElevationCurrent,
+	fAzimuthOffset  	=> fAzimuthPointingOffset2,
+	fElevationOffset	=> fElevationPointingOffset2
+);
+fAzimuthCurrentSky := fAzimuthCurrent - fAzimuthPointingOffset2;
+fElevationCurrentSky := fElevationCurrent - fElevationPointingOffset2;
+
+// add offsets
+//fElevationCurrent := fElevationCurrentSky - fElevationOffset;
+//fAzimuthCurrent := fAzimuthCurrentSky - fAzimuthOffset / COS(fElevationCalc * d2r);
+
+// calculate equatorial coordinates
+hor2eq(alt := fElevationCurrentSky - fElevationOffset,
+		az := fAzimuthCurrentSky - F_AzimuthOffsetOnAxis(fAzimuthOffset, fElevationCurrent),	// M7: was fElevationCalc
+		jd := fJd,
+		dut1 := fDut1,
+		lat := telescopeConfig.latitude,
+		lon := telescopeConfig.longitude,
+		altitude := telescopeConfig.altitude,
+		pressure := fRefractionPressure,
+		temperature := fRefractionTemperature,
+		temperature_set := bRefractionTemperatureSet,
+		alt_is_observed := TRUE,
+		// refract := FALSE,
+		ra => fRightAscensionCurrent,
+		dec => fDeclinationCurrent,
+		ha => fHourAngleCurrent);	// M13: was never assigned, HA_ICRS telemetry was stuck at 0.0
+hor2eq(alt := fElevationCurrentSky,
+		az := fAzimuthCurrentSky,
+		jd := fJd,
+		dut1 := fDut1,
+		lat := telescopeConfig.latitude,
+		lon := telescopeConfig.longitude,
+		altitude := telescopeConfig.altitude,
+		pressure := fRefractionPressure,
+		temperature := fRefractionTemperature,
+		temperature_set := bRefractionTemperatureSet,
+		alt_is_observed := TRUE,
+		ra => fRightAscensionCurrentSky,
+		dec => fDeclinationCurrentSky);
 ]]></ST>
       </Implementation>
     </Method>
