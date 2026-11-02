@@ -52,6 +52,12 @@
     <Compile Include="ST_CommandState.TcDUT">
       <SubType>Code</SubType>
     </Compile>
+    <Compile Include="ST_MonetTelemetry.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="FB_MonetTelescopeTelemetry.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
     <Compile Include="F_CommandAcceptance.TcPOU">
       <SubType>Code</SubType>
     </Compile>

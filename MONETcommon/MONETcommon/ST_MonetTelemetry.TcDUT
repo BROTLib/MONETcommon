@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="ST_MonetTelemetry" Id="{b55438cc-54f5-450c-86a4-b99f780409f8}">
+    <Declaration><![CDATA[// #24 step 4a: the values FB_MonetTelescopeTelemetry publishes, filled by FB_MonetTelescopeControl._SendTelemetry once per
+// publish, right before the call. Every field has the type of its source (the publish converts as the old code did, e.g. the
+// INT nMotionState to LREAL); the comment names the source. Axis fields are the axis block's properties at fill time.
+TYPE ST_MonetTelemetry :
+STRUCT
+	// TELESCOPE
+	fReadyState					: LREAL;	// fReadyState
+	nMotionState				: INT;		// nMotionState
+	nInterruptedAutoClearCount	: UDINT;	// nInterruptedAutoClearCount (#26)
+
+	// WEATHER.REFRACTION (BROTLib#33)
+	fRefractionPressure			: LREAL;	// fRefractionPressure, 0.0 = estimate
+	fRefractionTemperature		: LREAL;	// fRefractionTemperature
+	bRefractionTemperatureSet	: BOOL;		// bRefractionTemperatureSet
+
+	// OBJECT
+	fRightAscension				: LREAL;	// fRightAscension (degrees, BROTLib#37)
+	fDeclination				: LREAL;	// fDeclination
+	fElevationCalc				: LREAL;	// fElevationCalc
+	fAzimuthCalc				: LREAL;	// fAzimuthCalc
+
+	// POINTING
+	fSlewTime					: LREAL;	// fSlewTime
+	fElevationPointingOffset	: LREAL;	// fElevationPointingOffset
+	fAzimuthPointingOffset		: LREAL;	// fAzimuthPointingOffset
+
+	// POSITION.LOCAL
+	fLst						: LREAL;	// fLst
+	fJd							: LREAL;	// fJd
+	fLatitude					: LREAL;	// telescopeConfig.latitude
+	fLongitude					: LREAL;	// telescopeConfig.longitude
+	fAltitude					: LREAL;	// telescopeConfig.altitude
+
+	// POSITION.INSTRUMENTAL.ALT
+	bElevationEnable			: BOOL;		// fbElevation.Enable
+	bElevationCalibrated		: BOOL;		// fbElevation.Calibrated
+	bElevationError				: BOOL;		// fbElevation.Error
+	nElevationErrorID			: UDINT;	// fbElevation.ErrorID
+	bElevationBusy				: BOOL;		// fbElevation.Busy
+	bElevationTracking			: BOOL;		// fbElevation.isTracking
+	fElevationPosition			: LREAL;	// fbElevation.Position (the commanded target)
+	fElevationVelocity			: LREAL;	// fbElevation.Velocity
+	fElevationCurrent			: LREAL;	// fElevationCurrent
+	fElevationOffset			: LREAL;	// fElevationOffset
+
+	// POSITION.INSTRUMENTAL.AZ
+	bAzimuthEnable				: BOOL;		// fbAzimuth.Enable
+	bAzimuthCalibrated			: BOOL;		// fbAzimuth.Calibrated
+	bAzimuthError				: BOOL;		// fbAzimuth.Error
+	nAzimuthErrorID				: UDINT;	// fbAzimuth.ErrorID
+	bAzimuthBusy				: BOOL;		// fbAzimuth.Busy
+	bAzimuthTracking			: BOOL;		// fbAzimuth.isTracking
+	fAzimuthPosition			: LREAL;	// fbAzimuth.Position (the commanded target)
+	fAzimuthVelocity			: LREAL;	// fbAzimuth.Velocity
+	fAzimuthCurrent				: LREAL;	// fAzimuthCurrent
+	fAzimuthOffset				: LREAL;	// fAzimuthOffset
+
+	// POSITION.HORIZONTAL / POSITION.EQUATORIAL
+	fElevationCurrentSky		: LREAL;	// fElevationCurrentSky
+	fAzimuthCurrentSky			: LREAL;	// fAzimuthCurrentSky
+	fRightAscensionCurrent		: LREAL;	// fRightAscensionCurrent (degrees, BROTLib#37)
+	fHourAngleCurrent			: LREAL;	// fHourAngleCurrent
+	fDeclinationCurrent			: LREAL;	// fDeclinationCurrent
+END_STRUCT
+END_TYPE
+]]></Declaration>
+  </DUT>
+</TcPlcObject>
