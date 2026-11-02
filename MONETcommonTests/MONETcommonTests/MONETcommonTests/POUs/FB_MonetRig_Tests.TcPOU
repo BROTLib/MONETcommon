@@ -28,6 +28,7 @@ END_VAR
     <Implementation>
       <ST><![CDATA[Mock_Axis_Move_Reports_MoveDone();
 Rig_Instantiates_Telescope_With_Mock_Axes();
+Monets_Elevation_Velocity_Alias_Is_Used();
 ]]></ST>
     </Implementation>
     <Method Name="Mock_Axis_Move_Reports_MoveDone" Id="{4aeb9af3-2d82-44f2-87fd-050f1d95d90d}">
@@ -94,6 +95,87 @@ FOR i := 1 TO 10 DO
 END_FOR
 AssertFalse(Condition := fbTel.bError, Message := 'telescope on mock axes reports no error');
 TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Monets_Elevation_Velocity_Alias_Is_Used" Id="{98a6998a-c9d6-428d-834c-a7683598224c}">
+      <Declaration><![CDATA[// #24 step 2c, D2, on the mock rig (FB_MonetRig): MONETS MAIN passes the deprecated input fElevationMoveVelocity := 3.0 and leaves
+// stMotion at its defaults. The alias is not at its old default (5.0), so it wins: a slew moves the elevation at 3.0 deg/s, azimuth
+// and derotator keep stMotion's 10.0, and the alias is the one listed as in use (logged once). Back at 5.0 the alias is not used and
+// stMotion.fElevationMoveVelocity applies. Multi-cycle (VAR_INST rig, one Scan() per PLC cycle, the first cycles wait for the
+// astronomical clock). Failed checks are also noted in GVL_Diag.sFailures.
+METHOD PRIVATE Monets_Elevation_Velocity_Alias_Is_Used
+VAR_INST
+	rig			: FB_MonetRig;
+	stCfg		: BROTLib.ST_MotionConfig;
+	nStep		: INT;
+	nCycles		: UINT;
+	sTest		: STRING(80);
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Monets_Elevation_Velocity_Alias_Is_Used');
+sTest := 'Monets_Elevation_Velocity_Alias_Is_Used: ';
+IF nStep >= 90 THEN
+	RETURN;
+END_IF
+rig.Scan();
+nCycles := nCycles + 1;
+CASE nStep OF
+0:	// MONETS MAIN: fElevationMoveVelocity := 3.0; wait for the clock, then power on
+	rig.SetElevationMoveVelocity(fValue := 3.0);
+	IF rig.ClockValid THEN
+		rig.fbTel.Init();
+		nStep := 10;
+		nCycles := 0;
+	ELSIF nCycles > 2000 THEN
+		AssertTrue(Condition := FALSE, Message := 'the astronomical clock never became valid');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the astronomical clock never became valid'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+10:
+	IF rig.Online THEN
+		rig.fbTel.Slew(fAzimuth := 180.0, fAltitude := 45.0);
+		nStep := 20;
+		nCycles := 0;
+	ELSIF nCycles > 1500 THEN
+		AssertTrue(Condition := FALSE, Message := 'the mock telescope did not reach READY_STATE 1.0');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the mock telescope did not reach READY_STATE 1.0'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+20:
+	IF rig.fbElev.MoveAxis AND rig.fbAzim.MoveAxis AND rig.fbDero.MoveAxis THEN
+		AssertTrue(Condition := rig.fbElev.Velocity = 3.0, Message := 'the slew moves the elevation at the alias 3.0 deg/s');
+		F_Note(bFailed := NOT (rig.fbElev.Velocity = 3.0), sText := CONCAT(sTest, 'the slew moves the elevation at the alias 3.0 deg/s'));
+		AssertTrue(Condition := rig.fbAzim.Velocity = 10.0 AND rig.fbDero.Velocity = 10.0, Message := 'azimuth and derotator move at stMotion 10.0 deg/s');
+		F_Note(bFailed := NOT (rig.fbAzim.Velocity = 10.0 AND rig.fbDero.Velocity = 10.0), sText := CONCAT(sTest, 'azimuth and derotator move at stMotion 10.0 deg/s'));
+		AssertTrue(Condition := rig.fbTel.sMotionAliases = ' fElevationMoveVelocity', Message := 'only fElevationMoveVelocity is listed as a deprecated input in use');
+		F_Note(bFailed := NOT (rig.fbTel.sMotionAliases = ' fElevationMoveVelocity'), sText := CONCAT(sTest, 'only fElevationMoveVelocity is listed as a deprecated input in use'));
+		// the alias back at its old default: stMotion applies
+		rig.SetElevationMoveVelocity(fValue := 5.0);
+		stCfg.fElevationMoveVelocity := 4.0;
+		rig.SetMotion(stValue := stCfg);
+		nStep := 30;
+		nCycles := 0;
+	ELSIF nCycles > 300 THEN
+		AssertTrue(Condition := FALSE, Message := 'the slew did not start the axis moves');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the slew did not start the axis moves'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+30:
+	IF nCycles >= 3 THEN
+		AssertTrue(Condition := rig.fbTel.stMotionUsed.fElevationMoveVelocity = 4.0, Message := 'with the alias at 5.0, stMotion.fElevationMoveVelocity is used');
+		F_Note(bFailed := NOT (rig.fbTel.stMotionUsed.fElevationMoveVelocity = 4.0), sText := CONCAT(sTest, 'with the alias at 5.0, stMotion.fElevationMoveVelocity is used'));
+		AssertTrue(Condition := rig.fbTel.sMotionAliases = '', Message := 'no deprecated input in use');
+		F_Note(bFailed := NOT (rig.fbTel.sMotionAliases = ''), sText := CONCAT(sTest, 'no deprecated input in use'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+END_CASE
+
 ]]></ST>
       </Implementation>
     </Method>

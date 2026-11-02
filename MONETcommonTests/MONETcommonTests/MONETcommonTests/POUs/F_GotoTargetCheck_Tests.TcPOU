@@ -15,6 +15,7 @@ Above_Guard_Is_16();
 Other_Limits();
 Warning_Implies_Refusal_With_Default_Horizon();
 Warn_Only_Exists_When_Horizon_Above_Floor();
+Goto_Window_From_stMotion_Refuses_The_Pole();
 ]]></ST>
     </Implementation>
     <Method Name="Inside_Window_Is_Ok" Id="{c4aad486-f5e1-4e5f-bbae-bee8c685ce29}">
@@ -136,6 +137,73 @@ END_VAR
 AssertTrue(Condition := MONETcommon.F_TargetBelowHorizonWarning(TRUE, FALSE, 4.0, 5.0), Message := 'warns at 4 with horizon 5');
 AssertEquals_UINT(Expected := 0, Actual := MONETcommon.F_GotoTargetCheck(4.0, 2.0, 89.5), Message := 'not refused at 4');
 TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Goto_Window_From_stMotion_Refuses_The_Pole" Id="{1d00472a-4fb7-42c4-80dc-1de68a57ad43}">
+      <Declaration><![CDATA[// #24 step 2c, on the mock rig (FB_MonetRig, MONET/S, latitude -32.4): the goto window of FB_MonetTelescopeControl is
+// stMotion.fGotoMinElevation/fGotoMaxElevation, no longer the literals 2.0/89.5. A target 1 deg from the south celestial pole
+// (dec -89) stands at 31.4..33.4 deg at any time; with the default window it is accepted (MonetSafeState_Tests tracks dec -85),
+// with fGotoMaxElevation 30 it is refused as above the window: software error 16#16 and the goto is dropped. Multi-cycle (VAR_INST
+// rig, one Scan() per PLC cycle, the first cycles wait for the astronomical clock). Failed checks are also noted in GVL_Diag.sFailures.
+METHOD PRIVATE Goto_Window_From_stMotion_Refuses_The_Pole
+VAR_INST
+	rig			: FB_MonetRig;
+	stCfg		: BROTLib.ST_MotionConfig;
+	nStep		: INT;
+	nCycles		: UINT;
+	sTest		: STRING(80);
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Goto_Window_From_stMotion_Refuses_The_Pole');
+sTest := 'Goto_Window_From_stMotion_Refuses_The_Pole: ';
+IF nStep >= 90 THEN
+	RETURN;
+END_IF
+rig.Scan();
+nCycles := nCycles + 1;
+CASE nStep OF
+0:	// the configuration of the test, then wait for the clock and power on
+	stCfg.fGotoMaxElevation := 30.0;
+	rig.SetMotion(stValue := stCfg);
+	IF rig.ClockValid THEN
+		rig.fbTel.Init();
+		nStep := 10;
+		nCycles := 0;
+	ELSIF nCycles > 2000 THEN
+		AssertTrue(Condition := FALSE, Message := 'the astronomical clock never became valid');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the astronomical clock never became valid'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+10:
+	IF rig.Online THEN
+		rig.fbTel.Track(fRightAscension := 0.0, fDeclination := -89.0);
+		nStep := 20;
+		nCycles := 0;
+	ELSIF nCycles > 1500 THEN
+		AssertTrue(Condition := FALSE, Message := 'the mock telescope did not reach READY_STATE 1.0');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the mock telescope did not reach READY_STATE 1.0'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+20:
+	IF rig.fbTel.bError THEN
+		AssertTrue(Condition := rig.fbTel.nErrorID = 16#16, Message := 'the target above stMotion.fGotoMaxElevation is error 16#16');
+		F_Note(bFailed := NOT (rig.fbTel.nErrorID = 16#16), sText := CONCAT(sTest, 'the target above stMotion.fGotoMaxElevation is error 16#16'));
+		AssertFalse(Condition := rig.fbTel.bGoto, Message := 'the goto is dropped');
+		F_Note(bFailed := (rig.fbTel.bGoto), sText := CONCAT(sTest, 'the goto is dropped'));
+		nStep := 99;
+		TEST_FINISHED();
+	ELSIF nCycles > 300 THEN
+		AssertTrue(Condition := FALSE, Message := 'the goto was not refused');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the goto was not refused'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+END_CASE
+
 ]]></ST>
       </Implementation>
     </Method>
