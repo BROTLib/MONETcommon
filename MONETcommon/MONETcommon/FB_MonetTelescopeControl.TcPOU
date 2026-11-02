@@ -143,6 +143,9 @@ VAR
 	MoveAbortEvent		: FB_EventLog;
 	// plan step 3.1: the axis feedback of this scan (1 azimuth, 2 elevation, 3 derotator), filled by _ReadAxes
 	aAxis				: ARRAY[1..3] OF ST_AxisStatus;
+	// #24 step 4a: the telemetry record of the last publish (filled in _SendTelemetry) and the block that publishes it
+	stTelemetry			: ST_MonetTelemetry;
+	fbTelemetry			: FB_MonetTelescopeTelemetry;
 	// #96: one MC_Stop per axis and stop transaction; the stop is over when every axis that was sent one has
 	// reported StopDone and the telescope has been at rest for 3 scans. Replaces bStopIssuedAz/El/Dr (#84).
 	fbStopTx			: FB_MonetStopTransaction;
@@ -1453,142 +1456,60 @@ END_VAR
       <Implementation>
         <ST><![CDATA[SUPER^._PublishTelemetry();
 
-fbComm.PublishLREAL('telescope', 'dome', 'TELESCOPE.READY_STATE',	fReadyState);
-fbComm.PublishLREAL('telescope', 'dome', 'TELESCOPE.MOTION_STATE',	nMotionState);
-fbComm.PublishINT('telescope', 'dome', 'TELESCOPE.INTERRUPTED_AUTO_CLEAR_COUNT', nInterruptedAutoClearCount);
+// #24 step 4a: the MONET fields are published by fbTelemetry (FB_MonetTelescopeTelemetry, the code that was here until
+// 0.12.0, unchanged in topics, order, values and conditions). The snapshot is filled once per publish, right before.
+stTelemetry.fReadyState					:= fReadyState;
+stTelemetry.nMotionState				:= nMotionState;
+stTelemetry.nInterruptedAutoClearCount	:= nInterruptedAutoClearCount;
 
-// the weather the refraction actually used (BROTLib#33); *_LIVE is 0 while the estimate is in use (switch off, value
-// stale, missing or implausible), so the values alone cannot be mistaken for a measurement
-fbComm.Publish('telescope', 'dome', 'WEATHER.REFRACTION.PRESSURE', LREAL_TO_STRING(fRefractionPressure));
-fbComm.Publish('telescope', 'dome', 'WEATHER.REFRACTION.TEMPERATURE', LREAL_TO_STRING(fRefractionTemperature));
-fbComm.Publish('telescope', 'dome', 'WEATHER.REFRACTION.PRESSURE_LIVE', BOOL_TO_STRING(fRefractionPressure <> 0.0));
-fbComm.Publish('telescope', 'dome', 'WEATHER.REFRACTION.TEMPERATURE_LIVE', BOOL_TO_STRING(bRefractionTemperatureSet));
+stTelemetry.fRefractionPressure			:= fRefractionPressure;
+stTelemetry.fRefractionTemperature		:= fRefractionTemperature;
+stTelemetry.bRefractionTemperatureSet	:= bRefractionTemperatureSet;
 
-// INFO, CONFIG.MOUNTOPTIONS/MOUNT, STATUS.GLOBAL, OBJECT.INSTRUMENTAL.ALT/AZ and the static
-// OBJECT.EQUATORIAL.EPOCH/EQUINOX/RA_PM/DEC_PM/RA_RATE/DEC_RATE fields used to be republished
-// here too, byte-identical to what SUPER^._PublishTelemetry() above already sends under the same
-// field names from the same source variables -- removed as pure duplication (#22).
-//
-// OBJECT.EQUATORIAL.RA_ICRS/DEC_ICRS kept even though pybrotlib's schema (the Python MQTT
-// consumer, BROTLib/pyBROT src/pybrotlib/telemetry.py) has no such field under
-// object.equatorial -- only object.equatorial.ra/dec, which SUPER already publishes with the
-// same value -- so this specific publish looks like dead weight for that consumer. Not removing
-// it here anyway: Telegraf/InfluxDB ingests the raw MQTT line independent of pybrotlib's schema,
-// so something else could still depend on this exact field name landing in Influx. (For contrast,
-// POSITION.EQUATORIAL.RA_ICRS/DEC_ICRS -- a different field, published further down -- *is* in
-// pybrotlib's schema and is a real, actively consumed field.)
-//
-// OBJECT.HORIZONTAL.ALT/AZ below is also kept even though SUPER publishes those same field names:
-// SUPER's version is conditional on bSlew (fElevation/fAzimuth vs fElevationCalc/fAzimuthCalc);
-// this unconditional republish runs after it and is what has actually been on the wire -- changing
-// that is a behavior change, not a dedup.
+stTelemetry.fRightAscension				:= fRightAscension;
+stTelemetry.fDeclination				:= fDeclination;
+stTelemetry.fElevationCalc				:= fElevationCalc;
+stTelemetry.fAzimuthCalc				:= fAzimuthCalc;
 
-// EQUATORIAL
-// all angles in the telemetry are degrees, RA included, like the rightascension command (BROTLib#37)
-fbComm.PublishLREAL('telescope', 'dome', 'OBJECT.EQUATORIAL.RA_ICRS', fRightAscension);
-fbComm.PublishLREAL('telescope', 'dome', 'OBJECT.EQUATORIAL.DEC_ICRS', fDeclination);
+stTelemetry.fSlewTime					:= fSlewTime;
+stTelemetry.fElevationPointingOffset	:= fElevationPointingOffset;
+stTelemetry.fAzimuthPointingOffset		:= fAzimuthPointingOffset;
 
-// HORIZONTAL
-fbComm.PublishLREAL('telescope', 'dome', 'OBJECT.HORIZONTAL.ALT', fElevationCalc);
-fbComm.PublishLREAL('telescope', 'dome', 'OBJECT.HORIZONTAL.AZ', fAzimuthCalc);
+stTelemetry.fLst						:= fLst;
+stTelemetry.fJd							:= fJd;
+stTelemetry.fLatitude					:= telescopeConfig.latitude;
+stTelemetry.fLongitude					:= telescopeConfig.longitude;
+stTelemetry.fAltitude					:= telescopeConfig.altitude;
 
-(* POINTING *)
-fbComm.PublishLREAL('telescope', 'dome', 'POINTING.SLEWTIME', fSlewtime);
-fbComm.PublishLREAL('telescope', 'dome', 'POINTING.OFFSETS.ALT', fElevationPointingOffset);
-fbComm.PublishLREAL('telescope', 'dome', 'POINTING.OFFSETS.AZ', fAzimuthPointingOffset);
+stTelemetry.bElevationEnable			:= fbElevation.Enable;
+stTelemetry.bElevationCalibrated		:= fbElevation.Calibrated;
+stTelemetry.bElevationError				:= fbElevation.Error;
+stTelemetry.nElevationErrorID			:= fbElevation.ErrorID;
+stTelemetry.bElevationBusy				:= fbElevation.Busy;
+stTelemetry.bElevationTracking			:= fbElevation.isTracking;
+stTelemetry.fElevationPosition			:= fbElevation.Position;
+stTelemetry.fElevationVelocity			:= fbElevation.Velocity;
+stTelemetry.fElevationCurrent			:= fElevationCurrent;
+stTelemetry.fElevationOffset			:= fElevationOffset;
 
-(*POSITION*)
-//LOCAL
-fbComm.PublishLREAL('telescope', 'dome', 'POSITION.LOCAL.SIDEREAL_TIME', fLst);
-fbComm.PublishLREAL('telescope', 'dome', 'POSITION.LOCAL.JD', fJd);
-fbComm.PublishLREAL('telescope', 'dome', 'POSITION.LOCAL.LATITUDE', telescopeConfig.latitude);
-fbComm.PublishLREAL('telescope', 'dome', 'POSITION.LOCAL.LONGITUDE', telescopeConfig.longitude);
-fbComm.PublishLREAL('telescope', 'dome', 'POSITION.LOCAL.HEIGHT', telescopeConfig.altitude);
+stTelemetry.bAzimuthEnable				:= fbAzimuth.Enable;
+stTelemetry.bAzimuthCalibrated			:= fbAzimuth.Calibrated;
+stTelemetry.bAzimuthError				:= fbAzimuth.Error;
+stTelemetry.nAzimuthErrorID				:= fbAzimuth.ErrorID;
+stTelemetry.bAzimuthBusy				:= fbAzimuth.Busy;
+stTelemetry.bAzimuthTracking			:= fbAzimuth.isTracking;
+stTelemetry.fAzimuthPosition			:= fbAzimuth.Position;
+stTelemetry.fAzimuthVelocity			:= fbAzimuth.Velocity;
+stTelemetry.fAzimuthCurrent				:= fAzimuthCurrent;
+stTelemetry.fAzimuthOffset				:= fAzimuthOffset;
 
-// INSTRUMENTAL
-// > ALT
-// POWER_STATE
-IF fbElevation.Enable THEN
-	fbComm.PublishLREAL('telescope', 'dome', 'POSITION.INSTRUMENTAL.ALT.POWER_STATE', 1.0);
-ELSE
-	fbComm.PublishLREAL('telescope', 'dome', 'POSITION.INSTRUMENTAL.ALT.POWER_STATE', 0.0);
-END_IF
-//REFERENCED
-IF fbElevation.Calibrated THEN
-	fbComm.PublishLREAL('telescope', 'dome', 'POSITION.INSTRUMENTAL.ALT.REFERENCED', 1.0);
-ELSE
-	fbComm.PublishLREAL('telescope', 'dome', 'POSITION.INSTRUMENTAL.ALT.REFERENCED', 0.0);
-END_IF
-//ERROR_STATE
-IF fbElevation.Error THEN
-	fbComm.PublishINT('telescope', 'dome', 'POSITION.INSTRUMENTAL.ALT.ERROR_STATE', fbElevation.ErrorID);
-ELSE
-	fbComm.PublishINT('telescope', 'dome', 'POSITION.INSTRUMENTAL.ALT.ERROR_STATE', 0);
-END_IF
-//MOTION_STATE
-IF fbElevation.Busy THEN
-	IF fbElevation.isTracking THEN
-		fbComm.PublishINT('telescope', 'dome', 'POSITION.INSTRUMENTAL.ALT.MOTION_STATE', 8);
-	ELSE
-		fbComm.PublishINT('telescope', 'dome', 'POSITION.INSTRUMENTAL.ALT.MOTION_STATE', 1);
-	END_IF
-ELSE
-	fbComm.PublishINT('telescope', 'dome', 'POSITION.INSTRUMENTAL.ALT.MOTION_STATE', 0);
-END_IF
-fbComm.PublishLREAL('telescope', 'dome', 'POSITION.INSTRUMENTAL.ALT.REALPOS', fElevationCurrent-fElevationOffset);
-fbComm.PublishLREAL('telescope', 'dome', 'POSITION.INSTRUMENTAL.ALT.CURRPOS', fElevationCurrent);
-fbComm.PublishLREAL('telescope', 'dome', 'POSITION.INSTRUMENTAL.ALT.TARGETPOS', fbElevation.Position);
-fbComm.PublishLREAL('telescope', 'dome', 'POSITION.INSTRUMENTAL.ALT.CURRSPEED', fbElevation.Velocity);
-fbComm.PublishLREAL('telescope', 'dome', 'POSITION.INSTRUMENTAL.ALT.TARGETDISTANCE', ABS(fElevationCurrent-fbElevation.Position));
-fbComm.PublishLREAL('telescope', 'dome', 'POSITION.INSTRUMENTAL.ALT.OFFSET', fElevationOffset);
+stTelemetry.fElevationCurrentSky		:= fElevationCurrentSky;
+stTelemetry.fAzimuthCurrentSky			:= fAzimuthCurrentSky;
+stTelemetry.fRightAscensionCurrent		:= fRightAscensionCurrent;
+stTelemetry.fHourAngleCurrent			:= fHourAngleCurrent;
+stTelemetry.fDeclinationCurrent			:= fDeclinationCurrent;
 
-// > AZ
-// POWER_STATE
-IF fbAzimuth.Enable THEN
-	fbComm.PublishLREAL('telescope', 'dome', 'POSITION.INSTRUMENTAL.AZ.POWER_STATE', 1.0);
-ELSE
-	fbComm.PublishLREAL('telescope', 'dome', 'POSITION.INSTRUMENTAL.AZ.POWER_STATE', 0.0);
-END_IF
-//REFERENCED
-IF fbAzimuth.Calibrated THEN
-	fbComm.PublishLREAL('telescope', 'dome', 'POSITION.INSTRUMENTAL.AZ.REFERENCED', 1.0);
-ELSE
-	fbComm.PublishLREAL('telescope', 'dome', 'POSITION.INSTRUMENTAL.AZ.REFERENCED', 0.0);
-END_IF
-//ERROR_STATE
-IF fbAzimuth.Error THEN
-	fbComm.PublishINT('telescope', 'dome', 'POSITION.INSTRUMENTAL.AZ.ERROR_STATE', fbAzimuth.ErrorID);
-ELSE
-	fbComm.PublishINT('telescope', 'dome', 'POSITION.INSTRUMENTAL.AZ.ERROR_STATE', 0);
-END_IF
-//MOTION_STATE
-IF fbAzimuth.Busy THEN
-	IF fbAzimuth.isTracking THEN
-		fbComm.PublishINT('telescope', 'dome', 'POSITION.INSTRUMENTAL.AZ.MOTION_STATE', 8);
-	ELSE
-		fbComm.PublishINT('telescope', 'dome', 'POSITION.INSTRUMENTAL.AZ.MOTION_STATE', 1);
-	END_IF
-ELSE
-	fbComm.PublishINT('telescope', 'dome', 'POSITION.INSTRUMENTAL.AZ.MOTION_STATE', 0);
-END_IF
-
-fbComm.PublishLREAL('telescope', 'dome', 'POSITION.INSTRUMENTAL.AZ.CURRPOS', fAzimuthCurrent);
-fbComm.PublishLREAL('telescope', 'dome', 'POSITION.INSTRUMENTAL.AZ.REALPOS', fAzimuthCurrent-F_AzimuthOffsetOnAxis(fAzimuthOffset, fElevationCurrent));	// M7: was fElevation (stale)
-fbComm.PublishLREAL('telescope', 'dome', 'POSITION.INSTRUMENTAL.AZ.TARGETPOS', fbAzimuth.Position);
-fbComm.PublishLREAL('telescope', 'dome', 'POSITION.INSTRUMENTAL.AZ.CURRSPEED', fbAzimuth.Velocity);
-fbComm.PublishLREAL('telescope', 'dome', 'POSITION.INSTRUMENTAL.AZ.TARGETDISTANCE', ABS(fAzimuthCurrent-fbAzimuth.Position));
-fbComm.PublishLREAL('telescope', 'dome', 'POSITION.INSTRUMENTAL.AZ.OFFSET', fAzimuthOffset);
-
-
-(*HORIZONTAL*)
-fbComm.PublishLREAL('telescope', 'dome', 'POSITION.HORIZONTAL.ALT', fElevationCurrentSky);
-fbComm.PublishLREAL('telescope', 'dome', 'POSITION.HORIZONTAL.AZ', fAzimuthCurrentSky);
-//fbComm.Publish('telescope', 'dome', 'POSITION.HORIZONTAL.DOME', LREAL_TO_STRING(fbDome.Position));
-
-(*EQUITORIAL*)
-fbComm.PublishLREAL('telescope', 'dome', 'POSITION.EQUATORIAL.RA_ICRS', fRightAscensionCurrent);	// degrees (BROTLib#37)
-fbComm.PublishLREAL('telescope', 'dome', 'POSITION.EQUATORIAL.HA_ICRS', fHourAngleCurrent);
-fbComm.PublishLREAL('telescope', 'dome', 'POSITION.EQUATORIAL.DEC_ICRS', fDeclinationCurrent);
+fbTelemetry(comm := fbComm, stTelemetry := stTelemetry);
 ]]></ST>
       </Implementation>
     </Method>

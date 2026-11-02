@@ -53,6 +53,7 @@ were orphaned forks of HalfBROT's actively-maintained versions.
 | `FB_MonetPendantControl` covers | Selection 1-3 with the key on: hold-to-run open/close of all covers via `HalfBROT.FB_CoverControl` (one copy since 0.10.0, needs HalfBROT with `Stop()`) |
 | `FB_MonetMqttWatchdog` | Parks the telescope and closes the roof after 30 s without an MQTT broker connection (armed after the first connect) |
 | `FB_MonetDiagnostics` | `diagnostics/base/*` telemetry: telescope interrupted/ready/busy/stopped, per-axis error/error ID/enable, safety error/estop/state; on change plus a 30 s heartbeat |
+| `FB_MonetTelescopeTelemetry` | The `telescope/dome` telemetry record of `FB_MonetTelescopeControl` from an `ST_MonetTelemetry` snapshot (used internally) |
 
 ### FB_MonetTelescopeControl
 
@@ -108,6 +109,12 @@ return the current stage. Home (`_HomeTelescope`) has no stage. When a machine a
 error, interrupt or the flag dropped; home: reset, error, interrupt; park: reset, stop, interrupt, not an error, which is
 the emergency park; power-on: all of them). The software errors of the machines (16#10, 16#15/16#16, 16#30, 16#40) are
 raised in one place (`_RaiseSoftwareError`, text in `sSoftwareErrorText`) and latched until `reset=1` as before.
+
+**Telemetry (#24 step 4a).** The MONET fields of the telescope telemetry (`TELESCOPE.READY_STATE`/`MOTION_STATE`/
+`INTERRUPTED_AUTO_CLEAR_COUNT`, `WEATHER.REFRACTION.*`, `OBJECT.*`, `POINTING.*`, `POSITION.LOCAL/INSTRUMENTAL/HORIZONTAL/EQUATORIAL.*`,
+44 publishes after BROTLib's `_PublishTelemetry`, every 500 ms while moving or tracking, otherwise every second) are published by
+`FB_MonetTelescopeTelemetry` from the snapshot `ST_MonetTelemetry` (instance `stTelemetry`, ADS-readable), which the telescope
+fills once per publish. Topics, order, formats and conditions are those of 0.12.0.
 
 `bIsParked` means *secured* (covers closed, brake closed, hydraulics off, axes disabled), not *at the park
 position*: the emergency park, and a park after a reset or an aborted power-on, secure the telescope where it stands.
