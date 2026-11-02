@@ -413,6 +413,7 @@ cases go into existing suites where they fit; step 6 frees slots by moving dupli
     `BrakeOpen` (HalfBROT drops the brake output as soon as `bPumpRunning` falls, so on site the ramp may end within a few scans and
     the lock takes over), `OilPressureOK` debounce, NC behaviour of a tracking axis (`InMotion` while tracking). To run (Tim):
     `tcbuild.yml` on push, or the library install + `tctool MONETcommonTests.sln build run`; on site (design doc, order item 3).
+<<<<<<< HEAD
 - **Status PR 5 (2026-11-02): written on `feat/timeout-error-reaction` (from `develop` @ `40517f9`, PR 3 merged), not compiled, not
   run (CI on push). Version not bumped.** Row "Software error: timeout" of the design doc (now implemented, M lines of that branch).
   - Entry: `bTimeoutError` = `bSoftwareError` with the latched ID 16#10/16#30/16#40. The timeouts are raised inside the stage
@@ -458,6 +459,55 @@ cases go into existing suites where they fit; step 6 frees slots by moving dupli
     after a long slew. Not covered by a test: the stop timeout end, a hardware error during the park drive (restart in place),
     `stop=1` during the park drive, manual mode during the reaction. To run (Tim): `tcbuild.yml` on push, or the library install +
     `tctool MONETcommonTests.sln build run`; on site (design doc, order item 5).
+=======
+- **Status PR 4 (2026-11-02): written on `feat/cover-error-reaction` (from `develop` @ `40517f9`, PR 3 merged), not compiled, not run
+  (CI on push). Version not bumped.** Row "Cover error" of the design doc (now implemented, M lines of that branch).
+  - Not a telescope error: `fbCovers.Error` stays out of `bError`/`bHwError` (the drives are controllable, the target is "ramp; drive to
+    park", which the error branch and the emergency park in place would not do) and out of `bCloseRoofRequest` (D9).
+  - Online (tracking, slewing, at rest): the rising edge on a telescope that is not parked and not in E-stop calls `Park()`
+    (`F_ErrorParkRequest` reused with its own edge memory `bCoverErrorLast`; set TRUE on the first manual scan like `bHwErrorLast`,
+    #86). The park routing gives the ramp: a goto/slew/home is stopped first (#84), a track is dropped (stage `untrack`), then the park
+    drives to the park position if `F_ParkAxesCanMove`, else in place; during a stop it is queued (`bParkAfterStop`). Decided here as
+    the row's target ("drive to park"), not only the two hangs of the order item. WARN `CoverErrorParkEvent`.
+  - Park: stage `secure` ends without `Closed` when `fbCovers.Error`, the brake is closed and the stage was not sent back to
+    `disable_axes` in that scan (axes disabled, hydraulics switched off above); a flag carries it to stage `parked`, which sets
+    `bIsParked`, clears `bPark` and raises software error 16#21 via `_RaiseSoftwareError` (raised there, not in `secure`: `bError` in
+    the next scan would reset the park stage to `prepare` through `rtrigError` and re-run it in place). Applies to every park, also the
+    emergency park of an axis/focus/hydraulics error whose covers are in error.
+  - `bIsParked` decided: TRUE = secured as far as possible (axes disabled, brake closed, hydraulics off), the open covers are reported by
+    16#21. Not FALSE, because then every repeated `Park()` (watchdog and cabinet every scan, idle timeout) would re-run the park in place
+    while the cover error lasts, and `F_ErrorParkRequest` would park again on the next axis error.
+  - Error ID, no ID was reserved in the plan or the design doc. Candidates (16#xx scheme: 16#1x goto, 16#2x park, 16#3x home/config,
+    16#4x slew; IAG50cm uses 16#20 for its park timeout): 16#20 (park; kept free for a park timeout as in IAG50cm), **16#21** (park:
+    ended without closed covers; chosen, next free in the park range), 16#50 (a new "covers" range). Logged as `Internal command error,
+    ID: 33` (the existing `SoftwareErrorEvent` prints decimal), text in `sSoftwareErrorText`.
+  - Power-on: `_PowerOn` fails on `fbCovers.Error` after the `bError` check (existing power-on failure path: `bPowerFailure`, READY_STATE
+    -1.0, log `power failure: cover error (reset the covers, then power=1)`), before the cover command of stage 0, so the telescope stays
+    parked; no software error ID (as the other power-on failures). A cover error that appears during a power-on starts the park, which
+    aborts the power-on (#87).
+  - Reset: the cover error is latched in HalfBROT; the `MAIN` reset button calls `CoverControl.Reset()` and, in automatic,
+    `TelescopeControl.Reset()` (clears 16#21). Then `power=1` opens the covers and goes online, `park=1` closes them. `reset=1` alone
+    clears 16#21; `power=1` keeps failing while the cover error is there. `bReset` is held on 16#21 (a software error) for one scan
+    as for every software error.
+  - Behaviour changes (all only while `fbCovers.Error` is TRUE; with healthy covers nothing changes): (1) a new cover error on an
+    unparked telescope outside E-stop parks it; (2) a park with covers in error ends (`bIsParked`, `bPark` FALSE, READY_STATE -1.0
+    via 16#21) instead of hanging at 0.3; (3) a power-on with covers in error fails at once (-1.0, stays parked) instead of waiting
+    12 h at 0.7 with `bIsParked` FALSE; (4) an emergency park whose covers are in error also ends with 16#21 in addition to its
+    hardware error; (5) during the first power-on after a PLC restart (#113 Wake&Shake exemption, covers open) a cover error now parks
+    in place (the window closes on the park). Unchanged: `bError` of the cover error alone, `bCloseRoofRequest`, the brake rule,
+    the E-stop, the other error classes.
+  - Tests (40 of 40 suites; `MonetSafeState_Tests` 18 tests, `MonetErrorPark_Tests` 11): flipped `Cover_Error_At_PowerOn_Waits_In_
+    Stage_0_Current` -> `Cover_Error_At_PowerOn_Fails_And_Stays_Parked` and `Cover_Error_Holds_The_Park_Before_Parked_Current` ->
+    `Cover_Error_During_Park_Ends_The_Park_Without_Closed` (same method Ids); new `Cover_Error_While_Tracking_Drives_To_Park`,
+    `MonetErrorPark_Tests.Cover_Error_Park_Recovers_With_Cover_Reset_And_Reset`, `.Cover_Error_During_Estop_Does_Not_Park`. Every test
+    asserts no roof request where it applies. Other suites unedited.
+  - Unverified until CI: the build (reading the inherited `bPowerFailure` from a test, like `fbStartup`); the test timing; that the
+    `Init()` after the park goes online on the rig (as PR 3). Not modelled: a real cover error with `Opened` FALSE while tracking (then
+    `bReady` is FALSE and the park waits for `bStopped`, as any external park would), HalfBROT's timing of `Reset()` (the error clears
+    in the next call of the cover block). Not covered by a test: a cover error in the middle of stage 0 (the mock covers open in one
+    scan), the manual-mode edge memory. To run (Tim): `tcbuild.yml` on push, or the library install + `tctool MONETcommonTests.sln
+    build run`; on site (design doc, order item 4).
+>>>>>>> e8c25a1 (Docs: cover error reaction (#24 step 7 PR 4))
 
 Order rationale: 0-1 make the safety net; 2a-2b put the shared types in place before MONETcommon consumes them;
 2c-4 are neutral and unblock tests and the SM plan's 5.2; 4c settles the client question; 5-6 break consumers and
