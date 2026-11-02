@@ -268,7 +268,9 @@ END_CASE
       </Implementation>
     </Method>
     <Method Name="Error_During_Estop_Does_Not_Park" Id="{68bf4dbd-82a2-4cd3-ab08-78009e7319a9}">
-      <Declaration><![CDATA[// F_ErrorParkRequest: with the E-stop pressed the park cannot do anything (the drives are cut), so an error starts none.
+      <Declaration><![CDATA[// F_ErrorParkRequest: with the E-stop pressed the park cannot do anything (the drives are cut), so an error starts none. Since #24
+// step 7 PR 6 the E-stop itself holds a park in place until its release (MonetSafeState_Tests.Estop_During_Slew_Locks_Then_Parks_
+// In_Place_After_The_Release); while it is pressed nothing parks and the covers are not commanded, as asserted here.
 METHOD PRIVATE Error_During_Estop_Does_Not_Park
 VAR_INST
 	rig			: FB_MonetRig;
@@ -684,7 +686,9 @@ END_CASE
     </Method>
     <Method Name="Hydraulics_Error_During_Estop_Does_Not_Park" Id="{f1554025-9250-4236-b5a5-c6dc739a8ade}">
       <Declaration><![CDATA[// #24 step 7 PR 3: the E-stop exemption of F_ErrorParkRequest also holds for the hydraulics error (drives cut, people on site,
-// covers must not move on the release), and there is no ramp under the E-stop (STO: the lock is the stop).
+// covers are not commanded while it is pressed), and there is no ramp under the E-stop (STO: the lock is the stop). #24 step 7 PR 6:
+// during the E-stop this still holds; the park in place that the E-stop holds runs after its release and closes the covers then
+// (target "covers as possible after release"; until PR 6 this comment said the covers must not move on the release).
 METHOD PRIVATE Hydraulics_Error_During_Estop_Does_Not_Park
 VAR_INST
 	rig			: FB_MonetRig;
