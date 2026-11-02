@@ -29,15 +29,18 @@ VAR_INPUT
 	// leaves it at 1. Per instance, because TcUnit runs all suites in the same PLC cycles.
 	nTimeDivisor		: UDINT := 1;
 
-	// M6: applied to every commanded elevation move (Goto/Home/Park/PowerOn/Slew, not
-	// the computed tracking rate), NOT just _HomeTelescope despite the old name.
-	// 5.0 deg/s confirmed correct on-site for MONETS; 10.0 was too fast.
-	fElevationMoveVelocity : LREAL := 5.0;
+	// #24 step 2c: the motion limits of this telescope (move velocities, timeouts, goto/track elevation windows, horizon
+	// margin, azimuth/derotator track margin and time cap). The defaults are the literals of 0.11.x, so a MAIN that does
+	// not set it behaves as before. Checked every scan with BROTLib.F_MotionConfigValid: an invalid configuration is
+	// software error 16#32 (like 16#31), the defaults stay in use until it is fixed.
+	stMotion			: BROTLib.ST_MotionConfig;
 
-	// #2: the turn of an azimuth/derotator target is chosen inside the axes' own fMinPosition/fMaxPosition (the
-	// measured endpoints, set per site in MAIN), see F_AxisTurn. Per axis: degrees kept free at the limit the
-	// target moves towards (tracking stops there), and the track time in seconds above which two turns count as
-	// equal (4 h).
+	// DEPRECATED (#24 D2, removed in the next minor): use stMotion. An alias set to a value other than its old default
+	// (below) wins over the stMotion field; that is logged once (WARN). Left at the default, stMotion applies.
+	// fElevationMoveVelocity = stMotion.fElevationMoveVelocity: every commanded elevation move (Goto/Home/Park/PowerOn/
+	// Slew and the move onto a track target, not the computed tracking rate), M6.
+	fElevationMoveVelocity : LREAL := 5.0;
+	// #2 (F_AxisTurn) = stMotion.fAzimuthTrackMargin, fDerotatorTrackMargin, fAzimuthTrackTimeCap, fDerotatorTrackTimeCap
 	fAzimuthTrackMargin		: LREAL := 1.0;
 	fDerotatorTrackMargin	: LREAL := 1.0;
 	fAzimuthTrackTimeCap	: LREAL := 14400.0;
@@ -97,9 +100,17 @@ VAR
 	bSlewOutOfLimits	: BOOL;
 	SlewOutOfLimitsEvent: FB_EventLog;
 
-	// #34: home or park position at or below fHorizon + fHorizonMargin. The horizon guard
+	// #34: home or park position at or below fHorizon + stMotionUsed.fHorizonMargin. The horizon guard
 	// would send the telescope home, find it still below the horizon, and home it again forever.
 	bHomeBelowHorizon	: BOOL;
+
+	// #24 step 2c: the motion limits used in this scan (_MotionConfig): stMotion with the deprecated aliases applied, or
+	// the defaults while the configuration is invalid (bMotionConfigInvalid, software error 16#32)
+	stMotionUsed			: BROTLib.ST_MotionConfig;
+	bMotionConfigInvalid	: BOOL;
+	sMotionAliases			: STRING(120);	// the deprecated aliases in use, '' = none
+	sMotionAliasesLogged	: STRING(120);	// the set that was logged last
+	MotionAliasEvent		: FB_EventLog;
 
 	// #17: 600 s timeouts of the goto/home/slew state machines. They used to be TONs in the methods' plain VAR,
 	// which is re-created on every call, so they never fired. They are fed every scan in the body (the methods are
@@ -206,9 +217,6 @@ VAR PERSISTENT
 	nInterruptedAutoClearCount	: UDINT;	// how many times auto-clear has fired, ever
 	nStopForcedCount			: UDINT;	// #96: stops that settled on the timeout without StopDone from every axis, should stay 0
 END_VAR
-VAR CONSTANT
-	fHorizonMargin	: LREAL := 0.2;	// deg above fHorizon below which the horizon guard stops and homes
-END_VAR
 ]]></Declaration>
     <Implementation>
       <ST><![CDATA[// Startup events are reset once per scan. Internal bReady still drives mechanical sequencing.
@@ -237,6 +245,9 @@ IF NOT fbTime.bValid AND (bGoto OR bSlew OR bTrack) THEN
 	bStop := TRUE;
 END_IF
 
+// #24 step 2c: the motion limits of this scan (stMotion, deprecated aliases, F_MotionConfigValid), before anything uses them
+_MotionConfig();
+
 _ReadAxes();
 // #96: axis state for the stop transaction (the state of the last axis cycle, like bStopped below)
 _StopTxInputs();
@@ -246,10 +257,16 @@ _HandleReset();
 // #34: refuse a home/park position the horizon guard below would keep re-homing to. Checked every
 // scan, so a reset does not clear it until the configuration is fixed.
 bHomeBelowHorizon := F_HomeBelowHorizon(fElevationHome := telescopeConfig.elevationHome,
-	fElevationPark := telescopeConfig.elevationPark, fHorizon := fHorizon, fMargin := fHorizonMargin);
+	fElevationPark := telescopeConfig.elevationPark, fHorizon := fHorizon, fMargin := stMotionUsed.fHorizonMargin);
 IF bHomeBelowHorizon THEN
 	bSoftwareError := TRUE;
 	nSoftwareErrorID := 16#31;
+END_IF
+// #24 step 2c: an invalid stMotion is refused like 16#31: checked every scan, a reset does not clear it until the
+// configuration is fixed. _MotionConfig keeps the defaults in use meanwhile.
+IF bMotionConfigInvalid THEN
+	bSoftwareError := TRUE;
+	nSoftwareErrorID := 16#32;
 END_IF
 
 // get error ID, reset if bReset command is set
@@ -409,11 +426,11 @@ fAzimuthVelocity := F_Azimuthvelocity(fElevationCalc, fAzimuthCalc, telescopeCon
 bAzimuthTurnOK := F_AxisTurn(
 	fTarget := fAzimuthCalc, fVelocity := fAzimuthVelocity, fCurrent := fbAzimuth.fActualPosition,
 	bHold := fbAzimuth.Tracking AND NOT bGoto, fMin := fbAzimuth.fMinPosition, fMax := fbAzimuth.fMaxPosition,
-	fMargin := fAzimuthTrackMargin, fTrackTimeCap := fAzimuthTrackTimeCap, fPosition => fAzimuthCalc);
+	fMargin := stMotionUsed.fAzimuthTrackMargin, fTrackTimeCap := stMotionUsed.fAzimuthTrackTimeCap, fPosition => fAzimuthCalc);
 bDerotatorTurnOK := F_AxisTurn(
 	fTarget := fDerotatorCalc, fVelocity := fDerotatorVelocity, fCurrent := fbDerotator.fActualPosition,
 	bHold := fbDerotator.Tracking AND NOT bGoto, fMin := fbDerotator.fMinPosition, fMax := fbDerotator.fMaxPosition,
-	fMargin := fDerotatorTrackMargin, fTrackTimeCap := fDerotatorTrackTimeCap, fPosition => fDerotatorCalc);
+	fMargin := stMotionUsed.fDerotatorTrackMargin, fTrackTimeCap := stMotionUsed.fDerotatorTrackTimeCap, fPosition => fDerotatorCalc);
 // only a requested goto/track makes the target relevant (see #94)
 bAzimuthNoTurn := (bGoto OR bTrack) AND NOT bAzimuthTurnOK;
 bDerotatorNoTurn := (bGoto OR bTrack) AND NOT bDerotatorTurnOK;
@@ -468,7 +485,7 @@ hor2eq(alt := fElevationCurrentSky,
 		dec => fDeclinationCurrentSky);
 	
 // If the Telescope dips under the fHorizon (e.g. while tracking, stop and gohome)
-IF fbElevation.Calibrated AND fElevationCurrent < (fHorizon + fHorizonMargin) THEN
+IF fbElevation.Calibrated AND fElevationCurrent < (fHorizon + stMotionUsed.fHorizonMargin) THEN
 	IF NOT bStopped AND NOT bGoHome THEN
 		bStop := TRUE;
 	ELSIF NOT bHomeBelowHorizon AND NOT bInitRequired THEN	// #72: no automatic motion before the Init that follows manual mode
@@ -478,14 +495,14 @@ END_IF
 		
 tpPowerOnWarning(IN := bPower OR (NOT fbElevation.bEnable AND fbBrake.BrakeOpen), PT := T#250MS);
 
-tonPowerTimeout(IN := TCS_command = E_TCSCommand.no_command AND NOT bIsParked, PT := T#12H, nDivisor := nTimeDivisor);
+tonPowerTimeout(IN := TCS_command = E_TCSCommand.no_command AND NOT bIsParked, PT := stMotionUsed.tIdleParkTimeout, nDivisor := nTimeDivisor);
 tonCommandTimeout();
 
 // #17: state-machine timeouts, checked in _GotoTelescope/_HomeTelescope/_SlewTelescope (which raise the error and
 // clear the flag, so the timer resets on the next scan)
-tonGotoTimeout(IN := bGoto, PT := T#600S, nDivisor := nTimeDivisor);
-tonHomeTimeout(IN := bGoHome, PT := T#600S, nDivisor := nTimeDivisor);
-tonSlewTimeout(IN := bSlew, PT := T#600S, nDivisor := nTimeDivisor);
+tonGotoTimeout(IN := bGoto, PT := stMotionUsed.tStateMachineTimeout, nDivisor := nTimeDivisor);
+tonHomeTimeout(IN := bGoHome, PT := stMotionUsed.tStateMachineTimeout, nDivisor := nTimeDivisor);
+tonSlewTimeout(IN := bSlew, PT := stMotionUsed.tStateMachineTimeout, nDivisor := nTimeDivisor);
 IF tonPowerTimeout.Q AND NOT bIsParked THEN
 	bPark := TRUE;
 END_IF
@@ -697,31 +714,31 @@ END_IF
 
 IF TCS_command = E_TCSCommand.poweron THEN
 	_PowerOn();
-	tonCommandTimeout(IN := TCS_command = E_TCSCommand.poweron, PT := T#12H, nDivisor := nTimeDivisor);
+	tonCommandTimeout(IN := TCS_command = E_TCSCommand.poweron, PT := stMotionUsed.tPowerOnTimeout, nDivisor := nTimeDivisor);
 	TCSCTOEvent.OnMessage := 'POWER';
 ELSIF TCS_command = E_TCSCommand.stop THEN
 	_StopTelescope();
 	TCSCTOEvent.OnMessage := 'STOP';
-	tonCommandTimeout(IN := TCS_command = E_TCSCommand.stop, PT := T#15S, nDivisor := nTimeDivisor);	// #84: provisional, measure on site
+	tonCommandTimeout(IN := TCS_command = E_TCSCommand.stop, PT := stMotionUsed.tStopTimeout, nDivisor := nTimeDivisor);	// #84: provisional, measure on site
 ELSIF TCS_command = E_TCSCommand.park THEN
 	_ParkTelescope();
-	tonCommandTimeout(IN := TCS_command = E_TCSCommand.park, PT := T#2M, nDivisor := nTimeDivisor);
+	tonCommandTimeout(IN := TCS_command = E_TCSCommand.park, PT := stMotionUsed.tCommandTimeout, nDivisor := nTimeDivisor);
 	TCSCTOEvent.OnMessage := 'PARK';
 ELSIF TCS_command = E_TCSCommand.gohome THEN
 	_HomeTelescope();
-	tonCommandTimeout(IN := TCS_command = E_TCSCommand.gohome, PT := T#2M, nDivisor := nTimeDivisor);
+	tonCommandTimeout(IN := TCS_command = E_TCSCommand.gohome, PT := stMotionUsed.tCommandTimeout, nDivisor := nTimeDivisor);
 	TCSCTOEvent.OnMessage := 'GOHOME';
 ELSIF TCS_command = E_TCSCommand.goto THEN
 	_GotoTelescope();
-	tonCommandTimeout(IN := TCS_command = E_TCSCommand.goto, PT := T#2M, nDivisor := nTimeDivisor);
+	tonCommandTimeout(IN := TCS_command = E_TCSCommand.goto, PT := stMotionUsed.tCommandTimeout, nDivisor := nTimeDivisor);
 	TCSCTOEvent.OnMessage := 'GOTO';
 ELSIF TCS_command = E_TCSCommand.slew THEN
 	_SlewTelescope();
-	tonCommandTimeout(IN := TCS_command = E_TCSCommand.slew, PT := T#2M, nDivisor := nTimeDivisor);
+	tonCommandTimeout(IN := TCS_command = E_TCSCommand.slew, PT := stMotionUsed.tCommandTimeout, nDivisor := nTimeDivisor);
 	TCSCTOEvent.OnMessage := 'SLEW';
 ELSIF TCS_command = E_TCSCommand.track THEN
 	_TrackTelescope();
-	tonCommandTimeout(IN := TCS_command = E_TCSCommand.track, PT := T#12H, nDivisor := nTimeDivisor);
+	tonCommandTimeout(IN := TCS_command = E_TCSCommand.track, PT := stMotionUsed.tTrackTimeout, nDivisor := nTimeDivisor);
 	TCSCTOEvent.OnMessage := 'TRACK';
 ELSE
 	// disable command timeout
@@ -884,10 +901,11 @@ END_IF
 
 
 // M7: near zenith COS(elevation) -> 0, so any nonzero fAzimuthOffset blows up into a
-// huge azimuth (see the offset divisions elsewhere in this FB). 89.5 matches the
-// existing tracking cutoff (_TrackTelescope: fElevationCurrent > 89.5).
-// #109: the elevation window is F_GotoTargetCheck (tested): below 2 deg 16#15, above 89.5 deg 16#16
-nTargetError := F_GotoTargetCheck(fElevationCalc, 2.0, 89.5);
+// huge azimuth (see the offset divisions elsewhere in this FB). The default maximum 89.5 matches the
+// default tracking cutoff (_TrackTelescope: stMotionUsed.fTrackMaxElevation).
+// #109: the elevation window is F_GotoTargetCheck (tested): below stMotion.fGotoMinElevation (default 2 deg) 16#15,
+// above stMotion.fGotoMaxElevation (default 89.5 deg) 16#16 (#24 step 2c)
+nTargetError := F_GotoTargetCheck(fElevationCalc, stMotionUsed.fGotoMinElevation, stMotionUsed.fGotoMaxElevation);
 IF nTargetError <> 0 THEN
 	bError := TRUE;
 	nErrorID := nTargetError;
@@ -923,9 +941,9 @@ CASE nStage OF
 		fbElevation.Position := fElevationCalc;
 		fbAzimuth.Position := fAzimuthCalc;
 		fbDerotator.Position := fDerotatorCalc;
-		fbDerotator.Velocity := 10.0;
-		fbElevation.Velocity := fElevationMoveVelocity;
-		fbAzimuth.Velocity := 10.0;
+		fbDerotator.Velocity := stMotionUsed.fDerotatorMoveVelocity;
+		fbElevation.Velocity := stMotionUsed.fElevationMoveVelocity;
+		fbAzimuth.Velocity := stMotionUsed.fAzimuthMoveVelocity;
 		
 		fbElevation.MoveAxis := TRUE;
 		fbAzimuth.MoveAxis := TRUE;
@@ -994,13 +1012,13 @@ END_IF
 
 // only move while a home command is active (Stop/Park/Reset call this with bGoHome cleared to abort it)
 IF bGoHome AND bReady AND bStopped AND NOT bBusy AND NOT bTracking THEN
-    fbElevation.Velocity := fElevationMoveVelocity;
+    fbElevation.Velocity := stMotionUsed.fElevationMoveVelocity;
     fbElevation.Position := telescopeConfig.elevationHome;
     fbElevation.MoveAxis := TRUE;
-    fbAzimuth.Velocity := 10.0;
+    fbAzimuth.Velocity := stMotionUsed.fAzimuthMoveVelocity;
     fbAzimuth.Position := telescopeConfig.azimuthHome;
     fbAzimuth.MoveAxis := TRUE;
-    fbDerotator.Velocity := 10.0;
+    fbDerotator.Velocity := stMotionUsed.fDerotatorMoveVelocity;
     fbDerotator.Position := telescopeConfig.derotatorHome;
     fbDerotator.MoveAxis := TRUE;    
 END_IF
@@ -1092,13 +1110,13 @@ CASE nStage OF
 		END_IF		
 	20:
 		fbElevation.Position := telescopeConfig.elevationPark;
-		fbElevation.Velocity := fElevationMoveVelocity;
+		fbElevation.Velocity := stMotionUsed.fElevationMoveVelocity;
 		fbElevation.MoveAxis := TRUE;
 		fbAzimuth.Position := telescopeConfig.azimuthPark;
-		fbAzimuth.Velocity := 10;
+		fbAzimuth.Velocity := stMotionUsed.fAzimuthMoveVelocity;
 		fbAzimuth.MoveAxis := TRUE;
 		fbDerotator.Position := telescopeConfig.derotatorPark;
-		fbDerotator.Velocity := 10.0;
+		fbDerotator.Velocity := stMotionUsed.fDerotatorMoveVelocity;
 		fbDerotator.MoveAxis := TRUE;
 		IF fbElevation.Busy AND
 			fbAzimuth.Busy AND
@@ -1251,13 +1269,13 @@ CASE nStage OF
 		END_IF
 		
 	30:
-		fbElevation.Velocity := fElevationMoveVelocity;
+		fbElevation.Velocity := stMotionUsed.fElevationMoveVelocity;
 		fbElevation.Position := telescopeConfig.elevationHome;
 		fbElevation.MoveAxis := TRUE;
-		fbAzimuth.Velocity := 10.0;
+		fbAzimuth.Velocity := stMotionUsed.fAzimuthMoveVelocity;
 		fbAzimuth.Position := telescopeConfig.azimuthHome;
 		fbAzimuth.MoveAxis := TRUE;
-		fbDerotator.Velocity := 10.0;
+		fbDerotator.Velocity := stMotionUsed.fDerotatorMoveVelocity;
 		fbDerotator.Position := telescopeConfig.derotatorHome;
 		fbDerotator.MoveAxis := TRUE;	
 		
@@ -1372,7 +1390,7 @@ IF __ISVALIDREF(fbAzimuth) AND __ISVALIDREF(fbElevation) AND __ISVALIDREF(fbDero
         fbElevation.MoveNeg := FALSE;
         fbDerotator.MovePos := FALSE;
         fbDerotator.MoveNeg := FALSE;
-        tonCommandTimeout(IN := TRUE, PT := T#15S, nDivisor := nTimeDivisor);
+        tonCommandTimeout(IN := TRUE, PT := stMotionUsed.tSuspendStopTimeout, nDivisor := nTimeDivisor);
         TCSCTOEvent.OnMessage := 'STOP';
         _StopTxMonitor();
         IF fbStopTx.bSettled THEN
@@ -1628,13 +1646,13 @@ CASE nStage OF
 			RETURN;
 		END_IF
 		fbElevation.Position := fElevation + fElevationPointingOffset + fElevationOffset;
-		fbElevation.Velocity := fElevationMoveVelocity;
+		fbElevation.Velocity := stMotionUsed.fElevationMoveVelocity;
 		fbElevation.MoveAxis := TRUE;
 		fbAzimuth.Position := fAzimuth + fAzimuthPointingOffset + F_AzimuthOffsetOnAxis(fAzimuthOffset, fElevation);	// M7: was fElevationCalc, mismatched with fAzimuth above
-		fbAzimuth.Velocity := 10.0;
+		fbAzimuth.Velocity := stMotionUsed.fAzimuthMoveVelocity;
 		fbAzimuth.MoveAxis := TRUE;
 		fbDerotator.Position := fElevation + fDerotatorOffset;
-		fbDerotator.Velocity := 10.0;
+		fbDerotator.Velocity := stMotionUsed.fDerotatorMoveVelocity;
 		fbDerotator.MoveAxis := TRUE;
 		IF fbElevation.Busy AND
 			fbAzimuth.Busy AND
@@ -1891,6 +1909,57 @@ END_IF
 ]]></ST>
       </Implementation>
     </Method>
+    <Method Name="_MotionConfig" Id="{8979c776-9097-4885-b923-03159bbd68ae}" FolderPath="internal methods\">
+      <Declaration><![CDATA[// #24 step 2c: the motion limits of this scan, called near the start of the body. stMotionUsed := stMotion, then every
+// deprecated alias input (D2) that is not at its old default wins over its field; the set of aliases in use is logged
+// once (WARN, ADS and MQTT log) whenever it changes. An invalid result (BROTLib.F_MotionConfigValid) sets
+// bMotionConfigInvalid (software error 16#32, raised in the body) and the defaults stay in use, so no timer, window or
+// velocity runs with an invalid value.
+METHOD PRIVATE _MotionConfig
+VAR
+	stDefault	: BROTLib.ST_MotionConfig;	// the struct defaults (a method VAR is initialised on every call)
+	bLog		: BOOL;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[stMotionUsed := stMotion;
+sMotionAliases := '';
+IF fElevationMoveVelocity <> 5.0 THEN
+	stMotionUsed.fElevationMoveVelocity := fElevationMoveVelocity;
+	sMotionAliases := CONCAT(sMotionAliases, ' fElevationMoveVelocity');
+END_IF
+IF fAzimuthTrackMargin <> 1.0 THEN
+	stMotionUsed.fAzimuthTrackMargin := fAzimuthTrackMargin;
+	sMotionAliases := CONCAT(sMotionAliases, ' fAzimuthTrackMargin');
+END_IF
+IF fDerotatorTrackMargin <> 1.0 THEN
+	stMotionUsed.fDerotatorTrackMargin := fDerotatorTrackMargin;
+	sMotionAliases := CONCAT(sMotionAliases, ' fDerotatorTrackMargin');
+END_IF
+IF fAzimuthTrackTimeCap <> 14400.0 THEN
+	stMotionUsed.fAzimuthTrackTimeCap := fAzimuthTrackTimeCap;
+	sMotionAliases := CONCAT(sMotionAliases, ' fAzimuthTrackTimeCap');
+END_IF
+IF fDerotatorTrackTimeCap <> 14400.0 THEN
+	stMotionUsed.fDerotatorTrackTimeCap := fDerotatorTrackTimeCap;
+	sMotionAliases := CONCAT(sMotionAliases, ' fDerotatorTrackTimeCap');
+END_IF
+
+bLog := sMotionAliases <> sMotionAliasesLogged AND sMotionAliases <> '';
+sMotionAliasesLogged := sMotionAliases;
+MotionAliasEvent(	Trigger := bLog,
+					Level := ADSLOG_MSGTYPE_WARN,
+					FormatString := '%s',
+					OnMessage := CONCAT('deprecated inputs override stMotion (set stMotion instead, removed in the next minor):', sMotionAliases),
+					Comm := fbComm);
+
+bMotionConfigInvalid := NOT BROTLib.F_MotionConfigValid(stConfig := stMotionUsed);
+IF bMotionConfigInvalid THEN
+	stMotionUsed := stDefault;
+END_IF
+]]></ST>
+      </Implementation>
+    </Method>
     <Method Name="_ReadAxes" Id="{01fb7eb4-fd45-4d34-9738-945e1968aeee}" FolderPath="internal methods\">
       <Declaration><![CDATA[// plan step 3.1: the feedback of the three axes (the outputs of their FB_Axis) once per scan, at the start of the body and of
 // SuspendAutomatic. The axes are called after the telescope, so the outputs are the same wherever the body reads them.
@@ -2106,10 +2175,10 @@ END_VAR
 fDerotatorVelocity := F_Derotatorvelocity(fAzimuthCalc, fElevationCalc, telescopeConfig.latitude, fDerotatorSign);
 fElevationVelocity := F_Elevationvelocity(fAzimuthCalc, telescopeConfig.latitude);
 fAzimuthVelocity := F_Azimuthvelocity(fElevationCalc, fAzimuthCalc, telescopeConfig.latitude);
-IF fElevationCurrent < 5.0 OR fElevationCurrent > 89.5 THEN
+IF fElevationCurrent < stMotionUsed.fTrackMinElevation OR fElevationCurrent > stMotionUsed.fTrackMaxElevation THEN
 	bTrack := FALSE;
 END_IF
-// #2: replaces the literal cutoffs (azimuth 440, derotator -69/379) of MONETN: tracking stops fAzimuthTrackMargin /
+// #2: replaces the literal cutoffs (azimuth 440, derotator -69/379) of MONETN: tracking stops stMotionUsed.fAzimuthTrackMargin /
 // fDerotatorTrackMargin before the limit the target moves towards, or when no turn exists
 IF NOT bAzimuthTurnOK OR NOT bDerotatorTurnOK THEN
 	bTrack := FALSE;
@@ -2117,7 +2186,7 @@ END_IF
 
 fbElevation.Position := fElevationCalc;
 IF NOT fbElevation.Tracking THEN
-	fbElevation.Velocity := fElevationMoveVelocity;
+	fbElevation.Velocity := stMotionUsed.fElevationMoveVelocity;
 	fbElevation.MoveAxis := TRUE;
 	IF NOT fbElevation.Busy AND fbElevation.MoveDone THEN
 		fbElevation.MoveAxis := FALSE;
@@ -2136,7 +2205,7 @@ END_IF
 // Azimuth
 fbAzimuth.Position := fAzimuthCalc;
 IF NOT fbAzimuth.Tracking THEN
-	fbAzimuth.Velocity := 10.0;
+	fbAzimuth.Velocity := stMotionUsed.fAzimuthMoveVelocity;
 	fbAzimuth.MoveAxis := TRUE;
 	IF NOT fbAzimuth.Busy AND fbAzimuth.MoveDone THEN
 		fbAzimuth.MoveAxis := FALSE;
@@ -2155,7 +2224,7 @@ END_IF
 // Derotator
 fbDerotator.Position := fDerotatorCalc;
 IF NOT fbDerotator.Tracking THEN
-	fbDerotator.Velocity := 10.0;
+	fbDerotator.Velocity := stMotionUsed.fDerotatorMoveVelocity;
 	fbDerotator.MoveAxis := TRUE;
 	IF NOT fbDerotator.Busy AND fbDerotator.MoveDone THEN
 		fbDerotator.MoveAxis := FALSE;
