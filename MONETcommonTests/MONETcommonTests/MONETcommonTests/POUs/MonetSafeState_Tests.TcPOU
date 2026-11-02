@@ -21,6 +21,7 @@ Goto_Times_Out_Without_Park_Current();
 Home_Times_Out_Without_Park_Current();
 Clock_Invalid_Slew_Takes_The_Stop_Path();
 Watchdog_Parks_And_Closes_The_Roof_In_One_Scan();
+Invalid_Motion_Config_Is_Software_Error_32();
 ]]></ST>
     </Implementation>
     <Method Name="Hydraulics_Error_While_Tracking_Keeps_Tracking_Current" Id="{f533c953-e643-4316-8d3d-4e35919c0034}">
@@ -740,6 +741,69 @@ CASE nStep OF
 	IF nCycles >= 10 THEN
 		AssertTrue(Condition := fbRoof.nCloseCalls = nCloses, Message := 'no roof close while connected');
 		F_Note(bFailed := NOT (fbRoof.nCloseCalls = nCloses), sText := CONCAT(sTest, 'no roof close while connected'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+END_CASE
+
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Invalid_Motion_Config_Is_Software_Error_32" Id="{1c5940e5-8f4f-45b6-867d-441dba951f47}">
+      <Declaration><![CDATA[// #24 step 2c, row "software error: config": an invalid stMotion (BROTLib.F_MotionConfigValid FALSE, here the goto window reversed,
+// min 50 > max 40) is software error 16#32, raised in every scan like 16#31 (M: after F_HomeBelowHorizon). The defaults stay in use
+// (stMotionUsed), a reset does not clear the error while the configuration is wrong, and it clears once the configuration is valid.
+// No clock and no power-on needed.
+METHOD PRIVATE Invalid_Motion_Config_Is_Software_Error_32
+VAR_INST
+	rig			: FB_MonetRig;
+	stCfg		: BROTLib.ST_MotionConfig;
+	stValid		: BROTLib.ST_MotionConfig;	// the defaults
+	nStep		: INT;
+	nCycles		: UINT;
+	sTest		: STRING(80);
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Invalid_Motion_Config_Is_Software_Error_32');
+sTest := 'Invalid_Motion_Config_Is_Software_Error_32: ';
+IF nStep >= 90 THEN
+	RETURN;
+END_IF
+IF nStep = 0 THEN	// before the first scan
+	stCfg.fGotoMinElevation := 50.0;
+	stCfg.fGotoMaxElevation := 40.0;
+	rig.SetMotion(stValue := stCfg);
+	nStep := 10;
+END_IF
+rig.Scan();
+nCycles := nCycles + 1;
+CASE nStep OF
+10:
+	IF nCycles >= 3 THEN
+		AssertTrue(Condition := rig.fbTel.bError AND rig.fbTel.nErrorID = 16#32, Message := 'the invalid configuration is error 16#32');
+		F_Note(bFailed := NOT (rig.fbTel.bError AND rig.fbTel.nErrorID = 16#32), sText := CONCAT(sTest, 'the invalid configuration is error 16#32'));
+		AssertTrue(Condition := rig.fbTel.stMotionUsed.fGotoMinElevation = 2.0 AND rig.fbTel.stMotionUsed.fGotoMaxElevation = 89.5,
+			Message := 'the defaults stay in use');
+		F_Note(bFailed := NOT (rig.fbTel.stMotionUsed.fGotoMinElevation = 2.0 AND rig.fbTel.stMotionUsed.fGotoMaxElevation = 89.5),
+			sText := CONCAT(sTest, 'the defaults stay in use'));
+		rig.fbTel.Reset();
+		nStep := 20;
+		nCycles := 0;
+	END_IF
+20:
+	IF nCycles >= 3 THEN
+		AssertTrue(Condition := rig.fbTel.bError AND rig.fbTel.nErrorID = 16#32, Message := 'a reset does not clear it while the configuration is wrong');
+		F_Note(bFailed := NOT (rig.fbTel.bError AND rig.fbTel.nErrorID = 16#32), sText := CONCAT(sTest, 'a reset does not clear it while the configuration is wrong'));
+		rig.SetMotion(stValue := stValid);
+		rig.fbTel.Reset();
+		nStep := 30;
+		nCycles := 0;
+	END_IF
+30:
+	IF nCycles >= 3 THEN
+		AssertFalse(Condition := rig.fbTel.bError, Message := 'a valid configuration and a reset clear the error');
+		F_Note(bFailed := (rig.fbTel.bError), sText := CONCAT(sTest, 'a valid configuration and a reset clear the error'));
 		nStep := 99;
 		TEST_FINISHED();
 	END_IF

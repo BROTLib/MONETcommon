@@ -25,6 +25,8 @@ VAR
 	bEstopIn		: BOOL;	// SafetyHandling.estop
 	bSafetyIn		: BOOL;	// SafetyHandling.error
 	bMainReadyIn	: BOOL := TRUE;	// PowerMonitoring.phaseOK (MAIN: bMainReady := ready)
+	stMotion		: BROTLib.ST_MotionConfig;	// stMotion of the telescope under test (SetMotion), default = the struct defaults (#24 step 2c)
+	fElevationMoveVelocityIn	: LREAL := 5.0;	// the deprecated alias input (SetElevationMoveVelocity), default = its old default; MONETS MAIN passes 3.0
 END_VAR
 VAR CONSTANT
 	telescopeConfig	: ST_TelescopeConfig := (longitude := 20.810808, latitude := -32.375823, altitude := 1798.0,
@@ -114,6 +116,8 @@ ELSE
 		bEstopTriggered := bEstopIn,
 		bSafetyError := bSafetyIn,
 		bMainReady := bMainReadyIn,
+		stMotion := stMotion,
+		fElevationMoveVelocity := fElevationMoveVelocityIn,
 		nTimeDivisor := nTimeDivisor);
 END_IF
 fbElev(fbCovers := fbCovers, fbBrake := fbBrakeHyd);
@@ -146,6 +150,30 @@ END_VAR
         </Implementation>
       </Get>
     </Property>
+    <Method Name="SetMotion" Id="{a8848ecf-4ba6-4d7f-95e4-4a32a59465d5}">
+      <Declaration><![CDATA[// stMotion of the telescope under test (#24 step 2c), handed to it from the next Scan() on; the default is the struct defaults
+METHOD SetMotion
+VAR_INPUT
+	stValue	: BROTLib.ST_MotionConfig;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[stMotion := stValue;
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="SetElevationMoveVelocity" Id="{62399cab-459e-47e6-bff3-27d83498d3ec}">
+      <Declaration><![CDATA[// the deprecated alias input fElevationMoveVelocity of the telescope (#24 D2); 5.0 (default) = not used, MONETS MAIN passes 3.0
+METHOD SetElevationMoveVelocity
+VAR_INPUT
+	fValue	: LREAL;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[fElevationMoveVelocityIn := fValue;
+]]></ST>
+      </Implementation>
+    </Method>
     <Method Name="SetManual" Id="{7367e2f8-5967-47be-afd4-0d6ea17370fa}">
       <Declaration><![CDATA[// the cabinet selector: TRUE = manual (the telescope body is not called, SuspendAutomatic is)
 METHOD SetManual

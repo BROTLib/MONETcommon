@@ -86,6 +86,21 @@ What the block does for each error class (axis, focus, software, hydraulics, cov
 cabinet temperature, manual mode, PLC restart), with the code line, the target safe state and the test that pins it:
 [specs/design/monetcommon-safe-states.md](specs/design/monetcommon-safe-states.md).
 
+**Motion limits (`stMotion`, #24).** The input `stMotion : BROTLib.ST_MotionConfig` (BROTLib >= 0.17.0, alt-az only)
+holds the move velocities (azimuth/derotator 10.0, elevation 5.0 deg/s), the timeouts (goto/home/slew state machine
+600 s, park/gohome/goto/slew command 2 min, idle park, power-on and track 12 h, stop and suspend stop 15 s), the goto
+(2.0..89.5 deg) and track (5.0..89.5 deg) elevation windows, the horizon margin (0.2 deg) and the azimuth/derotator track
+margin (1.0 deg) and track time cap (14400 s). The defaults are the values that were built in up to 0.11.x, so a `MAIN`
+that does not set `stMotion` behaves as before. Internal timings (tracking delay, Wake&Shake window, interrupted
+auto-clear, MQTT cadence) stay constants. `BROTLib.F_MotionConfigValid` checks it every scan: an invalid configuration
+is **software error 16#32** (like 16#31 for a home/park position below the horizon), the defaults stay in use and a reset
+does not clear it until the configuration is valid.
+Deprecated for one release (removed in the next minor): `fElevationMoveVelocity`, `fAzimuthTrackMargin`,
+`fDerotatorTrackMargin`, `fAzimuthTrackTimeCap`, `fDerotatorTrackTimeCap`. One set to a value other than its old default
+(5.0, 1.0, 1.0, 14400.0, 14400.0) wins over the `stMotion` field and is logged once (WARN `deprecated inputs override
+stMotion ...`). MONET/S passes `fElevationMoveVelocity := 3.0` and needs no change; move it to
+`stMotion.fElevationMoveVelocity` at the next re-pin.
+
 `bIsParked` means *secured* (covers closed, brake closed, hydraulics off, axes disabled), not *at the park
 position*: the emergency park, and a park after a reset or an aborted power-on, secure the telescope where it stands.
 `bParkedInPlace` (MQTT `diagnostics/base/ParkedInPlace`, WARN log "parked in place at el .. az ..") is TRUE then; it drops
