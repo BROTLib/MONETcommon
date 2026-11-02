@@ -79,6 +79,7 @@ VAR
 	// scan and would silently wipe these within the same cycle they're set in.
 	bSoftwareError		: BOOL;
 	nSoftwareErrorID	: UINT;
+	sSoftwareErrorText	: STRING(80);	// #24 step 3b: what the last _RaiseSoftwareError reported (ADS diagnostics only, not logged), '' after a reset
 	SoftwareErrorEvent	: FB_EventLog;
 
 	// #80: one-scan flag set by Init() when AcceptInit() refuses; logged once by the body.
@@ -897,10 +898,7 @@ IF bReset OR bError OR bInterrupted OR NOT bGoto THEN
 	RETURN;
 END_IF
 IF tonGotoTimeout.Q THEN	// #17: fed every scan in the body, a method-local TON never kept its state
-	bError := TRUE;
-	nErrorID := 16#10;
-	bSoftwareError := TRUE;
-	nSoftwareErrorID := 16#10;
+	_RaiseSoftwareError(nId := 16#10, sText := 'goto: state machine timeout');
 	bGoto := FALSE;
 	eGotoStage := E_GotoStage.idle;
 	RETURN;
@@ -914,10 +912,7 @@ END_IF
 // above stMotion.fGotoMaxElevation (default 89.5 deg) 16#16 (#24 step 2c)
 nTargetError := F_GotoTargetCheck(fElevationCalc, stMotionUsed.fGotoMinElevation, stMotionUsed.fGotoMaxElevation);
 IF nTargetError <> 0 THEN
-	bError := TRUE;
-	nErrorID := nTargetError;
-	bSoftwareError := TRUE;
-	nSoftwareErrorID := nTargetError;
+	_RaiseSoftwareError(nId := nTargetError, sText := 'goto: target outside the elevation window');
 	bGoto := FALSE;
 	eGotoStage := E_GotoStage.idle;
 	RETURN;
@@ -1009,10 +1004,7 @@ IF bReset OR bError OR bInterrupted THEN
 END_IF
 
 IF tonHomeTimeout.Q THEN	// #17: fed every scan in the body
-    bError := TRUE;
-    nErrorID := 16#30;
-    bSoftwareError := TRUE;
-    nSoftwareErrorID := 16#30;
+    _RaiseSoftwareError(nId := 16#30, sText := 'gohome: state machine timeout');
     bGoHome := FALSE;	// #17: like goto/slew; otherwise the expired timer would raise the error again right after a reset
     _HomeTelescope :=TRUE;
 END_IF
@@ -1611,10 +1603,7 @@ IF bReset OR bError OR bInterrupted OR NOT bSlew THEN
 	RETURN;
 END_IF
 IF tonSlewTimeout.Q THEN	// #17: fed every scan in the body
-	bError := TRUE;
-	nErrorID := 16#40;
-	bSoftwareError := TRUE;
-	nSoftwareErrorID := 16#40;
+	_RaiseSoftwareError(nId := 16#40, sText := 'slew: state machine timeout');
 	bSlew := FALSE;
 	eSlewStage := E_SlewStage.idle;
 	RETURN;
@@ -1884,6 +1873,7 @@ IF bReset THEN
 	bHorizonError := FALSE; // if reset, the bHorizonError can be switched off
 	bSoftwareError := FALSE;
 	nSoftwareErrorID := 0;	// #88
+	sSoftwareErrorText := '';	// #24 step 3b
 
 	// #85: a reset drops every pending move command; nothing may move later because of a command sent
 	// before the reset. bPark is kept on purpose (safe direction, emergency park).
@@ -1910,6 +1900,28 @@ IF bReset THEN
 	bInterrupted := FALSE;
 END_IF
 
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="_RaiseSoftwareError" Id="{d7269f1a-1a39-4d9c-9ab8-9d3ec12c3042}" FolderPath="internal methods\">
+      <Declaration><![CDATA[// #24 step 3b: the one path of the software errors of the stage machines (goto 16#10, goto target 16#15/16#16, home 16#30,
+// slew 16#40), until 0.12.0 four copies of the same four assignments. bError/nErrorID act in the rest of this scan,
+// bSoftwareError/nSoftwareErrorID are latched until bReset (M1, cleared in _HandleReset), so bError and nErrorID follow them
+// again from the next scan. The log is unchanged ('Internal command error, ID: %s', _LogEvents); sText is kept for ADS only.
+// The configuration errors 16#31/16#32 of the body set only the latch (bError follows from it in the same scan) and do not
+// use this method.
+METHOD PRIVATE _RaiseSoftwareError
+VAR_INPUT
+	nId		: UINT;		// software error ID, also nErrorID
+	sText	: STRING;	// what failed, stored in sSoftwareErrorText
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[bError := TRUE;
+nErrorID := nId;
+bSoftwareError := TRUE;
+nSoftwareErrorID := nId;
+sSoftwareErrorText := sText;
 ]]></ST>
       </Implementation>
     </Method>
