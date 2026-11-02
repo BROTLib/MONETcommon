@@ -42,6 +42,7 @@ VAR
 	fbMonetErrorParkTests	: MonetErrorPark_Tests;
 	fbMonetBrakeReleaseTests	: MonetBrakeRelease_Tests;
 	fbMonetTimeoutsTests : MonetTimeouts_Tests;
+	fbMonetSafeStateTests	: MonetSafeState_Tests;
 END_VAR
 ]]></Declaration>
     <Implementation>
