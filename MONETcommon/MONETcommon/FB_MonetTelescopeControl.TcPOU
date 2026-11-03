@@ -232,6 +232,17 @@ VAR
 	bTimeoutPark			: BOOL;	// the ramp and park of a timeout is running, the error branch does not disable the axes
 	bTimeoutParkStarted		: BOOL;	// one scan, logged
 	TimeoutParkEvent		: FB_EventLog;
+	// #24 step 7 PR 4 (specs/design/monetcommon-safe-states.md row "Cover error"): fbCovers.Error (HalfBROT FB_CoverControl, latched
+	// there until its Reset(), the MAIN reset button; no cover moves while it is set) is no telescope error: not in bError (the drives
+	// are controllable), no roof close (D9). Its rising edge on a telescope that is not parked and not in E-stop starts a normal park
+	// (Park(), the routing of an external park: a running move is stopped first, then the park drives to the park position if the axes
+	// can move, else it parks in place). A park whose covers are in error ends in stage secure without fbCovers.Closed (axes disabled,
+	// brake closed, hydraulics off) with bIsParked and software error 16#21. A power-on with the cover error fails before its cover
+	// command (bPowerFailure), so the telescope stays parked.
+	bCoverErrorLast			: BOOL;	// fbCovers.Error of the last automatic scan (edge memory of the park request; TRUE on the first manual scan, as bHwErrorLast)
+	bCoverErrorParkStarted	: BOOL;	// one scan, logged
+	CoverErrorParkEvent		: FB_EventLog;
+	bParkCoverFault			: BOOL;	// the park left stage secure without fbCovers.Closed (cover error); 16#21 is raised in stage parked
 	// #151: the brake may stay open with the elevation disabled for the Wake&Shake (F_WakeShakeWindow)
 	bWakeShakeWindow		: BOOL;
 	bWakeShakeWindowLast	: BOOL;
@@ -566,6 +577,15 @@ bErrorParkStarted := bErrorParkStarted AND NOT bErrorParkExempt;
 bHwErrorLast := bHwError;
 IF bErrorParkStarted THEN
 	Park();	// same routing as an external park: deferred to standstill during a stop (#83/#87)
+END_IF
+// #24 step 7 PR 4 (row cover error): a new cover error while not parked starts a normal park, not the emergency park: the cover
+// error is not bError, so the park branch below stops a running move first (#84) and the park drives to the park position if the
+// axes can move (ramp, then drive to park). Same edge and exemptions as #86 (F_ErrorParkRequest: not parked, not in E-stop).
+bCoverErrorParkStarted := F_ErrorParkRequest(bHwError := fbCovers.Error, bHwErrorLast := bCoverErrorLast,
+	bIsParked := bIsParked, bEstop := bEstopTriggered);
+bCoverErrorLast := fbCovers.Error;
+IF bCoverErrorParkStarted THEN
+	Park();
 END_IF
 
 // set TCS_command according to state variables ordered by precedence
@@ -1055,6 +1075,7 @@ END_VAR]]></Declaration>
 IF F_StageAbort(eMachine := E_StageMachine.park, bReset := bReset, bError := bError, bStop := bStop,
 		bInterrupted := bInterrupted, bCommand := bPark) THEN
 	eParkStage := E_ParkStage.prepare;
+	bParkCoverFault := FALSE;	// #24 step 7 PR 4
 	RETURN;
 END_IF
 // M2: bError does NOT return early here, unlike the other state machines: stage 0's
@@ -1072,6 +1093,7 @@ IF bIsParked THEN
 END_IF
 CASE eParkStage OF
 	E_ParkStage.prepare: 
+		bParkCoverFault := FALSE;	// #24 step 7 PR 4
 		bGoHome := 	FALSE;
 		bTrack := 	FALSE;
 		bGoto := 	FALSE;
@@ -1157,12 +1179,23 @@ CASE eParkStage OF
 		END_IF
 		IF fbCovers.Closed THEN
 			eParkStage := E_ParkStage.parked;
+		// #24 step 7 PR 4 (row cover error): covers in error do not move (HalfBROT drops the command), so the park would wait here for
+		// ever. It ends without Closed once the axes are disabled (still in secure, not sent back above) and the hydraulics are off
+		// (brake not open, switched off above); the open covers are reported as software error 16#21 in stage parked.
+		ELSIF fbCovers.Error AND NOT fbBrake.BrakeOpen AND eParkStage = E_ParkStage.secure THEN
+			bParkCoverFault := TRUE;
+			eParkStage := E_ParkStage.parked;
 		END_IF
 	E_ParkStage.parked:
 			bIsParked := TRUE;
 			bPark := FALSE;
 			_ParkTelescope := 100;
 			eParkStage := E_ParkStage.prepare;	
+			// #24 step 7 PR 4: raised here, not in secure: bError in the scan after secure would reset the stage to prepare (rtrigError)
+			IF bParkCoverFault THEN
+				_RaiseSoftwareError(nId := 16#21, sText := 'park: ended without the covers closed (cover error)');
+				bParkCoverFault := FALSE;
+			END_IF
 END_CASE
 ParkEvent(Trigger := TO_USINT(eParkStage) > nLastStage, FormatString := 'Parking progress: %s', OnMessage := USINT_TO_STRING(TO_USINT(eParkStage)), comm := fbComm);
 nLastStage := TO_USINT(eParkStage);
@@ -1192,6 +1225,12 @@ ELSIF NOT bBrakeClearing THEN
 ELSIF bError THEN
 	bPowerFailure := TRUE;
 	TCSpowerEvent.OnMessage := 'Generic error during power on occurred.';
+	bPower := FALSE;
+// #24 step 7 PR 4 (row cover error): covers in error do not move (HalfBROT), stage 0 would wait for Opened until the 12 h command
+// timeout. Checked before the cover command of stage 0, so a power-on with the error already there opens nothing and stays parked.
+ELSIF fbCovers.Error THEN
+	bPowerFailure := TRUE;
+	TCSpowerEvent.OnMessage := 'failure: cover error (reset the covers, then power=1)';
 	bPower := FALSE;
 ELSE
 	bPowerFailure := FALSE;		
@@ -1329,6 +1368,7 @@ IF __ISVALIDREF(fbAzimuth) AND __ISVALIDREF(fbElevation) AND __ISVALIDREF(fbDero
     _StopTxInputs();
     IF fbStartup.EnterSuspend() THEN
         bHwErrorLast := TRUE;	// #86: an error already present when switching back to automatic does not park
+        bCoverErrorLast := TRUE;	// #24 step 7 PR 4: the same for a cover error
         // #72: after any manual interval only a new Init makes the telescope movable again. Set in the first manual scan, so a
         // move sent during manual is rejected too (bReady is not recomputed in manual) and the horizon guard cannot home before the Init.
         bInitRequired := TRUE;
@@ -1712,6 +1752,12 @@ TimeoutParkEvent(	Trigger := bTimeoutParkStarted,
 				OnMessage := 'state-machine timeout: controlled stop of the axes, then park',
 				Comm := fbComm);
 bTimeoutParkStarted := FALSE;
+CoverErrorParkEvent(	Trigger := bCoverErrorParkStarted,
+				Level := ADSLOG_MSGTYPE_WARN,
+				FormatString := '%s',
+				OnMessage := 'cover error: park started (covers as far as possible, the park ends without closed covers)',
+				Comm := fbComm);
+bCoverErrorParkStarted := FALSE;
 WakeShakeBlockEvent(	Trigger := bWakeShakeBrakeBlocked,
 				Level := ADSLOG_MSGTYPE_WARN,
 				FormatString := '%s',
@@ -1840,8 +1886,9 @@ END_IF
       </Implementation>
     </Method>
     <Method Name="_RaiseSoftwareError" Id="{d7269f1a-1a39-4d9c-9ab8-9d3ec12c3042}" FolderPath="internal methods\">
-      <Declaration><![CDATA[// #24 step 3b: the one path of the software errors of the stage machines (goto 16#10, goto target 16#15/16#16, home 16#30,
-// slew 16#40), until 0.12.0 four copies of the same four assignments. bError/nErrorID act in the rest of this scan,
+      <Declaration><![CDATA[// #24 step 3b: the one path of the software errors of the stage machines (goto 16#10, goto target 16#15/16#16, park ended
+// without closed covers 16#21 (#24 step 7 PR 4), home 16#30, slew 16#40), until 0.12.0 four copies of the same four
+// assignments. bError/nErrorID act in the rest of this scan,
 // bSoftwareError/nSoftwareErrorID are latched until bReset (M1, cleared in _HandleReset), so bError and nErrorID follow them
 // again from the next scan. The log is unchanged ('Internal command error, ID: %s', _LogEvents); sText is kept for ADS only.
 // The configuration errors 16#31/16#32 of the body set only the latch (bError follows from it in the same scan) and do not
