@@ -10,7 +10,8 @@ table is [../design/monetcommon-safe-states.md](../design/monetcommon-safe-state
 `refactor/telemetry-split` (status at the step); not compiled or run yet. Step 4b written 2026-11-02 on
 `refactor/compute-targets` (status at the step); not compiled or run yet. Step 7 PR 1 (`bCloseRoofRequest`) written
 2026-11-02 on `feat/close-roof-request` (status at step 7); not compiled or run yet. Step 7 PR 3 (hydraulics error reaction)
-written 2026-11-02 on `feat/hydraulics-error-reaction` (status at step 7); not compiled or run yet.
+written 2026-11-02 on `feat/hydraulics-error-reaction` (status at step 7); not compiled or run yet. Step 7 PR 5 (state-machine
+timeouts ramp, then park) written 2026-11-02 on `feat/timeout-error-reaction` (status at step 7); not compiled or run yet.
 Repo: BROTLib/MONETcommon (steps 2a/2b also BROTLib and IAG50cm). Base: read at `develop` @ `adc1013` (0.11.1, pins
 BROTLib 0.15.1, HalfBROT 0.10.1); line numbers are from that commit. `origin/develop` has since moved to `c34470f`
 (0.11.2, pins BROTLib 0.16.0 / HalfBROT 0.10.2; pendant release-on-exit #3, null-reference fix #156); none of that
@@ -412,6 +413,51 @@ cases go into existing suites where they fit; step 6 frees slots by moving dupli
     `BrakeOpen` (HalfBROT drops the brake output as soon as `bPumpRunning` falls, so on site the ramp may end within a few scans and
     the lock takes over), `OilPressureOK` debounce, NC behaviour of a tracking axis (`InMotion` while tracking). To run (Tim):
     `tcbuild.yml` on push, or the library install + `tctool MONETcommonTests.sln build run`; on site (design doc, order item 3).
+- **Status PR 5 (2026-11-02): written on `feat/timeout-error-reaction` (from `develop` @ `40517f9`, PR 3 merged), not compiled, not
+  run (CI on push). Version not bumped.** Row "Software error: timeout" of the design doc (now implemented, M lines of that branch).
+  - Entry: `bTimeoutError` = `bSoftwareError` with the latched ID 16#10/16#30/16#40. The timeouts are raised inside the stage
+    methods (dispatch), so the reaction runs on the rising edge in the next scan, next to the PR 3 ramp block and before the error
+    branch; the axes are still enabled and may move then. Same mechanism as PR 3: `bStop` (stop transaction #96) if an enabled axis
+    moves (also homing or tracking) and `Park()` (queued behind the stop as `bParkAfterStop`, or at once at standstill). No new
+    park path: `F_ErrorParkRequest` (hardware errors) is not used, its comment still says software errors do not park (now true for
+    16#15/16#16/16#31/16#32 only; not edited, the function is unchanged).
+  - Drive to park (D4 "park if possible"): new `bTimeoutPark` is TRUE from the edge until the park ends; while it is set the error
+    branch skips its three `Enable := FALSE` (next to `bHydraulicsRamp`) and the park's prepare stage treats the software error like
+    no error (`(bError AND NOT bTimeoutPark) OR NOT bAxesCanMove`), so it drives to the park position when `F_ParkAxesCanMove`, else
+    parks in place. The park's own end (disable at standstill, #121 brake close, covers close, hydraulics off) is unchanged. The
+    dispatch already lets a park run under `bError` (M2 bypass of the ready gate).
+  - Exemptions, decided here: parked (nothing to do, as #86); E-stop, safety error, any hardware error incl. hydraulics
+    (`bTimeoutCanMove` FALSE: those keep their own reaction, the error branch disables at once; the E-stop/safety rows are PR 6). The
+    reaction ends (`bTimeoutPark` FALSE) when parked, when the error is reset, when one of those appears, when no stop or park is
+    pending any more (an operator `stop=1` cancels the park: the axes ramp and are then disabled) or on the stop timeout (the lock
+    takes over, as PR 3). If it ends while the park still drives (stage untrack/start_move/wait_moves) with the error still there,
+    the park stage is set back to prepare so it finishes in place (`bParkedInPlace` right, #158); a park in disable_axes/secure goes
+    on. `bMainReady` (power failure) is not an exemption here (row PR 7).
+  - Not included: 16#15/16#16 (goto target window, can be raised during a goto) and 16#31/16#32 (config, nothing moves); their rows
+    are unchanged. Adding 16#15/16#16 would be one more ID in `bTimeoutError` if wanted.
+  - Reset: unchanged, `reset=1` clears the latch (`_HandleReset`), `bReset` is held while the software error is there (as before).
+    A reset during the park drive clears the error, `bTimeoutPark` ends, and the park goes on as a normal park (`bPark` kept, #85).
+    No roof close request (D9; `bCloseRoofCause` does not read software errors, unchanged).
+  - `SuspendAutomatic`: `F_SuspendStop` gets `bError AND NOT bHydraulicsRamp AND NOT bTimeoutPark`, so a switch to manual during the
+    ramp or the park drive stops the axes once instead of leaving a commanded move running; `bPark` is kept (#118) and resumes in
+    automatic (with `bTimeoutPark` still set it drives, if the axes can still move). `bTimeoutErrorLast` is not set in manual (no
+    timeout can be raised there).
+  - New log `TimeoutParkEvent` (WARN, once per reaction). `nErrorID` unchanged (16#10/16#30/16#40).
+  - Tests (40 of 40 suites; `MonetSafeState_Tests` 17 tests, `MonetTimeouts_Tests` 5): flipped
+    `Goto_Times_Out_Without_Park_Current` -> `Goto_Times_Out_Ramps_Then_Drives_To_Park`, `Home_Times_Out_Without_Park_Current` ->
+    `Home_Times_Out_Ramps_Then_Drives_To_Park` (same method Ids): bStop in the scan after the timeout with the axes enabled, MC_Stop
+    before any disable, then the park position (el 60) not in place, axes disabled, brake and covers closed, hydraulics off, error
+    latched, no roof request. New `MonetTimeouts_Tests.Slew_Timeout_Ramps_Parks_And_Recovers_With_Reset` (16#40, same checks, then
+    `reset=1` clears the error without a roof request and `power=1` goes online). Other classes: their suites are unedited
+    (`Slew_Times_Out_After_600_Seconds` holds unedited; the only other test text change is the name in a comment of
+    `No_Roof_Request_On_Focus_Error`).
+  - Unverified until CI: the build (enum comparisons on `eParkStage` in the body, the new variables); the test timing (the park move
+    is set back to 60 mock scans once `bPark` is seen, after the stop has aborted the slow move); that `Init()` after the driven park
+    goes online on the rig. Not modelled: NC ramp time of a real stop, whether a timed-out move is stuck for a reason that also
+    stops the park drive (then the park waits in wait_moves; the 2 min park command timeout only logs), drive behaviour of the park
+    after a long slew. Not covered by a test: the stop timeout end, a hardware error during the park drive (restart in place),
+    `stop=1` during the park drive, manual mode during the reaction. To run (Tim): `tcbuild.yml` on push, or the library install +
+    `tctool MONETcommonTests.sln build run`; on site (design doc, order item 5).
 
 Order rationale: 0-1 make the safety net; 2a-2b put the shared types in place before MONETcommon consumes them;
 2c-4 are neutral and unblock tests and the SM plan's 5.2; 4c settles the client question; 5-6 break consumers and

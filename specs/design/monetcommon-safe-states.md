@@ -5,7 +5,9 @@ issue #24 aim 6; ramp rule and roof rule decided by Tim on 2026-11-02, plan D8/D
 section 8). Living doc: update a row when its behaviour changes (step 7, one PR per row, order in "Step 7"). Step 7 PR 1
 (`bCloseRoofRequest`) written on `feat/close-roof-request`, see "Roof"; the `M:` lines it cites are of that branch. Step 7 PR 3
 (hydraulics error reaction) written on `feat/hydraulics-error-reaction` (from `develop` @ `7d667d8`, 0.13.0), not compiled or
-run yet; the `M:` lines of its row and of the bullets marked PR 3 below are of that branch.
+run yet; the `M:` lines of its row and of the bullets marked PR 3 below are of that branch. Step 7 PR 5 (state-machine
+timeouts ramp, then park) written on `feat/timeout-error-reaction` (from `develop` @ `40517f9`, PR 3 merged), not compiled or
+run yet; the `M:` lines of the timeout row and of the bullets marked PR 5 below are of that branch.
 Code read at `develop` @ `c34470f` (MONETcommon 0.11.2, pins BROTLib 0.16.0 / HalfBROT 0.10.2); site `MAIN`s read at
 MONETS `develop` @ `3757306` and MONETN `develop` @ `9ae07bb`.
 
@@ -92,7 +94,9 @@ These lines are shared by several rows below.
   E-stop, safety error and `bMainReady` are **not** part of `bError`.
 - On `bError` every move flag is dropped and all three axes are disabled in the same scan (M:312-324). No ramp: the
   disable is the stop. Only exception (PR 3): during the ramp of a hydraulics error (`bHydraulicsRamp`, only while the
-  hydraulics error is the only error) the disable waits until that stop has settled (M:417-421 on the PR 3 branch). An error raised inside a stage method (timeouts) takes effect from the next scan.
+  hydraulics error is the only error) the disable waits until that stop has settled (M:417-421 on the PR 3 branch). Second
+  exception (PR 5): during the ramp and park of a state-machine timeout (`bTimeoutPark`, only without a hardware error,
+  E-stop or safety error) the axes stay enabled until the park disables them (M:455-458 on `feat/timeout-error-reaction`). An error raised inside a stage method (timeouts) takes effect from the next scan.
 - Elevation error: the brake is closed once on the rising edge (#155, M:328-336).
 - Brake rule (#121/#151/#155): whenever the elevation is disabled the brake is closed, except in the Wake&Shake
   window, where E-stop, hydraulics error, safety error or covers not open still close it (M:741-769,
@@ -101,7 +105,9 @@ These lines are shared by several rows below.
   the first power-on (M:545-554, `F_ErrorParkRequest`, `F_WakeShakeErrorExempt`). With `bError` the park bypasses the
   ready gate (M:606-612) and parks **in place**: brake closed, axes disabled, covers closed (M:1072-1080), then
   hydraulics off once the brake reports closed (M:1139-1142), `bIsParked` once the covers report closed
-  (M:1143-1150). `bParkedInPlace` is set (#158).
+  (M:1143-1150). `bParkedInPlace` is set (#158). Since PR 5 the state-machine timeouts 16#10/16#30/16#40 also park, on the
+  rising edge of the timeout error (not parked, no E-stop/safety/hardware error), but that park drives to the park position
+  when `F_ParkAxesCanMove` (M:1086-1087 on `feat/timeout-error-reaction`); the other software errors still start no park.
 - Software errors are latched in `bSoftwareError`/`nSoftwareErrorID` until `bReset` (M:1860-1864). `bReset` is held while
   an error is active that the block resets itself (axes, focus, software errors); since PR 3 written out as that list
   (M:796 on the PR 3 branch), so a hydraulics error, which only HalfBROT resets, does not hold it (same as before PR 3).
@@ -124,7 +130,7 @@ no `MAIN` acts on it yet (PR 2), so the roof cell of those rows still differs.
 |---|---|---|---|---|---|---|
 | Axis error Az/El/Der | `fbAzimuth.Error`/`fbElevation.bError`/`fbDerotator.bError` (M:256-270, 283-286), latched in the axis | All axes disabled (M:312-324), El: brake closed on the edge (M:328-336), Az/Der: brake closed by the #121 rule (M:751-766). Emergency park in place: covers closed, hydraulics off, `bIsParked`, `bParkedInPlace`, READY_STATE -1.0 (M:545-554, 1072-1080, 1139-1150). Not in E-stop, not on a parked telescope, not for the Az/El fault of the first power-on (#113). `bCloseRoofRequest` set (M:331-345), no `MAIN` acts on it yet | brake lock is the stop (drives not controllable, D8); park in place; covers close; hydraulics off; roof close (D9, `bCloseRoofRequest`) | **differs: roof only** (signal done in PR 1, `MAIN` close PR 2); stop, park, covers and hydraulics already as the target | `reset=1` (axis `Reset()` M:258-269; the same reset clears the roof request in the next scan), then `power=1` | `MonetErrorPark_Tests.Elevation_Error_Starts_The_Emergency_Park`, `.Error_During_Estop_Does_Not_Park`, `.First_PowerOn_AzEl_Error_Is_Exempt_From_The_Park`, `MonetBrakeRelease_Tests`, `MonetSafeState_Tests.Roof_Request_On_Axis_Errors` |
 | Focus error | `fbFocus.Error` (M:271-275, 285) | Same as an axis error: the three axes are disabled (M:312-324) and the emergency park parks **in place** (M:1072), it does not drive to the park position. Plan draft said "drive to park": wrong for today | ramp, then drive to park if `F_ParkAxesCanMove`, else in place; covers close; hydraulics off; **no roof close** (D9, recoverable; open: plan 8.4) | **differs: no ramp, parks in place** (PR 8) | `reset=1`, then `power=1` | `MonetErrorPark_Tests.Focus_Error_Starts_The_Emergency_Park`, `MonetSafeState_Tests.No_Roof_Request_On_Focus_Error` |
-| Software error: timeout goto 16#10, home 16#30, slew 16#40 | `tonGotoTimeout`/`tonHomeTimeout`/`tonSlewTimeout` 600 s (M:486-488); raised in M:875-883, 986-993, 1591-1599; latched `bSoftwareError` | Axes disabled from the next scan, also under motion, no ramp (M:312-324); brake closed by the #121 rule (M:751-766). **No park** (`bHwError` only, M:545), covers stay open, hydraulics stay on. READY_STATE -1.0 | ramp, then drive to park; covers close; hydraulics off; **no roof close** (D9, recoverable) | **differs: no ramp, no park, hydraulics stay on** (PR 5) | `reset=1` (M:1863), then `power=1` | `MonetTimeouts_Tests.Slew_Times_Out_After_600_Seconds`, `MonetSafeState_Tests.Goto_Times_Out_Without_Park_Current` (also: no roof request), `.Home_Times_Out_Without_Park_Current` |
+| Software error: timeout goto 16#10, home 16#30, slew 16#40 | `tonGotoTimeout`/`tonHomeTimeout`/`tonSlewTimeout`, `stMotion.tStateMachineTimeout` 600 s (M:500-502); raised in M:895, 1003, 1530 (`_RaiseSoftwareError`); latched `bSoftwareError` (M lines of `feat/timeout-error-reaction`) | **Implemented (step 7 PR 5, not compiled or run yet; M lines of `feat/timeout-error-reaction`).** `bError`, READY_STATE -1.0 as before. **Ramp first** (M:379-407): on the rising edge of the timeout error (`bTimeoutError`, the latched ID is 16#10/16#30/16#40), in the scan after the raise, unless parked or a hardware error (`bHwError`, incl. hydraulics), E-stop or safety error is active (`bTimeoutCanMove`), `bTimeoutPark` is set, `bStop` if an enabled axis moves (also homing or tracking; stop transaction #96, the focus stops too) and `Park()`, queued behind the stop (`bParkAfterStop`) or at once at standstill; logged once (`TimeoutParkEvent`). While `bTimeoutPark` the error branch keeps the axes enabled (M:455-458) and the park's prepare stage **drives to the park position** if `F_ParkAxesCanMove` (calibrated, enabled, brake open), else parks in place (M:1086-1087); disable_axes/secure then disable the axes, the #121 rule closes the brake, the covers close and the hydraulics go off (M:1154-1156), `bIsParked`, `bParkedInPlace` FALSE. `bTimeoutPark` ends when parked, when the error is reset, when a hardware error, E-stop or safety error appears, when no stop or park is pending (`stop=1` cancels the park; the axes are then disabled) or on the stop timeout (the lock takes over, the queued park runs in place); a park still driving with the error then restarts in its prepare stage, i.e. in place. `bCloseRoofRequest` not set. `SuspendAutomatic` stops the drives during it (M:1356-1358), `bPark` kept (#118) | ramp, then drive to park; covers close; hydraulics off; **no roof close** (D9, recoverable) | matches since PR 5 (no PR left) | `reset=1` (M:1810), then `power=1`; a reset during the park drive clears the error and the park goes on as a normal park (`bPark` kept, #85) | `MonetTimeouts_Tests.Slew_Times_Out_After_600_Seconds`, `.Slew_Timeout_Ramps_Parks_And_Recovers_With_Reset` (16#40, reset path), `MonetSafeState_Tests.Goto_Times_Out_Ramps_Then_Drives_To_Park` (was `Goto_Times_Out_Without_Park_Current`; also: no roof request), `.Home_Times_Out_Ramps_Then_Drives_To_Park` (was `Home_Times_Out_Without_Park_Current`) |
 | Software error: goto/track target 16#15 (below `stMotion.fGotoMinElevation`, default 2 deg) / 16#16 (above `fGotoMaxElevation`, default 89.5 deg) | `F_GotoTargetCheck` in `_GotoTelescope` (M:890-899), latched | Same as the timeouts: axes disabled, no park. Plan draft did not list these | as the timeouts (the telescope has not moved yet: stop, no park needed); **no roof close** (D9) | matches if raised at standstill; differs (no ramp) only if raised under motion on a track target [unverified], then with PR 5 | `reset=1` | `F_GotoTargetCheck_Tests` (pure), `.Goto_Window_From_stMotion_Refuses_The_Pole` (rig) |
 | Software error: config 16#31 (home/park below horizon) | `F_HomeBelowHorizon`, set **every scan** (M:248-253) | Axes disabled while the configuration is wrong; a reset does not clear it | stays a startup refusal (nothing moves); **no roof close** (D9) | matches, no PR | fix `telescopeConfig` | `F_HomeBelowHorizon_Tests` (pure) |
 | Software error: config 16#32 (invalid `stMotion`, plan step 2c) | `BROTLib.F_MotionConfigValid` FALSE on the values in use (`stMotion` with the deprecated aliases applied, `_MotionConfig`), set **every scan** right after 16#31 (16#32 wins if both) | As 16#31: axes disabled while the configuration is wrong, a reset does not clear it; the defaults of `ST_MotionConfig` stay in use meanwhile, so no timer, window or velocity runs with an invalid value | stays a startup refusal (nothing moves); **no roof close** (D9) | matches, no PR | fix `stMotion` (or the alias), then `reset=1` | `MonetSafeState_Tests.Invalid_Motion_Config_Is_Software_Error_32` (also: no roof request) |
@@ -167,7 +173,13 @@ case. A row is done when its "Today" cell is rewritten to match the target.
 5. **Software errors 16#10/16#30/16#40** (row timeouts, and 16#15/16#16 if raised under motion): ramp instead of the
    disable in the error branch (M:312-324 at `c34470f`), then drive to park, covers close, hydraulics off.
    `Goto_Times_Out_Without_Park_Current`, `Home_Times_Out_Without_Park_Current` flip. Touches the error branch every
-   error passes, hence after 3-4.
+   error passes, hence after 3-4. **Written** on `feat/timeout-error-reaction` (2026-11-02, not compiled or run yet; details
+   in the row and in plan step 7) for the timeouts 16#10/16#30/16#40 only: the flipped tests are
+   `Goto_Times_Out_Ramps_Then_Drives_To_Park`, `Home_Times_Out_Ramps_Then_Drives_To_Park`, plus
+   `MonetTimeouts_Tests.Slew_Timeout_Ramps_Parks_And_Recovers_With_Reset`. 16#15/16#16 under motion are not included (their row
+   is unchanged). On site: a goto, a home and a slew with `stMotion.tStateMachineTimeout` shortened (e.g. 20 s) while the axes
+   still move; watch `bTimeoutPark`, `bStop`, the axis enables, the park drive, brake, covers and hydraulics; then `reset=1`
+   and `power=1`; once more with `stop=1` during the park drive (axes disabled after the stop).
 6. **E-stop and safety error** (rows E-stop, safety): park in place after the lock, hydraulics off, covers after the
    release. `Estop_During_Slew_Disables_The_Axes_Without_Park_Current` flips. Needs the release/restart sequence on
    site (STO, TwinSAFE are not on the rig).
@@ -186,7 +198,7 @@ Not in the order: the cabinet over-temperature roof (plan 8.6) and the focus err
   80, so the step-7 candidate "hydraulics off at the end of every emergency park" is already true on this path. What
   is missing is the hydraulics-off for the classes that do not park (software errors, hydraulics, E-stop, power).
 - Software errors disable the axes under motion without a ramp (M:312-324): today the lock is the stop for them too,
-  although the drives could ramp.
+  although the drives could ramp. Fixed for the timeouts 16#10/16#30/16#40 by step 7 PR 5 (ramp, then park).
 - A cover error can hold a park forever (stage 80, M:1143) and a power-on until its 12 h timeout (stage 0), and the
   power-on clears `bIsParked` before anything has opened (M:1212). No timeout acts on either (command timeouts only log).
 - "Invalid clock during track" is unreachable (the clock validity latches); the row only matters before the first sync.

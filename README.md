@@ -69,7 +69,7 @@ recovery. Each site passes its own pointing model (`fbPointing`,
 A new axis, focus or hydraulics error on a telescope that is not parked starts the
 emergency park by itself (brake closed, covers closed, hydraulics off,
 `bIsParked`); not during an E-stop, not when already parked, and not for
-command-level (software) errors. `power=1` is refused until the park is
+command-level (software) errors other than the state-machine timeouts (below). `power=1` is refused until the park is
 finished, `stop=1` cancels it; recover with `reset=1`, then `power=1`.
 `bIsParked` drops with the cover command of a power-on, so a park during a
 power-on closes the covers again. Exception: an azimuth/elevation error in the
@@ -89,6 +89,15 @@ the pressure already gone (brake locked), or with an E-stop, a safety error or a
 lock is the stop, as for an axis error. Recovery: reset the hydraulics (HalfBROT `Reset()`, the `MAIN` reset button);
 `bError` then goes by itself, `reset=1` clears the roof request, `power=1` powers on again. A `reset=1` while the
 hydraulics error is still there does not clear it and is not held (it would abort the park).
+
+**State-machine timeouts (#24 step 7 PR 5, D8).** A goto (16#10), home (16#30) or slew (16#40) still running after
+`stMotion.tStateMachineTimeout` (600 s) is a software error as before (`bError`, READY_STATE -1.0, latched until
+`reset=1`), but the axes are no longer disabled under motion: the drives are still controllable, so a moving axis gets a
+controlled stop (the normal stop, one MC_Stop per axis) and then the telescope parks by itself, driving to the park
+position when the axes can move (else in place), closing the brake and the covers and switching the hydraulics off. Not
+when already parked, and not with an E-stop, a safety error or a hardware error (those keep their own reaction; one that
+appears during the stop or the park drive disables the axes and the park ends in place). No roof close request (D9:
+recoverable). `stop=1` cancels the park (the axes are then disabled); `reset=1` clears the error, `power=1` powers on again.
 The brake can be opened in the window with the elevation error latched, without `reset=1` first: the error closes
 the brake once, and while the window is open the brake is closed again only by an E-stop, a hydraulics error, a safety
 error (input `bSafetyError`, wire it to `SafetyHandling.error`; FALSE = not enforced) or covers that are not open (#155).

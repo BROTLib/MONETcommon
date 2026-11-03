@@ -222,6 +222,16 @@ VAR
 	bHydraulicsRamp			: BOOL;	// the controlled stop of a hydraulics error is running, the error branch does not disable the axes
 	bHydraulicsRampStarted	: BOOL;	// one scan, logged
 	HydraulicsRampEvent		: FB_EventLog;
+	// #24 step 7 PR 5 (plan D8, specs/design/monetcommon-safe-states.md row "Software error: timeout"): a state-machine timeout
+	// (16#10 goto, 16#30 home, 16#40 slew) leaves the drives controllable: ramp (bStop, stop transaction #96) if an axis moves, then
+	// the park drives to the park position (in place if F_ParkAxesCanMove is FALSE); the error branch does not disable the axes
+	// while it runs (bTimeoutPark). No roof close (D9, recoverable).
+	bTimeoutError			: BOOL;	// bSoftwareError with one of the three timeout IDs in this scan
+	bTimeoutErrorLast		: BOOL;	// its value of the last automatic scan (edge memory)
+	bTimeoutCanMove			: BOOL;	// no hardware error, E-stop or safety error: the drives may ramp and drive to the park position
+	bTimeoutPark			: BOOL;	// the ramp and park of a timeout is running, the error branch does not disable the axes
+	bTimeoutParkStarted		: BOOL;	// one scan, logged
+	TimeoutParkEvent		: FB_EventLog;
 	// #151: the brake may stay open with the elevation disabled for the Wake&Shake (F_WakeShakeWindow)
 	bWakeShakeWindow		: BOOL;
 	bWakeShakeWindowLast	: BOOL;
@@ -366,6 +376,36 @@ IF bHydraulicsError AND NOT bHydraulicsErrorLast AND bHydraulicsCanRamp AND
 END_IF
 bHydraulicsErrorLast := bHydraulicsError;
 
+// #24 step 7 PR 5 (D8): a state-machine timeout (raised by the stage method of the last scan, so the axes may still move) ramps
+// and parks instead of the disable of the error branch. On its rising edge, unless parked or a hardware error, E-stop or safety
+// error is active (those keep their own reaction): bStop if an enabled axis moves (also homing or tracking), and Park(), which is
+// queued behind that stop (bParkAfterStop) or runs at once. While bTimeoutPark the error branch leaves the axes enabled and the
+// park's prepare stage drives to the park position if the axes can move; its secure stage closes the brake and the covers and
+// switches the hydraulics off. It ends when parked, when the timeout error is reset, when the drives cannot move any more, when no
+// stop or park is pending (a stop cancels the park) or on the stop timeout; a park that is still driving with the error then
+// restarts in its prepare stage, i.e. in place (the error branch disables the axes from this scan on).
+bTimeoutError := bSoftwareError AND (nSoftwareErrorID = 16#10 OR nSoftwareErrorID = 16#30 OR nSoftwareErrorID = 16#40);
+bTimeoutCanMove := NOT bHwError AND NOT bEstopTriggered AND NOT bSafetyError;
+IF bTimeoutPark AND (NOT bTimeoutError OR NOT bTimeoutCanMove OR bIsParked OR NOT (bStop OR bPark OR bParkAfterStop) OR
+		(tonCommandTimeout.Q AND TCS_command = E_TCSCommand.stop)) THEN
+	bTimeoutPark := FALSE;
+	IF bError AND (eParkStage = E_ParkStage.untrack OR eParkStage = E_ParkStage.start_move OR
+			eParkStage = E_ParkStage.wait_moves) THEN
+		eParkStage := E_ParkStage.prepare;
+	END_IF
+END_IF
+IF bTimeoutError AND NOT bTimeoutErrorLast AND bTimeoutCanMove AND NOT bIsParked THEN
+	bTimeoutPark := TRUE;
+	bTimeoutParkStarted := TRUE;
+	IF (fbStopTx.abEnabled[1] AND (fbStopTx.abMoving[1] OR aAxis[1].bTracking)) OR
+			(fbStopTx.abEnabled[2] AND (fbStopTx.abMoving[2] OR aAxis[2].bTracking)) OR
+			(fbStopTx.abEnabled[3] AND (fbStopTx.abMoving[3] OR aAxis[3].bTracking)) THEN
+		bStop := TRUE;
+	END_IF
+	Park();	// after bStop: during the stop the park is queued (bParkAfterStop)
+END_IF
+bTimeoutErrorLast := bTimeoutError;
+
 // #24 step 7 PR 1 (D9): the roof close request, from the serious classes only (not bError: the focus error and the software
 // errors are recoverable; not bPowerFailure, a power-on failure; power failure is NOT bMainReady, the phase monitor). Latched
 // on the rising edge, so a cause that is gone again (a short E-stop, a phase dip) still requests the close; bReset (held while
@@ -413,8 +453,9 @@ IF bError THEN
 	bMoveAbortPending := FALSE;	// #84: the drives are disabled below, nothing to wait for
 	bSupersedeRequest := FALSE;	// #83
 	// #24 step 7 PR 3 (D8): not during the ramp of a hydraulics error (bHydraulicsRamp is only TRUE while the hydraulics error is
-	// the only error); the axes are disabled from the first scan after its stop has settled
-	IF NOT bHydraulicsRamp THEN
+	// the only error); the axes are disabled from the first scan after its stop has settled. #24 step 7 PR 5: nor during the ramp and
+	// park of a timeout (bTimeoutPark, only without a hardware error, E-stop or safety error)
+	IF NOT bHydraulicsRamp AND NOT bTimeoutPark THEN
 		fbElevation.Enable := FALSE;
 		fbAzimuth.Enable := FALSE;
 		fbDerotator.Enable := FALSE;
@@ -1042,7 +1083,8 @@ CASE eParkStage OF
 			bElCalibrated := fbElevation.Calibrated, bAzCalibrated := fbAzimuth.Calibrated, bDrCalibrated := fbDerotator.Calibrated,
 			bElEnabled := fbElevation.bEnable, bAzEnabled := fbAzimuth.bEnable, bDrEnabled := fbDerotator.bEnable,
 			bBrakeOpen := fbBrake.BrakeOpen);
-		IF bError OR NOT bAxesCanMove THEN // emergency park, or park in place
+		// #24 step 7 PR 5: the park of a timeout (bTimeoutPark, a software error only) drives to the park position like a normal park
+		IF (bError AND NOT bTimeoutPark) OR NOT bAxesCanMove THEN // emergency park, or park in place
 			fbBrake.CloseBrake();
 			fbElevation.Enable := FALSE;
 			fbAzimuth.Enable := FALSE;
@@ -1311,8 +1353,9 @@ IF __ISVALIDREF(fbAzimuth) AND __ISVALIDREF(fbElevation) AND __ISVALIDREF(fbDero
         _ParkTelescope();
         bInterrupted := FALSE;
         // #24 step 7 PR 3: during the ramp of a hydraulics error (last automatic scan) the drives are on, so that stop goes on
+        // #24 step 7 PR 5: also during the ramp and park of a timeout (bTimeoutPark); bPark is kept as for any park (#118)
         bSuspendStop := F_SuspendStop(
-            bError := bError AND NOT bHydraulicsRamp,
+            bError := bError AND NOT bHydraulicsRamp AND NOT bTimeoutPark,
             bStopRunning := TCS_command = E_TCSCommand.stop AND (bStop OR bMoveAbortPending),
             bAzMoving := fbStopTx.abEnabled[1] AND fbStopTx.abMoving[1],
             bElMoving := fbStopTx.abEnabled[2] AND fbStopTx.abMoving[2],
@@ -1663,6 +1706,12 @@ HydraulicsRampEvent(	Trigger := bHydraulicsRampStarted,
 				OnMessage := 'hydraulics error: controlled stop of the axes, then emergency park in place',
 				Comm := fbComm);
 bHydraulicsRampStarted := FALSE;
+TimeoutParkEvent(	Trigger := bTimeoutParkStarted,
+				Level := ADSLOG_MSGTYPE_WARN,
+				FormatString := '%s',
+				OnMessage := 'state-machine timeout: controlled stop of the axes, then park',
+				Comm := fbComm);
+bTimeoutParkStarted := FALSE;
 WakeShakeBlockEvent(	Trigger := bWakeShakeBrakeBlocked,
 				Level := ADSLOG_MSGTYPE_WARN,
 				FormatString := '%s',
