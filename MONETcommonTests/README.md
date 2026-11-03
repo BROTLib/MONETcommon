@@ -62,7 +62,7 @@ tctool MONETcommonTests.sln build run --require-valid-license
 
 ## Things to know
 
-Same as `BROTLibTests` (CI runs these tests through `tcbuild.yml`) -- TcUnit sized to 40 suites (all 40 used since #24 step 3c: a new case goes into an existing suite, or a suite slot is freed first) / 32 tests / 256 asserts, every test method
+Same as `BROTLibTests` (CI runs these tests through `tcbuild.yml`) -- TcUnit sized to 41 suites (all 41 used since HalfBROT#136, `FB_HomeRequest_Tests`: a new case goes into an existing suite, or a suite slot is freed first) / 32 tests / 256 asserts, every test method
 runs every PLC cycle (multi-cycle tests must guard their own state), `.tmc`/`_Boot`/`_CompileInfo`/
 `_Libraries` are generated and git-ignored.
 
