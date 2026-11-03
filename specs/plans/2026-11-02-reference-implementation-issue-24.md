@@ -413,7 +413,6 @@ cases go into existing suites where they fit; step 6 frees slots by moving dupli
     `BrakeOpen` (HalfBROT drops the brake output as soon as `bPumpRunning` falls, so on site the ramp may end within a few scans and
     the lock takes over), `OilPressureOK` debounce, NC behaviour of a tracking axis (`InMotion` while tracking). To run (Tim):
     `tcbuild.yml` on push, or the library install + `tctool MONETcommonTests.sln build run`; on site (design doc, order item 3).
-<<<<<<< HEAD
 - **Status PR 5 (2026-11-02): written on `feat/timeout-error-reaction` (from `develop` @ `40517f9`, PR 3 merged), not compiled, not
   run (CI on push). Version not bumped.** Row "Software error: timeout" of the design doc (now implemented, M lines of that branch).
   - Entry: `bTimeoutError` = `bSoftwareError` with the latched ID 16#10/16#30/16#40. The timeouts are raised inside the stage
@@ -459,7 +458,6 @@ cases go into existing suites where they fit; step 6 frees slots by moving dupli
     after a long slew. Not covered by a test: the stop timeout end, a hardware error during the park drive (restart in place),
     `stop=1` during the park drive, manual mode during the reaction. To run (Tim): `tcbuild.yml` on push, or the library install +
     `tctool MONETcommonTests.sln build run`; on site (design doc, order item 5).
-=======
 - **Status PR 4 (2026-11-02): written on `feat/cover-error-reaction` (from `develop` @ `40517f9`, PR 3 merged), not compiled, not run
   (CI on push). Version not bumped.** Row "Cover error" of the design doc (now implemented, M lines of that branch).
   - Not a telescope error: `fbCovers.Error` stays out of `bError`/`bHwError` (the drives are controllable, the target is "ramp; drive to
@@ -507,7 +505,6 @@ cases go into existing suites where they fit; step 6 frees slots by moving dupli
     in the next call of the cover block). Not covered by a test: a cover error in the middle of stage 0 (the mock covers open in one
     scan), the manual-mode edge memory. To run (Tim): `tcbuild.yml` on push, or the library install + `tctool MONETcommonTests.sln
     build run`; on site (design doc, order item 4).
->>>>>>> e8c25a1 (Docs: cover error reaction (#24 step 7 PR 4))
 
 Order rationale: 0-1 make the safety net; 2a-2b put the shared types in place before MONETcommon consumes them;
 2c-4 are neutral and unblock tests and the SM plan's 5.2; 4c settles the client question; 5-6 break consumers and
