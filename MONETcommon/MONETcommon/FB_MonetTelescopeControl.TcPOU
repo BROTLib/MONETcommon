@@ -384,7 +384,7 @@ _HandleReset();
 
 // #34: refuse a home/park position the horizon guard below would keep re-homing to. Checked every
 // scan, so a reset does not clear it until the configuration is fixed.
-bHomeBelowHorizon := F_HomeBelowHorizon(fElevationHome := telescopeConfig.elevationHome,
+bHomeBelowHorizon := BROTLib.F_HomeBelowHorizon(fElevationHome := telescopeConfig.elevationHome,
 	fElevationPark := telescopeConfig.elevationPark, fHorizon := fHorizon, fMargin := stMotionUsed.fHorizonMargin);
 IF bHomeBelowHorizon THEN
 	bSoftwareError := TRUE;
@@ -696,7 +696,7 @@ END_IF
 // #86: a new axis/focus error while not parked starts the emergency park by itself (after the supersede block and
 // the horizon guard, before the arbitration, so the stop branch cannot clear the request in the same scan). #24 step 7 PR 3: a
 // hydraulics error too; during its ramp (bStop set above) Park() queues the park behind the stop (bParkAfterStop).
-bErrorParkStarted := F_ErrorParkRequest(bHwError := bHwError, bHwErrorLast := bHwErrorLast,
+bErrorParkStarted := BROTLib.F_ErrorParkRequest(bHwError := bHwError, bHwErrorLast := bHwErrorLast,
 	bIsParked := bIsParked, bEstop := bEstopTriggered);
 bErrorParkExempt := bErrorParkStarted AND F_WakeShakeErrorExempt(bFirstPowerOnPending := bFirstPowerOnPending,
 	bPowering := bPowerActive OR fbStartup.Initializing, bAzElError := fbAzimuth.bError OR fbElevation.Error,
@@ -709,7 +709,7 @@ END_IF
 // #24 step 7 PR 4 (row cover error): a new cover error while not parked starts a normal park, not the emergency park: the cover
 // error is not bError, so the park branch below stops a running move first (#84) and the park drives to the park position if the
 // axes can move (ramp, then drive to park). Same edge and exemptions as #86 (F_ErrorParkRequest: not parked, not in E-stop).
-bCoverErrorParkStarted := F_ErrorParkRequest(bHwError := fbCovers.Error, bHwErrorLast := bCoverErrorLast,
+bCoverErrorParkStarted := BROTLib.F_ErrorParkRequest(bHwError := fbCovers.Error, bHwErrorLast := bCoverErrorLast,
 	bIsParked := bIsParked, bEstop := bEstopTriggered);
 bCoverErrorLast := fbCovers.Error;
 IF bCoverErrorParkStarted THEN
@@ -1099,7 +1099,7 @@ END_IF
 // default tracking cutoff (_TrackTelescope: stMotionUsed.fTrackMaxElevation).
 // #109: the elevation window is F_GotoTargetCheck (tested): below stMotion.fGotoMinElevation (default 2 deg) 16#15,
 // above stMotion.fGotoMaxElevation (default 89.5 deg) 16#16 (#24 step 2c)
-nTargetError := F_GotoTargetCheck(fElevationCalc, stMotionUsed.fGotoMinElevation, stMotionUsed.fGotoMaxElevation);
+nTargetError := BROTLib.F_GotoTargetCheck(fElevationCalc, stMotionUsed.fGotoMinElevation, stMotionUsed.fGotoMaxElevation);
 IF nTargetError <> 0 THEN
 	_RaiseSoftwareError(nId := nTargetError, sText := 'goto: target outside the elevation window');
 	bGotoActive := FALSE;
@@ -1577,12 +1577,12 @@ IF __ISVALIDREF(fbAzimuth) AND __ISVALIDREF(fbElevation) AND __ISVALIDREF(fbDero
         // #24 step 7 PR 7: and during the ramp of a power failure (bMainPowerRamp)
         // #24 step 7 PR 8: also during the ramp or the drive of the focus-error park; after manual mode that park parks in place
         // (the pendant may have moved or disabled the axes), so it is given up here
-        bSuspendStop := F_SuspendStop(
+        bSuspendStop := BROTLib.F_SuspendStop(	// #24 step 6: BROTLib's copy, the three axes OR-ed here
             bError := bError AND NOT bHydraulicsRamp AND NOT bTimeoutPark AND NOT bMainPowerRamp AND NOT bFocusErrorPark,
             bStopRunning := TCS_command = E_TCSCommand.stop AND (bStopActive OR bMoveAbortPending),
-            bAzMoving := fbStopTx.abEnabled[1] AND fbStopTx.abMoving[1],
-            bElMoving := fbStopTx.abEnabled[2] AND fbStopTx.abMoving[2],
-            bDrMoving := fbStopTx.abEnabled[3] AND fbStopTx.abMoving[3]);
+            bAnyAxisMoving := (fbStopTx.abEnabled[1] AND fbStopTx.abMoving[1])
+                OR (fbStopTx.abEnabled[2] AND fbStopTx.abMoving[2])
+                OR (fbStopTx.abEnabled[3] AND fbStopTx.abMoving[3]));
         bFocusErrorPark := FALSE;
         IF bSuspendStop THEN
             IF NOT bStopActive THEN
@@ -2001,7 +2001,7 @@ tonRejectRepeat(IN := TRUE, PT := T#2S);
 RejectEvent(Trigger := FALSE, Comm := fbComm);
 IF bCommandRejected THEN
 	IF tonRejectRepeat.Q OR eLastRejectedCommand <> eLoggedCommand OR eLastRejectReason <> eLoggedReason THEN
-		sRejectMessage := CONCAT(CONCAT(F_TCSCommandText(eLastRejectedCommand), ' rejected: '),
+		sRejectMessage := CONCAT(CONCAT(BROTLib.F_TCSCommandText(eLastRejectedCommand), ' rejected: '),
 			F_CommandRejectText(eLastRejectReason));
 		RejectEvent(Trigger := TRUE, Level := ADSLOG_MSGTYPE_WARN, FormatString := '%s',
 			OnMessage := sRejectMessage, Comm := fbComm);
@@ -2081,12 +2081,12 @@ IF bResetActive THEN
 	bTrackActive := FALSE;
 	// #56: a move that is still running is stopped (the abort stop of #84 goes on), not left to run to its old target.
 	// Not during an error (the drives are off) and not during a park (its motion is wanted, bPark is kept).
-	bMoveAbortPending := F_ResetMoveAbort(
+	bMoveAbortPending := BROTLib.F_ResetMoveAbort(	// #24 step 6: BROTLib's copy, the three axes OR-ed here
 		bError := bError,
 		bParkRunning := TCS_command = E_TCSCommand.park,
-		bAzMoving := fbStopTx.abEnabled[1] AND fbStopTx.abMoving[1],
-		bElMoving := fbStopTx.abEnabled[2] AND fbStopTx.abMoving[2],
-		bDrMoving := fbStopTx.abEnabled[3] AND fbStopTx.abMoving[3]);
+		bAnyAxisMoving := (fbStopTx.abEnabled[1] AND fbStopTx.abMoving[1])
+			OR (fbStopTx.abEnabled[2] AND fbStopTx.abMoving[2])
+			OR (fbStopTx.abEnabled[3] AND fbStopTx.abMoving[3]));
 	bSupersedeRequest := FALSE;	// #83
 
 	// reset the stages of all statemachine methods
@@ -2279,7 +2279,7 @@ fAzimuthCalc := fAzimuthCalc + fAzimuthPointingOffset + F_AzimuthOffsetOnAxis(fA
 
 // #94: evaluated here, before the arbitration and the Goto/Track dispatch below can clear bGoto/bTrack (error 0x15)
 // in the same scan. Only a requested goto/track makes the RA/Dec target relevant.
-bTargetBelowHorizonWarn := F_TargetBelowHorizonWarning(bGoto := bGotoActive, bTrack := bTrackActive, fElevationCalc := fElevationCalc, fHorizon := fHorizon);
+bTargetBelowHorizonWarn := BROTLib.F_TargetBelowHorizonWarning(bGoto := bGotoActive, bTrack := bTrackActive, fElevationCalc := fElevationCalc, fHorizon := fHorizon);
 
 // calculate derotator position 
 fDerotatorCalc := F_DerotatorPosition2(fAzimuthCalc, fElevationCalc, telescopeConfig.latitude, fDerotatorSign)  + fDerotatorOffset;

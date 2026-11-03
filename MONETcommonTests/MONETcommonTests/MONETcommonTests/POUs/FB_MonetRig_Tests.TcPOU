@@ -7,6 +7,7 @@
 // Also the telemetry record of the telescope (#24 step 4a, MONETcommon.FB_MonetTelescopeTelemetry) for a fixed snapshot, recorded
 // by FB_RecordingComm: here because all 40 suite slots are used and this suite is about the parts of FB_MonetTelescopeControl.
 // And the command inputs of #24 step 5 (read-only, edge-triggered; the requests are the b*Active outputs), here for the same reason.
+// And the goto window from stMotion (#24 step 2c), moved here in #24 step 6 when F_GotoTargetCheck_Tests went to BROTLib.
 FUNCTION_BLOCK FB_MonetRig_Tests EXTENDS TcUnit.FB_TestSuite
 VAR
 	fbComm			: FB_NullComm;
@@ -38,6 +39,7 @@ Held_Slew_Input_Starts_The_Slew_Once();
 Slew_Input_Falling_Does_Not_Abort_The_Slew();
 Slew_Method_And_Input_Edge_In_One_Scan_Count_Once();
 Repeated_Track_Retargets_And_Second_Stop_Works();
+Goto_Window_From_stMotion_Refuses_The_Pole();
 ]]></ST>
     </Implementation>
     <Method Name="Mock_Axis_Move_Reports_MoveDone" Id="{4aeb9af3-2d82-44f2-87fd-050f1d95d90d}">
@@ -755,6 +757,73 @@ CASE nStep OF
 		TEST_FINISHED();
 	END_IF
 END_CASE
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Goto_Window_From_stMotion_Refuses_The_Pole" Id="{1d00472a-4fb7-42c4-80dc-1de68a57ad43}">
+      <Declaration><![CDATA[// #24 step 2c, on the mock rig (FB_MonetRig, MONET/S, latitude -32.4; moved here from F_GotoTargetCheck_Tests in #24 step 6): the goto window of FB_MonetTelescopeControl is
+// stMotion.fGotoMinElevation/fGotoMaxElevation, no longer the literals 2.0/89.5. A target 1 deg from the south celestial pole
+// (dec -89) stands at 31.4..33.4 deg at any time; with the default window it is accepted (MonetSafeState_Tests tracks dec -85),
+// with fGotoMaxElevation 30 it is refused as above the window: software error 16#16 and the goto is dropped. Multi-cycle (VAR_INST
+// rig, one Scan() per PLC cycle, the first cycles wait for the astronomical clock). Failed checks are also noted in GVL_Diag.sFailures.
+METHOD PRIVATE Goto_Window_From_stMotion_Refuses_The_Pole
+VAR_INST
+	rig			: FB_MonetRig;
+	stCfg		: BROTLib.ST_MotionConfig;
+	nStep		: INT;
+	nCycles		: UINT;
+	sTest		: STRING(80);
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Goto_Window_From_stMotion_Refuses_The_Pole');
+sTest := 'Goto_Window_From_stMotion_Refuses_The_Pole: ';
+IF nStep >= 90 THEN
+	RETURN;
+END_IF
+rig.Scan();
+nCycles := nCycles + 1;
+CASE nStep OF
+0:	// the configuration of the test, then wait for the clock and power on
+	stCfg.fGotoMaxElevation := 30.0;
+	rig.SetMotion(stValue := stCfg);
+	IF rig.ClockValid THEN
+		rig.fbTel.Init();
+		nStep := 10;
+		nCycles := 0;
+	ELSIF nCycles > 2000 THEN
+		AssertTrue(Condition := FALSE, Message := 'the astronomical clock never became valid');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the astronomical clock never became valid'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+10:
+	IF rig.Online THEN
+		rig.fbTel.Track(fRightAscension := 0.0, fDeclination := -89.0);
+		nStep := 20;
+		nCycles := 0;
+	ELSIF nCycles > 1500 THEN
+		AssertTrue(Condition := FALSE, Message := 'the mock telescope did not reach READY_STATE 1.0');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the mock telescope did not reach READY_STATE 1.0'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+20:
+	IF rig.fbTel.bError THEN
+		AssertTrue(Condition := rig.fbTel.nErrorID = 16#16, Message := 'the target above stMotion.fGotoMaxElevation is error 16#16');
+		F_Note(bFailed := NOT (rig.fbTel.nErrorID = 16#16), sText := CONCAT(sTest, 'the target above stMotion.fGotoMaxElevation is error 16#16'));
+		AssertFalse(Condition := rig.fbTel.bGotoActive, Message := 'the goto is dropped');
+		F_Note(bFailed := (rig.fbTel.bGotoActive), sText := CONCAT(sTest, 'the goto is dropped'));
+		nStep := 99;
+		TEST_FINISHED();
+	ELSIF nCycles > 300 THEN
+		AssertTrue(Condition := FALSE, Message := 'the goto was not refused');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the goto was not refused'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+END_CASE
+
 ]]></ST>
       </Implementation>
     </Method>
