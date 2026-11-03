@@ -756,6 +756,17 @@ cases go into existing suites where they fit; step 6 frees slots by moving dupli
   `.Safety_Error_During_Cover_Opening_Stops_The_Covers`, `.Estop_During_Cover_Closing_Stops_The_Covers`; one assert more in
   `MonetSafeState_Tests.Estop_During_Slew_...` and `.Safety_Error_While_Tracking_...` (Stop() in the scan of the edge).
 
+- **Status cabinet over-temperature roof (2026-11-03): written on `feat/cabinet-overtemp-roof-request` (from `develop` @ `0188ae0`),
+  not compiled, not run (CI on push). Version not bumped.** Owner decision (settles 8.6, added to D9): a critical cabinet temperature
+  parks everything, the roof included. `FB_MonetCabinetControl` gets `VAR_OUTPUT bCloseRoofRequest : BOOL`, `:= bCabinetOverTemp` in every call (set
+  above 60 C, held until below 50 C, no latch beyond that, no reset); the park every scan is unchanged. D9 list of the classes that
+  close the roof: E-stop/safety error, power failure, hydraulics error, axis errors (`FB_MonetTelescopeControl.bCloseRoofRequest`) and
+  cabinet over-temperature (`FB_MonetCabinetControl.bCloseRoofRequest`); the watchdog closes on its own. No site change until each
+  `MAIN` (MONETS, MONETN) ORs the new output into its roof close condition and re-pins. Test:
+  `FB_MonetTempSensor_Tests.Cabinet_Over_Temp_Requests_Roof_Close` through the new seam `FB_MonetCabinetProbe` (writes BT1). On site:
+  `bRoofCloseOnErrorEnable` off first, raise BT1 (or force `inCabinetTemp`) above 60 C: park, `CabinetControl.bCloseRoofRequest` TRUE,
+  roof does not move; then the switch on: roof closes; below 50 C the request drops.
+
 Order rationale: 0-1 make the safety net; 2a-2b put the shared types in place before MONETcommon consumes them;
 2c-4 are neutral and unblock tests and the SM plan's 5.2; 4c settles the client question; 5-6 break consumers and
 are batched with re-pins; 7 is policy and goes row by row. Step 3 can come before 2a-2c; 7 can start any time after
@@ -836,6 +847,10 @@ are batched with re-pins; 7 is policy and goes row by row. Step 3 can come befor
   derivation in the design doc). The MQTT watchdog is unchanged (always closes). The E-stop circuit also cuts the roof
   drives: a close during an active E-stop cannot act, the request is held and takes effect after release and restart.
   Step 7 PR 1 (the signal) written on `feat/close-roof-request`; PR 2 (`MAIN`) not started.
+  Added 2026-11-03 (owner, settles 8.6): the cabinet over-temperature (#32) closes the roof too ("a critical cabinet
+  temperature parks everything, the roof included"). The D9 list of classes that close the roof is now: E-stop/safety error,
+  power failure, hydraulics error, axis errors, cabinet over-temperature (signal `FB_MonetCabinetControl.bCloseRoofRequest`,
+  ORed in `MAIN`); plus the MQTT watchdog on its own.
 
 ## 8. Still open
 
@@ -848,7 +863,8 @@ are batched with re-pins; 7 is policy and goes row by row. Step 3 can come befor
    cleared by `bReset` once no cause is active) and the name of the `MAIN` enable switch (`bRoofCloseOnErrorEnable`
    proposed; a variable, a Visu switch or a cabinet input). Settled in step 7 PR 1: name and latch/reset as proposed (status
    at step 7); the `MAIN` switch is left to PR 2.
-6. **Cabinet over-temperature (#32) and the roof:** not in the D9 list; today no close ("this is not weather").
+6. **Cabinet over-temperature (#32) and the roof:** decided 2026-11-03 (owner): close (added to D9). Written on
+   `feat/cabinet-overtemp-roof-request` (status at step 7).
 7. **Request at PLC start:** does `NOT bMainReady` or an active E-stop at boot set the request on every restart, so
    that it needs an arming (like the watchdog's first connect) or a debounce? Check on site before step 7 PR 2. PR 1 chose
    no arming (a cause at the start sets it; one-line change to arm, status at step 7).

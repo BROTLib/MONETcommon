@@ -2,6 +2,8 @@
 <TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
   <POU Name="FB_MonetTempSensor_Tests" Id="{2c9e5b17-f4a8-4d03-b6e1-93a07d58c2f4}" SpecialFunc="None">
     <Declaration><![CDATA[// Tests for MONETcommon.FB_MonetTempSensor, the scaling and wire-break check of the 0-10 V temperature sensors.
+// Cabinet_Over_Temp_Requests_Roof_Close: the cabinet temperature thresholds of MONETcommon.FB_MonetCabinetControl (BT1, driven
+// through FB_MonetCabinetProbe) and its bCloseRoofRequest (#24 D9); no telescope is passed, so nothing is parked.
 FUNCTION_BLOCK FB_MonetTempSensor_Tests EXTENDS TcUnit.FB_TestSuite
 VAR
 	nullComm	: FB_NullComm;
@@ -12,6 +14,7 @@ END_VAR
 Wire_Break_Is_Invalid();
 Over_Range_Is_Invalid();
 Recovers_After_Wire_Break();
+Cabinet_Over_Temp_Requests_Roof_Close();
 ]]></ST>
     </Implementation>
     <Method Name="Mid_Scale_Is_Valid" Id="{a4d17c3e-8b25-4f60-91ce-5e2b7a0d3c18}">
@@ -77,6 +80,39 @@ sensor(iRaw := 0, sName := 'TEMP_M1', comm := nullComm);
 AssertFalse(Condition := sensor.bValid, Message := 'broken');
 sensor(iRaw := 16384, sName := 'TEMP_M1', comm := nullComm);
 AssertTrue(Condition := sensor.bValid, Message := 'reconnected');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Cabinet_Over_Temp_Requests_Roof_Close" Id="{3f4047b1-637c-49e1-aad4-048bd6bd5304}">
+      <Declaration><![CDATA[// #24 D9 (owner decision: a critical cabinet temperature parks everything, the roof included): bCloseRoofRequest equals
+// bCabinetOverTemp, set above 60 C and held until below 50 C, not latched beyond that. One call per temperature (BT1 in
+// 0.1 C), no telescope (iTelescope 0).
+METHOD PRIVATE Cabinet_Over_Temp_Requests_Roof_Close
+VAR
+	fbComm	: FB_NullComm;
+	fbCab	: FB_MonetCabinetProbe(comm := fbComm);
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Cabinet_Over_Temp_Requests_Roof_Close');
+fbCab(fCabinetTempIn := 25.0);
+AssertFalse(Condition := fbCab.bCloseRoofRequest, Message := '25 C: no roof close request');
+fbCab(fCabinetTempIn := 59.9);
+AssertFalse(Condition := fbCab.bCloseRoofRequest, Message := '59.9 C on the way up: no roof close request');
+AssertFalse(Condition := fbCab.bCabinetOverTemp, Message := '59.9 C on the way up: not over temperature');
+fbCab(fCabinetTempIn := 60.1);
+AssertTrue(Condition := fbCab.bCloseRoofRequest, Message := '60.1 C: roof close requested');
+AssertTrue(Condition := fbCab.bCabinetOverTemp, Message := '60.1 C: over temperature');
+fbCab(fCabinetTempIn := 55.0);
+AssertTrue(Condition := fbCab.bCloseRoofRequest, Message := '55 C on the way down: the request holds');
+fbCab(fCabinetTempIn := 50.0);
+AssertTrue(Condition := fbCab.bCloseRoofRequest, Message := '50.0 C on the way down: the request holds (reset below 50)');
+fbCab(fCabinetTempIn := 49.9);
+AssertFalse(Condition := fbCab.bCloseRoofRequest, Message := '49.9 C: the request is gone');
+AssertFalse(Condition := fbCab.bCabinetOverTemp, Message := '49.9 C: not over temperature');
+fbCab(fCabinetTempIn := 55.0);
+AssertFalse(Condition := fbCab.bCloseRoofRequest, Message := '55 C on the way up again: no latch, no request');
 TEST_FINISHED();
 ]]></ST>
       </Implementation>
