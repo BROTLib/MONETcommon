@@ -66,10 +66,10 @@ hydraulics and safety, publishes MQTT telemetry and handles error states and
 recovery. Each site passes its own pointing model (`fbPointing`,
 `fbPointingInverse`) from `MAIN`.
 
-A new axis or focus error on a telescope that is not parked starts the
+A new axis, focus or hydraulics error or a power failure on a telescope that is not parked starts the
 emergency park by itself (brake closed, covers closed, hydraulics off,
-`bIsParked`); not during an E-stop, not when already parked, and not for
-command-level (software) errors. `power=1` is refused until the park is
+`bIsParked`); not during an E-stop (the E-stop holds its own park until the release, below), not when already parked, and not for
+command-level (software) errors other than the state-machine timeouts (below). `power=1` is refused until the park is
 finished, `stop=1` cancels it; recover with `reset=1`, then `power=1`.
 `bIsParked` drops with the cover command of a power-on, so a park during a
 power-on closes the covers again. Exception: an azimuth/elevation error in the
@@ -79,6 +79,68 @@ covers stay open for the manual Wake&Shake (a WARN is logged). From then on a
 (otherwise it is closed whenever the elevation is disabled, #121). The window
 closes, and the brake with it, on park, E-stop, a focus/derotator error, closed
 covers, a new `power=1` or the timeout (#151).
+
+**Hydraulics error (#24 step 7 PR 3, D8).** `fbHydraulics.Error` is a telescope error like an axis error (`bError`,
+READY_STATE -1.0, the emergency park in place on its rising edge, with the same exemptions: not parked, not in E-stop;
+never treated as the Wake&Shake fault). Ramp first: if the brake is still open, the oil pressure is there and an axis
+moves, the axes get a controlled stop in the same scan (the normal stop, one MC_Stop per axis) and stay enabled until it
+has settled, then the park in place disables them, closes the brake and the covers and switches the hydraulics off. With
+the pressure already gone (brake locked), or with an E-stop, a safety error or any other error, there is no ramp: the
+lock is the stop, as for an axis error. Recovery: reset the hydraulics (HalfBROT `Reset()`, the `MAIN` reset button);
+`bError` then goes by itself, `reset=1` clears the roof request, `power=1` powers on again. A `reset=1` while the
+hydraulics error is still there does not clear it and is not held (it would abort the park).
+
+**State-machine timeouts (#24 step 7 PR 5, D8).** A goto (16#10), home (16#30) or slew (16#40) still running after
+`stMotion.tStateMachineTimeout` (600 s) is a software error as before (`bError`, READY_STATE -1.0, latched until
+`reset=1`), but the axes are no longer disabled under motion: the drives are still controllable, so a moving axis gets a
+controlled stop (the normal stop, one MC_Stop per axis) and then the telescope parks by itself, driving to the park
+position when the axes can move (else in place), closing the brake and the covers and switching the hydraulics off. Not
+when already parked, and not with an E-stop, a safety error or a hardware error (those keep their own reaction; one that
+appears during the stop or the park drive disables the axes and the park ends in place). No roof close request (D9:
+recoverable). `stop=1` cancels the park (the axes are then disabled); `reset=1` clears the error, `power=1` powers on again.
+
+**Cover error (#24 step 7 PR 4).** `fbCovers.Error` (HalfBROT `FB_CoverControl`, latched there; no cover moves while it is
+set) is not a telescope error (`bError` stays FALSE, the drives are controllable) and does not request the roof close. A new
+cover error on a telescope that is not parked and not in E-stop starts a normal park: a running move is stopped first, then
+the park drives to the park position (in place if the axes cannot move). A park whose covers are in error no longer waits for
+them: once the axes are disabled, the brake is closed and the hydraulics are off it ends with `bIsParked` and the covers as
+they are, and raises **software error 16#21** (READY_STATE -1.0, log `Internal command error, ID: 33`). A power-on with the
+cover error fails at once, before it commands the covers (power-on failure, READY_STATE -1.0, the telescope stays parked).
+Recovery: the `MAIN` reset button (HalfBROT cover `Reset()` and, in automatic, `reset=1`) clears both; then `power=1` goes
+online (the covers open) and `park=1` closes them. `reset=1` alone clears 16#21, but `power=1` keeps failing while the cover
+error is there.
+
+**Power failure (#24 step 7 PR 7, D8).** `bMainReady` FALSE (wired to `PowerMonitoring.phaseOK` in `MAIN`: any guard
+warning or error of the power monitor, not debounced) is a telescope error too, handled like the hydraulics error: `bError`,
+READY_STATE -1.0 (until 0.13.0 it only gated online with -2.0), moves and `power=1` refused, the emergency park in place on
+its falling edge (not when parked, not in E-stop, never the Wake&Shake fault). Ramp first while the drives can still ramp
+(brake open with oil pressure, no axis error, an axis moves), else the lock is the stop; then park in place, covers closed
+as far as they still move, hydraulics off. It is not latched: `bError` goes by itself when the supply is back; then
+`reset=1` clears the roof request and `power=1` powers on again (the completed startup is gone). Even a short dip of the
+phase monitor parks the telescope; if the power monitor's warnings blip on site, filter them in `MAIN` /
+`FB_MonetPowerMonitoring`.
+
+**Focus error (#24 step 7 PR 8, D8).** A focus error alone (no axis, hydraulics or software error, no power failure, no E-stop or safety error)
+leaves the axes controllable, so its emergency park drives to the park position instead of parking in place, if the axes
+can drive (calibrated, enabled, brake open, oil pressure there): a moving axis gets the controlled stop first, then the park
+drives, disables the axes, closes the brake and the covers and switches the hydraulics off (`bParkedInPlace` FALSE). The
+faulty focus is not sent to its park position and the park does not wait for it. Otherwise (another error at the same time or
+during the drive, an E-stop, axes that cannot drive) it parks in place as before; after a switch to manual the pending park
+parks in place. No roof close request (D9). Recovery: `reset=1` (resets the focus; during this park a reset is one scan and
+restarts the park once), then `power=1`.
+
+**E-stop and safety error (#24 step 7 PR 6, D8).** An E-stop (`bEstopTriggered`) or a safety error without E-stop
+(`bSafetyError`) cuts the drives (STO): the brake lock is the stop. The axes are disabled in every scan (until 0.13.0 only
+for the E-stop), and on the rising edge the hydraulics are switched off at once (the hydraulic brake locks) and every move
+ends (no controlled stop, no MC_Stop). If the telescope is not parked, a park in place is held while the E-stop or the
+safety error is there (the covers may hang on the same circuit; nothing parks and the covers are not commanded meanwhile,
+also not after a `reset=1`) and runs as soon as both are gone: covers closed, hydraulics off, `bIsParked`,
+`bParkedInPlace` (WARN "E-stop / safety error released: park in place"). Not for a safety error alone while the
+Wake&Shake window is open (the window survives it, #155). Recovery: release the E-stop and run the safety reset (the
+`MAIN` reset button), wait for the park, `reset=1` clears the roof request, `power=1`. A safety error is still not
+`bError`, does not reject moves and is not part of the READY_STATE -1.0 condition (the E-stop is, as before); online
+it drops out of READY_STATE 1.0 because the axes are disabled.
+
 The brake can be opened in the window with the elevation error latched, without `reset=1` first: the error closes
 the brake once, and while the window is open the brake is closed again only by an E-stop, a hydraulics error, a safety
 error (input `bSafetyError`, wire it to `SafetyHandling.error`; FALSE = not enforced) or covers that are not open (#155).
@@ -117,7 +179,7 @@ stMotion ...`). MONET/S passes `fElevationMoveVelocity := 3.0` and needs no chan
 `GoTo progress: 25`, reads as before); the read-only properties `GotoStage`, `SlewStage`, `ParkStage` and `PowerOnStage`
 return the current stage. Home (`_HomeTelescope`) has no stage. When a machine aborts is one table, `F_StageAbort` (goto/slew: reset,
 error, interrupt or the flag dropped; home: reset, error, interrupt; park: reset, stop, interrupt, not an error, which is
-the emergency park; power-on: all of them). The software errors of the machines (16#10, 16#15/16#16, 16#30, 16#40) are
+the emergency park; power-on: all of them). The software errors of the machines (16#10, 16#15/16#16, 16#21, 16#30, 16#40) are
 raised in one place (`_RaiseSoftwareError`, text in `sSoftwareErrorText`) and latched until `reset=1` as before.
 
 **Telemetry (#24 step 4a).** The MONET fields of the telescope telemetry (`TELESCOPE.READY_STATE`/`MOTION_STATE`/
@@ -131,7 +193,8 @@ fills once per publish. Topics, order, formats and conditions are those of 0.12.
 velocities, the turn inside the axis limits) and the reported position (inverse pointing model, hor2eq). The code is that of
 0.12.0, moved unchanged out of the body.
 
-`bIsParked` means *secured* (covers closed, brake closed, hydraulics off, axes disabled), not *at the park
+`bIsParked` means *secured* (covers closed, brake closed, hydraulics off, axes disabled; with a cover error the covers as far
+as they got, reported as 16#21), not *at the park
 position*: the emergency park, and a park after a reset or an aborted power-on, secure the telescope where it stands.
 `bParkedInPlace` (MQTT `diagnostics/base/ParkedInPlace`, WARN log "parked in place at el .. az ..") is TRUE then; it drops
 with the cover command of a power-on and is FALSE after a normal park and after a PLC restart (#158).
