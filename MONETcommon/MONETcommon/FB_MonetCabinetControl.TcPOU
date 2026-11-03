@@ -7,6 +7,12 @@ VAR_INPUT
 END_VAR
 VAR_OUTPUT
 	bCabinetOverTemp	: BOOL;	// cabinet temperature (BT1) is critical (>60°C, until <50°C); parks iTelescope if set
+	// #24 D9 (specs/design/monetcommon-safe-states.md "Roof"): the roof should be closed because the cabinet temperature is
+	// critical. A signal only, nothing in this library acts on it; the site MAIN closes the roof on it together with
+	// FB_MonetTelescopeControl.bCloseRoofRequest (behind the same enable switch bRoofCloseOnErrorEnable, only in automatic).
+	// Equal to bCabinetOverTemp: the same hysteresis (set above 60°C, held until below 50°C), no latch beyond that and no reset
+	// needed. Updated in every call; a broken sensor (overrange) also requests the close.
+	bCloseRoofRequest	: BOOL;
 END_VAR
 VAR
 	// AT%I*/AT%Q* below are mapped directly on this FB: only one instance per PLC is
@@ -37,11 +43,14 @@ cabinetTemp := INT_TO_REAL(inCabinetTemp) / 10.0;
 tempWarning(SET1 := cabinetTemp > 50.0, RESET := cabinetTemp < 40.0);
 tempCritical(SET1 := cabinetTemp > 60.0, RESET := cabinetTemp < 50.0);
 bCabinetOverTemp := tempCritical.Q1;
+// #24 D9 (owner decision): a critical cabinet temperature parks everything, the roof included. This block has no roof, so
+// it only requests the close; the site MAIN acts on it like on TelescopeControl.bCloseRoofRequest.
+bCloseRoofRequest := bCabinetOverTemp;
 
 // #32: park while the electronics are too hot. Park ends with the drives disabled, the brake closed and the
 // hydraulics off, which removes the heat sources; a stop would leave them running. Held every scan like
 // FB_MonetMqttWatchdog: a no-op once parked, and any new move ends parked again until the temperature is below
-// 50°C. A broken sensor reads overrange (3276.7°C) and also parks. The roof is not closed: this is not weather.
+// 50°C. A broken sensor reads overrange (3276.7°C) and also parks. The roof close is requested by bCloseRoofRequest.
 IF bCabinetOverTemp AND iTelescope <> 0 THEN
 	iTelescope.Park();
 END_IF
@@ -177,7 +186,7 @@ END_VAR
       </Implementation>
     </Method>
     <LineIds Name="FB_MonetCabinetControl">
-      <LineId Id="74" Count="30" />
+      <LineId Id="74" Count="33" />
       <LineId Id="32" Count="0" />
     </LineIds>
     <LineIds Name="FB_MonetCabinetControl.AreBreakesCleared">

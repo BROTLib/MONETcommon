@@ -738,6 +738,34 @@ cases go into existing suites where they fit; step 6 frees slots by moving dupli
     error cuts the drives. Risk: a `reset=1` held by an axis error that does not clear (STO may raise axis errors) aborts the park in
     every scan (`F_StageAbort` park row), as for any emergency park today. To run (Tim): `tcbuild.yml` on push, or the library install
     and `tctool MONETcommonTests.sln build run`; on site (design doc, order item 6), E-stop at hand.
+- **Status PR 6 follow-up (2026-11-03): "E-stop stops the covers", written on `fix/estop-stops-covers` (from `develop` @ `52725c8`),
+  not compiled, not run (CI on push). Version not bumped.** Owner: the covers are **not** on the E-stop circuit (they stay powered),
+  and "E-stop means stop". So the reason given above ("the covers may hang on the E-stop circuit") is replaced: on the rising edge of
+  `bSafetyStop` and in every scan while it holds (end of the body, after the stages) M calls `fbCovers.Stop()`; no stage commands
+  `Open()`/`Close()` while it holds (`_PowerOn` `open_covers` waits without the command, keeps `bIsParked` and does not advance;
+  `_ParkTelescope` `prepare` in place and `secure` skip `Close()` and wait, the hydraulics still go off). After the release the held park
+  (`bSafetyPark`) closes the covers as before; a power-on that was opening them is aborted by that park (#87) and does not open them
+  again; a park that was closing them goes on closing. This also covers the case listed above as "not changed": a park requested by
+  someone else or already running at the edge no longer commands the covers during the E-stop. `Stop()` is not in `I_MirrorCovers`, so
+  `fbCovers` of M is now `REFERENCE TO HalfBROT.FB_CoverControl` (as the pendant, step 6); `MAIN` passes `CoverControl` unchanged.
+  Alternatives: add `Stop()` to BROTLib `I_MirrorCovers` (cleaner, but a BROTLib + HalfBROT release first); a second optional input for
+  the stop (needs a `MAIN` change); stop on the E-stop only, not on a safety error alone (the owner's rule is for the E-stop; PR 6 treats
+  both alike, so both stop). Not covered: manual mode (M not called, the pendant keeps its hold-to-run). Tests: `FB_CoversMock` now
+  extends `HalfBROT.FB_CoverControl` (no `SUPER^()`), counts `Stop()` (`nStopCalls`) and has an optional travel model
+  (`FB_MonetRig.SetCoverTravelScans`, the rig calls its body after the telescope); new `MonetErrorPark_Tests.Estop_During_Cover_Opening_Stops_The_Covers`,
+  `.Safety_Error_During_Cover_Opening_Stops_The_Covers`, `.Estop_During_Cover_Closing_Stops_The_Covers`; one assert more in
+  `MonetSafeState_Tests.Estop_During_Slew_...` and `.Safety_Error_While_Tracking_...` (Stop() in the scan of the edge).
+
+- **Status cabinet over-temperature roof (2026-11-03): written on `feat/cabinet-overtemp-roof-request` (from `develop` @ `0188ae0`),
+  not compiled, not run (CI on push). Version not bumped.** Owner decision (settles 8.6, added to D9): a critical cabinet temperature
+  parks everything, the roof included. `FB_MonetCabinetControl` gets `VAR_OUTPUT bCloseRoofRequest : BOOL`, `:= bCabinetOverTemp` in every call (set
+  above 60 C, held until below 50 C, no latch beyond that, no reset); the park every scan is unchanged. D9 list of the classes that
+  close the roof: E-stop/safety error, power failure, hydraulics error, axis errors (`FB_MonetTelescopeControl.bCloseRoofRequest`) and
+  cabinet over-temperature (`FB_MonetCabinetControl.bCloseRoofRequest`); the watchdog closes on its own. No site change until each
+  `MAIN` (MONETS, MONETN) ORs the new output into its roof close condition and re-pins. Test:
+  `FB_MonetTempSensor_Tests.Cabinet_Over_Temp_Requests_Roof_Close` through the new seam `FB_MonetCabinetProbe` (writes BT1). On site:
+  `bRoofCloseOnErrorEnable` off first, raise BT1 (or force `inCabinetTemp`) above 60 C: park, `CabinetControl.bCloseRoofRequest` TRUE,
+  roof does not move; then the switch on: roof closes; below 50 C the request drops.
 
 Order rationale: 0-1 make the safety net; 2a-2b put the shared types in place before MONETcommon consumes them;
 2c-4 are neutral and unblock tests and the SM plan's 5.2; 4c settles the client question; 5-6 break consumers and
@@ -819,6 +847,10 @@ are batched with re-pins; 7 is policy and goes row by row. Step 3 can come befor
   derivation in the design doc). The MQTT watchdog is unchanged (always closes). The E-stop circuit also cuts the roof
   drives: a close during an active E-stop cannot act, the request is held and takes effect after release and restart.
   Step 7 PR 1 (the signal) written on `feat/close-roof-request`; PR 2 (`MAIN`) not started.
+  Added 2026-11-03 (owner, settles 8.6): the cabinet over-temperature (#32) closes the roof too ("a critical cabinet
+  temperature parks everything, the roof included"). The D9 list of classes that close the roof is now: E-stop/safety error,
+  power failure, hydraulics error, axis errors, cabinet over-temperature (signal `FB_MonetCabinetControl.bCloseRoofRequest`,
+  ORed in `MAIN`); plus the MQTT watchdog on its own.
 
 ## 8. Still open
 
@@ -831,7 +863,8 @@ are batched with re-pins; 7 is policy and goes row by row. Step 3 can come befor
    cleared by `bReset` once no cause is active) and the name of the `MAIN` enable switch (`bRoofCloseOnErrorEnable`
    proposed; a variable, a Visu switch or a cabinet input). Settled in step 7 PR 1: name and latch/reset as proposed (status
    at step 7); the `MAIN` switch is left to PR 2.
-6. **Cabinet over-temperature (#32) and the roof:** not in the D9 list; today no close ("this is not weather").
+6. **Cabinet over-temperature (#32) and the roof:** decided 2026-11-03 (owner): close (added to D9). Written on
+   `feat/cabinet-overtemp-roof-request` (status at step 7).
 7. **Request at PLC start:** does `NOT bMainReady` or an active E-stop at boot set the request on every restart, so
    that it needs an arming (like the watchdog's first connect) or a debounce? Check on site before step 7 PR 2. PR 1 chose
    no arming (a cause at the start sets it; one-line change to arm, status at step 7).

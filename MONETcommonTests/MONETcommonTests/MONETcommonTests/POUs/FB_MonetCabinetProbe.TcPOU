@@ -1,0 +1,18 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="FB_MonetCabinetProbe" Id="{19b225e3-10c7-439d-86a0-f22fd0e68d7e}" SpecialFunc="None">
+    <Declaration><![CDATA[// Test seam for FB_MonetCabinetControl (#24 D9, cabinet over-temperature): the cabinet temperature BT1 is AT%I* inside the
+// cabinet control, so a test cannot write it from outside. This derived block writes it from its input (in °C, the terminal
+// reads 0.1°C per digit) and then runs the real body. Like FB_MonetPendantProbe.
+FUNCTION_BLOCK FB_MonetCabinetProbe EXTENDS MONETcommon.FB_MonetCabinetControl
+VAR_INPUT
+	fCabinetTempIn	: REAL;	// BT1 in °C, written to inCabinetTemp
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[inCabinetTemp := REAL_TO_INT(fCabinetTempIn * 10.0);
+SUPER^();
+]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>
