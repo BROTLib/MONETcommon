@@ -2,7 +2,8 @@
 <TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
   <POU Name="MonetErrorPark_Tests" Id="{589804fc-1ef2-48cc-9923-fb6abcd872c3}" SpecialFunc="None">
     <Declaration><![CDATA[// Characterization of the emergency park that FB_MonetTelescopeControl starts on a new axis, focus or (since #24 step 7 PR 3)
-// hydraulics error (#86, #113) on mock axes, and (since #24 step 7 PR 4) of the normal park a new cover error starts
+// hydraulics error (#86, #113) or (since step 7 PR 7) power failure on mock axes, and (since #24 step 7 PR 4) of the normal park a
+// new cover error starts
 // (plan step 1, MONETcommonTests README). These tests pin what the code does today, with the line of the behaviour in a comment;
 // they are not a specification. Every test owns a rig and runs over many PLC cycles (VAR_INST of the method, one Scan() per
 // cycle). Failed checks are also noted in GVL_Diag.sFailures (printed by Run-Tests.ps1).
@@ -17,6 +18,8 @@ Error_On_A_Parked_Telescope_Does_Not_Park_Again();
 Error_During_Estop_Does_Not_Park();
 First_PowerOn_AzEl_Error_Is_Exempt_From_The_Park();
 Persisting_Error_Does_Not_Start_A_Second_Park();
+Power_Failure_At_Standstill_Parks_In_Place_And_Recovers();
+Power_Failure_On_A_Parked_Telescope_Does_Not_Park();
 Hydraulics_Error_On_A_Parked_Telescope_Does_Not_Park();
 Hydraulics_Error_During_Estop_Does_Not_Park();
 Hydraulics_Error_Park_Recovers_With_Hydraulics_Reset_And_Reset();
@@ -418,6 +421,184 @@ CASE nStep OF
 		F_Note(bFailed := NOT (rig.fbCovers.nCloseCalls = nCloses), sText := CONCAT(sTest, 'the covers are not commanded again'));
 		AssertTrue(Condition := rig.fbTel.bIsParked AND rig.fbTel.bError, Message := 'parked, with the error still reported');
 		F_Note(bFailed := NOT (rig.fbTel.bIsParked AND rig.fbTel.bError), sText := CONCAT(sTest, 'parked, with the error still reported'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+END_CASE
+
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Power_Failure_At_Standstill_Parks_In_Place_And_Recovers" Id="{03d8a622-feb0-4c12-acf2-b4166da20358}">
+      <Declaration><![CDATA[// #24 step 7 PR 7 (D8), reset path of the row power failure: online at standstill bMainReady FALSE parks in place without a ramp
+// (nothing moves, the disable is the stop): covers closed, hydraulics off, READY_STATE -1.0. A telescope reset during the failure
+// does not clear it and is not held (a held bReset would abort the park in every scan). When the supply is back bError drops by
+// itself (not latched) and the telescope stays parked (READY_STATE 0.0); bCloseRoofRequest stays latched until the next telescope
+// reset; then power=1 brings it online again.
+METHOD PRIVATE Power_Failure_At_Standstill_Parks_In_Place_And_Recovers
+VAR_INST
+	rig			: FB_MonetRig;
+	nStep		: INT;
+	nCycles		: UINT;
+	sTest		: STRING(80);
+	bSawStop	: BOOL;
+	nDisable0	: UINT;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Power_Failure_At_Standstill_Parks_In_Place_And_Recovers');
+sTest := 'Power_Failure_At_Standstill_Parks_In_Place_And_Recovers: ';
+IF nStep >= 90 THEN
+	RETURN;
+END_IF
+rig.Scan();
+nCycles := nCycles + 1;
+CASE nStep OF
+0:	// wait for the clock, then power on
+	IF rig.ClockValid THEN
+		rig.fbTel.Init();
+		nStep := 10;
+		nCycles := 0;
+	ELSIF nCycles > 2000 THEN
+		AssertTrue(Condition := FALSE, Message := 'the astronomical clock never became valid');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the astronomical clock never became valid'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+10:	// online at standstill: the main power fails
+	IF rig.Online THEN
+		nDisable0 := rig.fbBrakeHyd.nDisableCalls;
+		rig.SetMainReady(FALSE);
+		nStep := 20;
+		nCycles := 0;
+	ELSIF nCycles > 1500 THEN
+		AssertTrue(Condition := FALSE, Message := 'the mock telescope did not reach READY_STATE 1.0');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the mock telescope did not reach READY_STATE 1.0'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+20:	// the emergency park in place
+	bSawStop := bSawStop OR rig.fbTel.bStop;
+	IF rig.fbTel.bIsParked AND nCycles > 5 THEN
+		AssertFalse(Condition := bSawStop, Message := 'at standstill no ramp');
+		F_Note(bFailed := (bSawStop), sText := CONCAT(sTest, 'at standstill no ramp'));
+		AssertTrue(Condition := rig.fbTel.bParkedInPlace AND rig.fbCovers.bClosed, Message := 'parked in place, covers closed');
+		F_Note(bFailed := NOT (rig.fbTel.bParkedInPlace AND rig.fbCovers.bClosed), sText := CONCAT(sTest, 'parked in place, covers closed'));
+		AssertTrue(Condition := rig.fbBrakeHyd.nDisableCalls > nDisable0 AND NOT rig.fbBrakeHyd.BrakeOpen, Message := 'the hydraulics are switched off, the brake is closed');
+		F_Note(bFailed := NOT (rig.fbBrakeHyd.nDisableCalls > nDisable0 AND NOT rig.fbBrakeHyd.BrakeOpen), sText := CONCAT(sTest, 'the hydraulics are switched off, the brake is closed'));
+		AssertTrue(Condition := rig.fbTel.bError AND rig.fbTel.ReadyState = -1.0, Message := 'a telescope error, READY_STATE -1.0');
+		F_Note(bFailed := NOT (rig.fbTel.bError AND rig.fbTel.ReadyState = -1.0), sText := CONCAT(sTest, 'a telescope error, READY_STATE -1.0'));
+		rig.fbTel.Reset();	// the power failure is still there
+		nStep := 30;
+		nCycles := 0;
+	ELSIF nCycles > 600 THEN
+		AssertTrue(Condition := FALSE, Message := 'the emergency park did not finish');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the emergency park did not finish'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+30:
+	IF nCycles >= 10 THEN
+		AssertTrue(Condition := rig.fbTel.bError AND rig.fbTel.bIsParked, Message := 'a telescope reset does not clear the power failure');
+		F_Note(bFailed := NOT (rig.fbTel.bError AND rig.fbTel.bIsParked), sText := CONCAT(sTest, 'a telescope reset does not clear the power failure'));
+		AssertFalse(Condition := rig.fbTel.bReset, Message := 'the reset is not held on the power failure');
+		F_Note(bFailed := (rig.fbTel.bReset), sText := CONCAT(sTest, 'the reset is not held on the power failure'));
+		rig.SetMainReady(TRUE);
+		nStep := 40;
+		nCycles := 0;
+	END_IF
+40:	// the supply is back
+	IF nCycles >= 10 THEN
+		AssertFalse(Condition := rig.fbTel.bError, Message := 'bError drops by itself when the supply is back');
+		F_Note(bFailed := (rig.fbTel.bError), sText := CONCAT(sTest, 'bError drops by itself when the supply is back'));
+		AssertTrue(Condition := rig.fbTel.bIsParked AND rig.fbTel.ReadyState = 0.0, Message := 'still parked, READY_STATE 0.0');
+		F_Note(bFailed := NOT (rig.fbTel.bIsParked AND rig.fbTel.ReadyState = 0.0), sText := CONCAT(sTest, 'still parked, READY_STATE 0.0'));
+		AssertTrue(Condition := rig.fbTel.bCloseRoofRequest, Message := 'the roof request stays latched');
+		F_Note(bFailed := NOT (rig.fbTel.bCloseRoofRequest), sText := CONCAT(sTest, 'the roof request stays latched'));
+		rig.fbTel.Reset();
+		nStep := 50;
+		nCycles := 0;
+	END_IF
+50:
+	IF nCycles >= 10 THEN
+		AssertFalse(Condition := rig.fbTel.bCloseRoofRequest, Message := 'the telescope reset clears the roof request');
+		F_Note(bFailed := (rig.fbTel.bCloseRoofRequest), sText := CONCAT(sTest, 'the telescope reset clears the roof request'));
+		rig.fbTel.Init();
+		nStep := 60;
+		nCycles := 0;
+	END_IF
+60:	// power=1: online again
+	IF rig.Online THEN
+		AssertTrue(Condition := TRUE, Message := 'online again after the supply, a reset and power=1');
+		nStep := 99;
+		TEST_FINISHED();
+	ELSIF nCycles > 1500 THEN
+		AssertTrue(Condition := FALSE, Message := 'not online again after the supply, a reset and power=1');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'not online again after the supply, a reset and power=1'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+END_CASE
+
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Power_Failure_On_A_Parked_Telescope_Does_Not_Park" Id="{be6ce1f6-02e4-4999-ac37-896b59fe2c10}">
+      <Declaration><![CDATA[// #24 step 7 PR 7 (F_ErrorParkRequest unchanged): a power failure is a telescope error (bError, READY_STATE -1.0 instead of 0.0), but
+// on a telescope that is already parked (here: the PLC start) it starts no park and no stop, and the covers are not commanded. A
+// power=1 during the failure fails at once (bError in _PowerOn) instead of opening the covers and waiting for bMainReady in stage
+// open_covers as until 0.13.0: the telescope stays parked. When the supply is back bError drops by itself. No clock needed.
+METHOD PRIVATE Power_Failure_On_A_Parked_Telescope_Does_Not_Park
+VAR_INST
+	rig			: FB_MonetRig;
+	nStep		: INT;
+	nCycles		: UINT;
+	sTest		: STRING(80);
+	bSawStop	: BOOL;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Power_Failure_On_A_Parked_Telescope_Does_Not_Park');
+sTest := 'Power_Failure_On_A_Parked_Telescope_Does_Not_Park: ';
+IF nStep >= 90 THEN
+	RETURN;
+END_IF
+rig.Scan();
+nCycles := nCycles + 1;
+bSawStop := bSawStop OR rig.fbTel.bStop OR rig.fbTel.bPark;
+CASE nStep OF
+0:	// parked since the start: the main power fails
+	IF nCycles >= 3 THEN
+		rig.SetMainReady(FALSE);
+		nStep := 10;
+		nCycles := 0;
+	END_IF
+10:
+	IF nCycles >= 60 THEN
+		AssertTrue(Condition := rig.fbTel.bError AND rig.fbTel.ReadyState = -1.0, Message := 'the power failure is a telescope error, READY_STATE -1.0');
+		F_Note(bFailed := NOT (rig.fbTel.bError AND rig.fbTel.ReadyState = -1.0), sText := CONCAT(sTest, 'the power failure is a telescope error, READY_STATE -1.0'));
+		AssertFalse(Condition := bSawStop, Message := 'no stop and no park');
+		F_Note(bFailed := (bSawStop), sText := CONCAT(sTest, 'no stop and no park'));
+		AssertTrue(Condition := rig.fbTel.bIsParked AND rig.fbCovers.nCloseCalls = 0, Message := 'stays parked, the covers are not commanded');
+		F_Note(bFailed := NOT (rig.fbTel.bIsParked AND rig.fbCovers.nCloseCalls = 0), sText := CONCAT(sTest, 'stays parked, the covers are not commanded'));
+		rig.fbTel.Init();	// power=1 during the failure
+		nStep := 20;
+		nCycles := 0;
+	END_IF
+20:
+	IF nCycles >= 10 THEN
+		AssertTrue(Condition := rig.fbTel.bIsParked AND rig.fbCovers.nOpenCalls = 0, Message := 'power=1 during the failure opens nothing, stays parked');
+		F_Note(bFailed := NOT (rig.fbTel.bIsParked AND rig.fbCovers.nOpenCalls = 0), sText := CONCAT(sTest, 'power=1 during the failure opens nothing, stays parked'));
+		AssertFalse(Condition := rig.fbTel.bPower OR rig.fbTel.fbStartup.Initializing, Message := 'the power-on has ended');
+		F_Note(bFailed := (rig.fbTel.bPower OR rig.fbTel.fbStartup.Initializing), sText := CONCAT(sTest, 'the power-on has ended'));
+		rig.SetMainReady(TRUE);
+		nStep := 30;
+		nCycles := 0;
+	END_IF
+30:	// the supply is back
+	IF nCycles >= 10 THEN
+		AssertFalse(Condition := rig.fbTel.bError, Message := 'bError drops by itself when the supply is back');
+		F_Note(bFailed := (rig.fbTel.bError), sText := CONCAT(sTest, 'bError drops by itself when the supply is back'));
 		nStep := 99;
 		TEST_FINISHED();
 	END_IF
