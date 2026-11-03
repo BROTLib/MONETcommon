@@ -120,6 +120,15 @@ as far as they still move, hydraulics off. It is not latched: `bError` goes by i
 phase monitor parks the telescope; if the power monitor's warnings blip on site, filter them in `MAIN` /
 `FB_MonetPowerMonitoring`.
 
+**Focus error (#24 step 7 PR 8, D8).** A focus error alone (no axis, hydraulics or software error, no power failure, no E-stop or safety error)
+leaves the axes controllable, so its emergency park drives to the park position instead of parking in place, if the axes
+can drive (calibrated, enabled, brake open, oil pressure there): a moving axis gets the controlled stop first, then the park
+drives, disables the axes, closes the brake and the covers and switches the hydraulics off (`bParkedInPlace` FALSE). The
+faulty focus is not sent to its park position and the park does not wait for it. Otherwise (another error at the same time or
+during the drive, an E-stop, axes that cannot drive) it parks in place as before; after a switch to manual the pending park
+parks in place. No roof close request (D9). Recovery: `reset=1` (resets the focus; during this park a reset is one scan and
+restarts the park once), then `power=1`.
+
 The brake can be opened in the window with the elevation error latched, without `reset=1` first: the error closes
 the brake once, and while the window is open the brake is closed again only by an E-stop, a hydraulics error, a safety
 error (input `bSafetyError`, wire it to `SafetyHandling.error`; FALSE = not enforced) or covers that are not open (#155).

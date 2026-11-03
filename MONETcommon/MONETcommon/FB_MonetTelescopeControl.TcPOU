@@ -252,6 +252,15 @@ VAR
 	bMainPowerRamp			: BOOL;	// the controlled stop of a power failure is running, the error branch does not disable the axes
 	bMainPowerRampStarted	: BOOL;	// one scan, logged
 	MainPowerRampEvent		: FB_EventLog;
+	// #24 step 7 PR 8 (plan D8, specs/design/monetcommon-safe-states.md row "Focus error"): only the focus is faulty, the axes are
+	// healthy. On the edge of the emergency park (#86), if the axes can drive (F_ParkAxesCanMove, oil pressure there), the park drives
+	// to the park position instead of parking in place: an enabled axis that moves gets the controlled stop first (bStop, #96, the
+	// park is queued behind it, bParkAfterStop), and the error branch leaves the axes enabled until the park has disabled them itself
+	// (bFocusErrorPark). Any other error, an E-stop or a safety error ends it and the park parks in place.
+	bFocusErrorOnly			: BOOL;	// the focus error is the only error in this scan (no axis/hydraulics/software error, no power failure, no E-stop/safety error)
+	bFocusErrorPark			: BOOL;	// the emergency park of a focus error drives to the park position, the error branch does not disable the axes
+	bFocusErrorParkStarted	: BOOL;	// one scan, logged
+	FocusErrorParkEvent		: FB_EventLog;
 	// #151: the brake may stay open with the elevation disabled for the Wake&Shake (F_WakeShakeWindow)
 	bWakeShakeWindow		: BOOL;
 	bWakeShakeWindowLast	: BOOL;
@@ -447,6 +456,38 @@ IF bTimeoutError AND NOT bTimeoutErrorLast AND bTimeoutCanMove AND NOT bIsParked
 END_IF
 bTimeoutErrorLast := bTimeoutError;
 
+// #24 step 7 PR 8 (D8, row focus error): a focus error alone leaves the axes controllable. Ramp first, then the emergency park
+// drives to the park position. Decided before the error branch below, which would otherwise disable the axes in this scan.
+bFocusErrorOnly := fbFocus.Error AND NOT bEstopTriggered AND NOT bSafetyError AND
+	NOT (fbElevation.Error OR fbAzimuth.bError OR fbDerotator.bError OR bHydraulicsError OR bMainPowerLost OR bSoftwareError);
+// it ends when the focus error is no longer the only error (another error, also a power failure, E-stop, safety error, or the
+// focus error is gone), when the park is over (bIsParked) or not requested any more (a stop dropped it), or on the timeout of its ramp (the lock takes over)
+IF bFocusErrorPark AND (NOT bFocusErrorOnly OR bIsParked OR NOT (bPark OR bParkAfterStop OR bStop) OR
+		(tonCommandTimeout.Q AND TCS_command = E_TCSCommand.stop)) THEN
+	bFocusErrorPark := FALSE;
+	// with bError still there and the park on its way to the park position: start it again from its first stage, which parks in
+	// place now (no new bError edge resets its stage, and the disabled axes would never report Busy in start_move)
+	IF bError AND (eParkStage = E_ParkStage.untrack OR eParkStage = E_ParkStage.start_move OR eParkStage = E_ParkStage.wait_moves) THEN
+		eParkStage := E_ParkStage.prepare;
+	END_IF
+END_IF
+// on the edge that starts the emergency park below (F_ErrorParkRequest: bHwError edge, not parked, no E-stop; the #113 exemption
+// needs an Az/El error, so it cannot apply here), only if the axes can drive (calibrated, enabled, brake open, oil pressure there)
+IF bHwError AND NOT bHwErrorLast AND bFocusErrorOnly AND NOT bIsParked AND fbHydraulics.OilPressureOK AND
+		F_ParkAxesCanMove(
+			bElCalibrated := fbElevation.Calibrated, bAzCalibrated := fbAzimuth.Calibrated, bDrCalibrated := fbDerotator.Calibrated,
+			bElEnabled := fbElevation.bEnable, bAzEnabled := fbAzimuth.bEnable, bDrEnabled := fbDerotator.bEnable,
+			bBrakeOpen := fbBrake.BrakeOpen) THEN
+	bFocusErrorPark := TRUE;
+	bFocusErrorParkStarted := TRUE;
+	// an enabled axis moves (also homing or tracking): the controlled stop first; at standstill the park drives at once
+	IF (fbStopTx.abEnabled[1] AND (fbStopTx.abMoving[1] OR aAxis[1].bTracking)) OR
+			(fbStopTx.abEnabled[2] AND (fbStopTx.abMoving[2] OR aAxis[2].bTracking)) OR
+			(fbStopTx.abEnabled[3] AND (fbStopTx.abMoving[3] OR aAxis[3].bTracking)) THEN
+		bStop := TRUE;
+	END_IF
+END_IF
+
 // #24 step 7 PR 1 (D9): the roof close request, from the serious classes only (not bError: the focus error and the software
 // errors are recoverable; not bPowerFailure, a power-on failure; power failure is NOT bMainReady, the phase monitor). Latched
 // on the rising edge, so a cause that is gone again (a short E-stop, a phase dip) still requests the close; bReset (held while
@@ -495,8 +536,10 @@ IF bError THEN
 	bSupersedeRequest := FALSE;	// #83
 	// #24 step 7 PR 3 (D8): not during the ramp of a hydraulics error (bHydraulicsRamp is only TRUE while the hydraulics error is
 	// the only error); the axes are disabled from the first scan after its stop has settled. #24 step 7 PR 5: nor during the ramp and
-	// park of a timeout (bTimeoutPark, only without a hardware error, E-stop or safety error). PR 7: nor during the ramp of a power failure
-	IF NOT bHydraulicsRamp AND NOT bTimeoutPark AND NOT bMainPowerRamp THEN
+	// park of a timeout (bTimeoutPark, only without a hardware error, E-stop or safety error). PR 7: nor during the ramp of a power failure.
+	// PR 8: nor during the ramp and the drive of the focus-error park (bFocusErrorPark, only while the focus error is the only error);
+	// its park disables them
+	IF NOT bHydraulicsRamp AND NOT bTimeoutPark AND NOT bMainPowerRamp AND NOT bFocusErrorPark THEN
 		fbElevation.Enable := FALSE;
 		fbAzimuth.Enable := FALSE;
 		fbDerotator.Enable := FALSE;
@@ -885,7 +928,9 @@ _StopTxRelease();
 // _HandleReset), i.e. bError without the hydraulics error, exactly as before 0.14. The hydraulics error is reset by HalfBROT
 // (MAIN reset button) and leaves bError by itself; a reset held on it would abort the emergency park in every scan (F_StageAbort).
 // PR 7: the same for a power failure (it leaves bError when the supply is back), so it is not in this list either.
-IF NOT (fbElevation.Error OR fbAzimuth.bError OR fbFocus.Error OR fbDerotator.bError OR bSoftwareError) THEN
+// #24 step 7 PR 8: not held during the focus-error park either (a reset of a focus that stays faulty would abort it in every scan,
+// with the axes enabled); there a reset is one scan: it resets the focus once and the park starts again from its first stage.
+IF NOT (fbElevation.Error OR fbAzimuth.bError OR fbFocus.Error OR fbDerotator.bError OR bSoftwareError) OR bFocusErrorPark THEN
 	bReset := FALSE;
 END_IF
 
@@ -1129,7 +1174,11 @@ CASE eParkStage OF
 		bTrack := 	FALSE;
 		bGoto := 	FALSE;
 		bSlew := 	FALSE;
-		fbFocus.Position := telescopeConfig.focusPark;
+		// #24 step 7 PR 8: a faulty focus (maybe stuck) is not sent to its park position. No stage waits for the focus, so it
+		// cannot hold the park either way.
+		IF NOT fbFocus.Error THEN
+			fbFocus.Position := telescopeConfig.focusPark;
+		END_IF
 		// #87: the axes can only drive to the park position when they are calibrated, enabled and the brake is open.
 		// Otherwise (aborted power-on, after a reset) park in place, like the emergency park: no axis motion.
 		bAxesCanMove := F_ParkAxesCanMove(
@@ -1137,7 +1186,8 @@ CASE eParkStage OF
 			bElEnabled := fbElevation.bEnable, bAzEnabled := fbAzimuth.bEnable, bDrEnabled := fbDerotator.bEnable,
 			bBrakeOpen := fbBrake.BrakeOpen);
 		// #24 step 7 PR 5: the park of a timeout (bTimeoutPark, a software error only) drives to the park position like a normal park
-		IF (bError AND NOT bTimeoutPark) OR NOT bAxesCanMove THEN // emergency park, or park in place
+		// #24 step 7 PR 8: the emergency park of a focus error alone drives to the park position (bFocusErrorPark, set in the body)
+		IF (bError AND NOT bTimeoutPark AND NOT bFocusErrorPark) OR NOT bAxesCanMove THEN // emergency park, or park in place
 			fbBrake.CloseBrake();
 			fbElevation.Enable := FALSE;
 			fbAzimuth.Enable := FALSE;
@@ -1426,12 +1476,15 @@ IF __ISVALIDREF(fbAzimuth) AND __ISVALIDREF(fbElevation) AND __ISVALIDREF(fbDero
         // #24 step 7 PR 3: during the ramp of a hydraulics error (last automatic scan) the drives are on, so that stop goes on
         // #24 step 7 PR 5: also during the ramp and park of a timeout (bTimeoutPark); bPark is kept as for any park (#118)
         // #24 step 7 PR 7: and during the ramp of a power failure (bMainPowerRamp)
+        // #24 step 7 PR 8: also during the ramp or the drive of the focus-error park; after manual mode that park parks in place
+        // (the pendant may have moved or disabled the axes), so it is given up here
         bSuspendStop := F_SuspendStop(
-            bError := bError AND NOT bHydraulicsRamp AND NOT bTimeoutPark AND NOT bMainPowerRamp,
+            bError := bError AND NOT bHydraulicsRamp AND NOT bTimeoutPark AND NOT bMainPowerRamp AND NOT bFocusErrorPark,
             bStopRunning := TCS_command = E_TCSCommand.stop AND (bStop OR bMoveAbortPending),
             bAzMoving := fbStopTx.abEnabled[1] AND fbStopTx.abMoving[1],
             bElMoving := fbStopTx.abEnabled[2] AND fbStopTx.abMoving[2],
             bDrMoving := fbStopTx.abEnabled[3] AND fbStopTx.abMoving[3]);
+        bFocusErrorPark := FALSE;
         IF bSuspendStop THEN
             IF NOT bStop THEN
                 bMoveAbortPending := TRUE;
@@ -1796,6 +1849,12 @@ MainPowerRampEvent(	Trigger := bMainPowerRampStarted,
 				OnMessage := 'power failure (bMainReady FALSE): controlled stop of the axes, then emergency park in place',
 				Comm := fbComm);
 bMainPowerRampStarted := FALSE;
+FocusErrorParkEvent(	Trigger := bFocusErrorParkStarted,
+				Level := ADSLOG_MSGTYPE_WARN,
+				FormatString := '%s',
+				OnMessage := 'focus error: controlled stop of the axes if they move, then emergency park to the park position',
+				Comm := fbComm);
+bFocusErrorParkStarted := FALSE;
 WakeShakeBlockEvent(	Trigger := bWakeShakeBrakeBlocked,
 				Level := ADSLOG_MSGTYPE_WARN,
 				FormatString := '%s',

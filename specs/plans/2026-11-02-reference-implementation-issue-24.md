@@ -12,7 +12,8 @@ table is [../design/monetcommon-safe-states.md](../design/monetcommon-safe-state
 2026-11-02 on `feat/close-roof-request` (status at step 7); not compiled or run yet. Step 7 PR 3 (hydraulics error reaction)
 written 2026-11-02 on `feat/hydraulics-error-reaction` (status at step 7); not compiled or run yet. Step 7 PR 5 (state-machine
 timeouts ramp, then park) written 2026-11-02 on `feat/timeout-error-reaction` (status at step 7); not compiled or run yet. Step 7 PR 7 (power failure
-reaction) written 2026-11-02 on `feat/power-failure-reaction` (status at step 7); not compiled or run yet.
+reaction) written 2026-11-02 on `feat/power-failure-reaction` (status at step 7); not compiled or run yet. Step 7 PR 8 (focus error
+reaction) written 2026-11-02 on `feat/focus-error-reaction` (status at step 7); not compiled or run yet.
 Repo: BROTLib/MONETcommon (steps 2a/2b also BROTLib and IAG50cm). Base: read at `develop` @ `adc1013` (0.11.1, pins
 BROTLib 0.15.1, HalfBROT 0.10.1); line numbers are from that commit. `origin/develop` has since moved to `c34470f`
 (0.11.2, pins BROTLib 0.16.0 / HalfBROT 0.10.2; pendant release-on-exit #3, null-reference fix #156); none of that
@@ -551,6 +552,66 @@ cases go into existing suites where they fit; step 6 frees slots by moving dupli
     the drives, the covers and the roof have their supply on a real phase loss, drive undervoltage errors, how fast `BrakeOpen` drops
     when the pump stops. To run (Tim): `tcbuild.yml` on push, or the library install + `tctool MONETcommonTests.sln build run`; on site
     (design doc, order item 7).
+- **Status PR 8 (2026-11-02): written on `feat/focus-error-reaction` (from `develop` @ `40517f9`, PR 3 merged; rebased onto `develop` @ `008120e`,
+  PR 5, PR 4 and PR 7 merged), not compiled, not run (CI on push). Version not bumped.** Row "Focus error" of the design doc (now
+  implemented, M lines of that branch). Written while PRs 4-7 ran in parallel; rebased onto them (same error branch, same suites, same table).
+  - Entry unchanged: the focus error is in `bHwError` and starts the #86 emergency park on the edge of `bHwError` (`F_ErrorParkRequest`
+    and `F_WakeShakeErrorExempt` unchanged). New `bFocusErrorOnly` = focus error AND no axis/hydraulics/software error AND no power failure (`bMainPowerLost`, since the
+    rebase onto PR 7) AND no E-stop AND no safety error. On that edge, with `bFocusErrorOnly`, not parked, `fbHydraulics.OilPressureOK` and `F_ParkAxesCanMove` (calibrated, enabled,
+    brake open), M sets `bFocusErrorPark` (before the error branch, so the axes are not disabled in that scan); the error branch skips its
+    three `Enable := FALSE` while it is set, and `_ParkTelescope` stage `prepare` parks in place only for `bError AND NOT bFocusErrorPark`
+    (or when the axes cannot move), so the park drives to the park position and disables the axes itself (stage `disable_axes`).
+  - Ramp first (D8), the PR 3 pattern: if an enabled axis moves (InMotion/InRamp/Homing or tracking), `bStop` in the same scan (stop
+    transaction #96); the emergency park is queued (`bParkAfterStop`) and starts when the stop has settled. No separate ramp flag:
+    `bFocusErrorPark` covers ramp and drive.
+  - End of `bFocusErrorPark`: another error, E-stop or safety error (if the park is in `untrack`/`start_move`/`wait_moves` it is set back
+    to `prepare` and parks in place: there is no new `bError` edge to reset it, and disabled axes never report `Busy` in `start_move`);
+    `bIsParked`; no park requested any more (`bPark`, `bParkAfterStop`, `bStop` all FALSE, e.g. after a `Stop()`: the error branch then
+    disables the stopped axes, no new park because there is no new edge); the stop timeout during the ramp (the lock takes over, then in
+    place); the focus error gone (the park goes on as a normal park); the first manual scan (`SuspendAutomatic`).
+  - Focus step of the park, chosen (conservative): a faulty focus is **not** sent to `focusPark` (`IF NOT fbFocus.Error`); neutral on
+    HalfBROT, whose `FB_FocusControl` overwrites the target with the actual position while in error. No park stage waits for the focus
+    (verified: `prepare` only writes the target; `start_move`/`wait_moves`/`disable_axes` read the three axes, `secure` the brake and covers;
+    `bBusy`, which includes `fbFocus.Busy`, gates only the non-error park dispatch), so a stuck focus cannot hold the park. No focus
+    timeout was added. Alternatives: keep writing the target (no effect on HalfBROT while in error); wait for the focus with a timeout (a new
+    stage, more code, no gain for the safe state).
+  - Reset (chosen): `bReset` is not held while `bFocusErrorPark` (end of the body), so a `reset=1` during that park is one scan: it calls
+    `fbFocus.Reset()` once and restarts the park from `prepare` once (`_HandleReset` and the `F_StageAbort` park row); the park then drives on.
+    Held as before it would abort the park in every scan while the focus stays faulty, with the axes enabled and the brake open (a new hang).
+    Alternatives: keep the hold and end the drive on a reset (the lock would stop moving axes); ignore the reset in the park during the
+    drive (two more guards). Outside this park the hold is unchanged (also after the park with a stuck focus, as today).
+  - Manual mode (chosen): `F_SuspendStop` gets `bError AND NOT bHydraulicsRamp AND NOT bTimeoutPark AND NOT bMainPowerRamp AND NOT
+    bFocusErrorPark` (after the rebase; the moving axes get the suspend stop), then `bFocusErrorPark := FALSE`: after the return the kept `bPark` parks in place (no automatic drive after a manual interval,
+    in the spirit of #72; the operator may have moved or disabled the axes). Alternative: keep it and drive after the return like a normal
+    park.
+  - Exemptions checked: first power-on (#113) never exempts a focus error (`bOtherHwError`), unchanged; parked telescope: no park, no flag;
+    E-stop: no park, no flag (an E-stop during the drive ends it, park in place: the covers get the close command, as with the in-place
+    park before PR 8, where it was issued in the first park scan); edge detection: `bHwError AND NOT bHwErrorLast`, the same edge as
+    `F_ErrorParkRequest` (a focus error on top of another hardware error has no edge and changes nothing). Roof: no change (the focus is
+    not a cause of `bCloseRoofRequest`; D9, plan 8.4 still open).
+  - New log `FocusErrorParkEvent` (WARN, once per start). `nErrorID` unchanged (the focus `ErrorID`).
+  - Tests (40 of 40 suites; `MonetErrorPark_Tests` 14 tests before the rebase, 18 tests / 162 asserts with PR 5, PR 4 and PR 7): flipped `Focus_Error_Starts_The_Emergency_Park` ->
+    `Focus_Error_At_Standstill_Parks_At_The_Park_Position` (same method Id); new
+    `Focus_Error_While_Tracking_Ramps_Then_Parks_At_The_Park_Position`, `Focus_Error_With_An_Axis_Error_Parks_In_Place`,
+    `Axis_Error_During_The_Focus_Error_Park_Parks_In_Place`, `Stuck_Focus_Does_Not_Hold_The_Focus_Error_Park` (new
+    `FB_FocusMock.InjectStuckError`: a reset does not clear it), `Focus_Error_Park_Recovers_With_Reset_And_Power_On`. No roof request is
+    asserted in the drive and recovery cases; `MonetSafeState_Tests.No_Roof_Request_On_Focus_Error` unedited (parked rig).
+  - Rebase onto PR 5, PR 4 and PR 7: the error branch skips the disable while `bHydraulicsRamp`, `bTimeoutPark`, `bMainPowerRamp`
+    or `bFocusErrorPark`; the park's `prepare` parks in place for `bError AND NOT bTimeoutPark AND NOT bFocusErrorPark` (the two
+    flags exclude each other: a timeout park needs no hardware error, a focus-error park no software error). A power failure ends
+    `bFocusErrorPark` like any other error (it is not the only error any more) and the park restarts in place; the hydraulics and
+    power-failure ramps never start with a focus error (`bHydraulicsCanRamp` needs no focus error). A cover error is independent:
+    a focus-error park with covers in error ends in `secure` with 16#21 (PR 4), and the faulty focus is still not sent to
+    `focusPark`. All events are kept, each with its one-scan flag reset.
+  - Read while doing it, **not changed**: (1) a focus error during a normal park that is already at standstill in `disable_axes` restarts
+    it (edge of `bError` in `_ParkTelescope`) and drives again from the park position; before PR 8 it parked in place there. (2) The park's
+    `start_move` waits for all three `Busy` at once; a real NC axis already at its park position may report `Busy` only briefly
+    [unverified], which would hold `start_move` for any park, not only this one. (3) A held `reset=1` with a focus that stays faulty still
+    aborts every later park (outside `bFocusErrorPark`), as before.
+  - Unverified until CI: the build (new variables, `F_ParkAxesCanMove` in the body, enum compares on `eParkStage`); the test timing (mock
+    moves 60 scans); `fActualPosition` and `Position` read from the mocks; that the second `Init()` after the park goes online on the rig. Not
+    modelled: a real focus fault (whether HalfBROT's `Reset()` clears a real stuck focus in one call), NC behaviour of a tracking axis. To run
+    (Tim): `tcbuild.yml` on push, or the library install + `tctool MONETcommonTests.sln build run`; on site (design doc, order item 8).
 
 Order rationale: 0-1 make the safety net; 2a-2b put the shared types in place before MONETcommon consumes them;
 2c-4 are neutral and unblock tests and the SM plan's 5.2; 4c settles the client question; 5-6 break consumers and
