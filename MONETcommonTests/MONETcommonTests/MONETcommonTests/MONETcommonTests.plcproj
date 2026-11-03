@@ -58,6 +58,9 @@
     <Compile Include="POUs\F_ResetMoveAbort_Tests.TcPOU">
       <SubType>Code</SubType>
     </Compile>
+    <Compile Include="POUs\FB_HomeRequest_Tests.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
     <Compile Include="POUs\F_StageAbort_Tests.TcPOU">
       <SubType>Code</SubType>
     </Compile>
@@ -254,7 +257,7 @@
       <Parameters>
         <Parameter ListName="GVL_PARAM_TCUNIT" xmlns="">
           <Key>MAXNUMBEROFTESTSUITES</Key>
-          <Value>40</Value>
+          <Value>41</Value>
         </Parameter>
         <Parameter ListName="GVL_PARAM_TCUNIT" xmlns="">
           <Key>MAXNUMBEROFTESTSFOREACHTESTSUITE</Key>

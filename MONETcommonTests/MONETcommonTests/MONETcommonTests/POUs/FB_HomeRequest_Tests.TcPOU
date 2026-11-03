@@ -1,0 +1,437 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="FB_HomeRequest_Tests" Id="{fe3a4a55-3e61-428d-8979-526c1d57ee4d}" SpecialFunc="None">
+    <Declaration><![CDATA[// Tests for HalfBROT.FB_HomeRequest, the end of the homing request bHomeAxis of the azimuth, elevation and derotator blocks (HalfBROT#136, 0.11.0).
+// Pure logic. The wiring in the axis blocks and the NC behaviour are not testable here (the mocks skip the block bodies): on-site test.
+// Regression_*: a small model of the scan order around FB_Axis, see RunRehome.
+FUNCTION_BLOCK FB_HomeRequest_Tests EXTENDS TcUnit.FB_TestSuite
+VAR
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[Pending_Calibrated_Keeps();
+Active_Keeps_While_Calibrated_Drops_And_Returns();
+Done_After_Active();
+Ended_Uncalibrated_Fails();
+Dropped_Before_Start_Fails();
+Error_Releases();
+One_Cycle_Low_Keeps();
+New_Request_Resets_Started();
+Idle_Without_Request_No_Output();
+Regression_Azimuth_Calibrated_Rehome();
+Regression_Elevation_Calibrated_Rehome();
+Regression_Derotator_Calibrated_Rehome();
+Regression_Old_Rule_Would_Fail();
+Start_Timeout();
+Start_Timeout_Zero_Waits_Forever_And_Active_Is_Not_Timed();
+]]></ST>
+    </Implementation>
+    <Method Name="Pending_Calibrated_Keeps" Id="{2d3472b0-a1c7-4287-9fe3-be450a3940ce}">
+      <Declaration><![CDATA[// #136 core: the cycle of a re-home request. The axis is calibrated (stale Homed), HomeActive is not yet TRUE, HomePending is.
+// The request must stay, whatever Calibrated says.
+METHOD PRIVATE Pending_Calibrated_Keeps
+VAR
+	fb	: HalfBROT.FB_HomeRequest;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Pending_Calibrated_Keeps');
+Cycle(fb := fb, bRequest := TRUE, bActive := FALSE, bPending := TRUE, bCal := TRUE, bErr := FALSE);
+AssertFalse(Condition := fb.bRelease, Message := 'kept in the first cycle');
+Cycle(fb := fb, bRequest := TRUE, bActive := FALSE, bPending := TRUE, bCal := TRUE, bErr := FALSE);
+AssertFalse(Condition := fb.bRelease, Message := 'kept while pending');
+AssertFalse(Condition := fb.bStarted, Message := 'not started');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Active_Keeps_While_Calibrated_Drops_And_Returns" Id="{cf5eed03-c759-4f53-8e7f-95db71a27ef9}">
+      <Declaration><![CDATA[// The NC clears Homed when MC_Home starts and sets it again before MC_Home is done: no release while HomeActive.
+METHOD PRIVATE Active_Keeps_While_Calibrated_Drops_And_Returns
+VAR
+	fb	: HalfBROT.FB_HomeRequest;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Active_Keeps_While_Calibrated_Drops_And_Returns');
+Cycle(fb := fb, bRequest := TRUE, bActive := FALSE, bPending := TRUE, bCal := TRUE, bErr := FALSE);
+Cycle(fb := fb, bRequest := TRUE, bActive := TRUE, bPending := FALSE, bCal := TRUE, bErr := FALSE);
+AssertTrue(Condition := fb.bStarted, Message := 'started');
+Cycle(fb := fb, bRequest := TRUE, bActive := TRUE, bPending := FALSE, bCal := FALSE, bErr := FALSE);
+Cycle(fb := fb, bRequest := TRUE, bActive := TRUE, bPending := FALSE, bCal := TRUE, bErr := FALSE);
+AssertFalse(Condition := fb.bRelease, Message := 'kept while active');
+Cycle(fb := fb, bRequest := TRUE, bActive := FALSE, bPending := FALSE, bCal := TRUE, bErr := FALSE);
+AssertTrue(Condition := fb.bRelease, Message := 'released when the homing ended');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Done_After_Active" Id="{18a8e4b2-c493-423c-a482-62d8fed9f175}">
+      <Declaration><![CDATA[// Ran and finished calibrated: released, done.
+METHOD PRIVATE Done_After_Active
+VAR
+	fb	: HalfBROT.FB_HomeRequest;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Done_After_Active');
+Cycle(fb := fb, bRequest := TRUE, bActive := FALSE, bPending := TRUE, bCal := TRUE, bErr := FALSE);
+Cycle(fb := fb, bRequest := TRUE, bActive := TRUE, bPending := FALSE, bCal := TRUE, bErr := FALSE);
+Cycle(fb := fb, bRequest := TRUE, bActive := FALSE, bPending := FALSE, bCal := TRUE, bErr := FALSE);
+AssertTrue(Condition := fb.bRelease, Message := 'released');
+AssertTrue(Condition := fb.bDone, Message := 'done');
+AssertFalse(Condition := fb.bFailed, Message := 'not failed');
+AssertTrue(Condition := fb.bStarted, Message := 'was started');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Ended_Uncalibrated_Fails" Id="{528ca536-7cea-45b1-af72-513608acd540}">
+      <Declaration><![CDATA[// Ran, but ended without calibration (Stop or abort of the sweep): released, failed.
+METHOD PRIVATE Ended_Uncalibrated_Fails
+VAR
+	fb	: HalfBROT.FB_HomeRequest;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Ended_Uncalibrated_Fails');
+Cycle(fb := fb, bRequest := TRUE, bActive := FALSE, bPending := TRUE, bCal := FALSE, bErr := FALSE);
+Cycle(fb := fb, bRequest := TRUE, bActive := TRUE, bPending := FALSE, bCal := FALSE, bErr := FALSE);
+Cycle(fb := fb, bRequest := TRUE, bActive := FALSE, bPending := FALSE, bCal := FALSE, bErr := FALSE);
+AssertTrue(Condition := fb.bRelease, Message := 'released');
+AssertTrue(Condition := fb.bFailed, Message := 'failed');
+AssertFalse(Condition := fb.bDone, Message := 'not done');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Dropped_Before_Start_Fails" Id="{944ec9a4-c734-4aff-bd2a-fd42a4b6f162}">
+      <Declaration><![CDATA[// CancelHome, Stop or Reset before MC_Home started: neither pending nor active, never active.
+METHOD PRIVATE Dropped_Before_Start_Fails
+VAR
+	fb	: HalfBROT.FB_HomeRequest;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Dropped_Before_Start_Fails');
+Cycle(fb := fb, bRequest := TRUE, bActive := FALSE, bPending := TRUE, bCal := TRUE, bErr := FALSE);
+Cycle(fb := fb, bRequest := TRUE, bActive := FALSE, bPending := FALSE, bCal := TRUE, bErr := FALSE);
+AssertTrue(Condition := fb.bRelease, Message := 'released');
+AssertTrue(Condition := fb.bFailed, Message := 'failed');
+AssertFalse(Condition := fb.bDone, Message := 'not done: it never ran');
+AssertFalse(Condition := fb.bStarted, Message := 'never started');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Error_Releases" Id="{f1242b4d-0124-4c3f-aece-956c48424f23}">
+      <Declaration><![CDATA[// An axis error ends the request in the same cycle: while pending, while active, and with nothing running.
+METHOD PRIVATE Error_Releases
+VAR
+	fbPend	: HalfBROT.FB_HomeRequest;
+	fbAct	: HalfBROT.FB_HomeRequest;
+	fbIdle	: HalfBROT.FB_HomeRequest;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Error_Releases');
+Cycle(fb := fbPend, bRequest := TRUE, bActive := FALSE, bPending := TRUE, bCal := TRUE, bErr := TRUE);
+AssertTrue(Condition := fbPend.bRelease AND fbPend.bFailed, Message := 'error while pending');
+Cycle(fb := fbAct, bRequest := TRUE, bActive := TRUE, bPending := FALSE, bCal := FALSE, bErr := FALSE);
+Cycle(fb := fbAct, bRequest := TRUE, bActive := TRUE, bPending := FALSE, bCal := FALSE, bErr := TRUE);
+AssertTrue(Condition := fbAct.bRelease AND fbAct.bFailed AND NOT fbAct.bDone, Message := 'error while active');
+Cycle(fb := fbIdle, bRequest := TRUE, bActive := TRUE, bPending := FALSE, bCal := TRUE, bErr := TRUE);
+AssertTrue(Condition := fbIdle.bRelease, Message := 'error with the request just raised');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="One_Cycle_Low_Keeps" Id="{381d1ec2-66e6-4d2b-9a67-451d35e6c821}">
+      <Declaration><![CDATA[// FB_AxisCommand drops Execute for one cycle when it is still TRUE: pending again after active, no release.
+METHOD PRIVATE One_Cycle_Low_Keeps
+VAR
+	fb	: HalfBROT.FB_HomeRequest;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('One_Cycle_Low_Keeps');
+Cycle(fb := fb, bRequest := TRUE, bActive := FALSE, bPending := TRUE, bCal := TRUE, bErr := FALSE);
+Cycle(fb := fb, bRequest := TRUE, bActive := TRUE, bPending := FALSE, bCal := TRUE, bErr := FALSE);
+Cycle(fb := fb, bRequest := TRUE, bActive := FALSE, bPending := TRUE, bCal := TRUE, bErr := FALSE);
+AssertFalse(Condition := fb.bRelease, Message := 'pending again keeps the request');
+Cycle(fb := fb, bRequest := TRUE, bActive := TRUE, bPending := FALSE, bCal := TRUE, bErr := FALSE);
+AssertFalse(Condition := fb.bRelease, Message := 'active again');
+Cycle(fb := fb, bRequest := TRUE, bActive := FALSE, bPending := FALSE, bCal := TRUE, bErr := FALSE);
+AssertTrue(Condition := fb.bRelease AND fb.bDone, Message := 'done at the end');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="New_Request_Resets_Started" Id="{c12689df-4146-47bb-9650-5c68faa849d1}">
+      <Declaration><![CDATA[// bStarted belongs to one request: after a finished request and a cycle without request, a new one starts as not started.
+METHOD PRIVATE New_Request_Resets_Started
+VAR
+	fb	: HalfBROT.FB_HomeRequest;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('New_Request_Resets_Started');
+Cycle(fb := fb, bRequest := TRUE, bActive := FALSE, bPending := TRUE, bCal := TRUE, bErr := FALSE);
+Cycle(fb := fb, bRequest := TRUE, bActive := TRUE, bPending := FALSE, bCal := TRUE, bErr := FALSE);
+Cycle(fb := fb, bRequest := TRUE, bActive := FALSE, bPending := FALSE, bCal := TRUE, bErr := FALSE);
+AssertTrue(Condition := fb.bStarted, Message := 'first request was started');
+Cycle(fb := fb, bRequest := FALSE, bActive := FALSE, bPending := FALSE, bCal := TRUE, bErr := FALSE);
+AssertFalse(Condition := fb.bStarted, Message := 'no request: not started');
+Cycle(fb := fb, bRequest := TRUE, bActive := FALSE, bPending := TRUE, bCal := TRUE, bErr := FALSE);
+AssertFalse(Condition := fb.bStarted, Message := 'second request: not started yet');
+AssertFalse(Condition := fb.bRelease, Message := 'second request is kept');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Idle_Without_Request_No_Output" Id="{f8183d4d-e70e-40fc-a0d0-3b56c73a63d6}">
+      <Declaration><![CDATA[// No request: no output, whatever the inputs say.
+METHOD PRIVATE Idle_Without_Request_No_Output
+VAR
+	fb	: HalfBROT.FB_HomeRequest;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Idle_Without_Request_No_Output');
+Cycle(fb := fb, bRequest := FALSE, bActive := TRUE, bPending := TRUE, bCal := TRUE, bErr := TRUE);
+AssertFalse(Condition := fb.bRelease OR fb.bStarted OR fb.bDone OR fb.bFailed OR fb.bTimedOut, Message := 'no output without a request');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Regression_Azimuth_Calibrated_Rehome" Id="{da0f25ea-5a99-4ba8-9bfd-e9f39baf9b7d}">
+      <Declaration><![CDATA[// #136, azimuth cam sweep of a calibrated axis: Homed is TRUE at the request, clears 20 cycles into the sweep, is set again 5
+// cycles before HomeActive ends.
+METHOD PRIVATE Regression_Azimuth_Calibrated_Rehome
+VAR
+	bHeld	: BOOL;
+	nRel	: INT;
+	bDone	: BOOL;
+	bOld	: BOOL;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Regression_Azimuth_Calibrated_Rehome');
+RunRehome(nPending := 2, nActive := 250, nHomedDropAt := 22, nHomedRiseAt := 247, bHomedAtPress := TRUE,
+	bHeld => bHeld, nReleaseCycle => nRel, bDoneAtRelease => bDone, bOldRuleCleared => bOld);
+AssertTrue(Condition := bHeld, Message := 'bHomeAxis (the homing overrides) stays TRUE from the request to the end of HomeActive');
+AssertEquals_INT(Expected := 253, Actual := nRel, Message := 'released in the first cycle after HomeActive ended');
+AssertTrue(Condition := bDone, Message := 'ended done (calibrated again)');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Regression_Elevation_Calibrated_Rehome" Id="{0ded8722-7ff8-4966-aff4-bd081e98bc07}">
+      <Declaration><![CDATA[// #136, elevation: the same sweep, but the axis is not Ready for 50 cycles (HomePending) after the request.
+METHOD PRIVATE Regression_Elevation_Calibrated_Rehome
+VAR
+	bHeld	: BOOL;
+	nRel	: INT;
+	bDone	: BOOL;
+	bOld	: BOOL;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Regression_Elevation_Calibrated_Rehome');
+RunRehome(nPending := 50, nActive := 250, nHomedDropAt := 72, nHomedRiseAt := 297, bHomedAtPress := TRUE,
+	bHeld => bHeld, nReleaseCycle => nRel, bDoneAtRelease => bDone, bOldRuleCleared => bOld);
+AssertTrue(Condition := bHeld, Message := 'bHomeAxis (the homing overrides) stays TRUE from the request to the end of HomeActive');
+AssertEquals_INT(Expected := 301, Actual := nRel, Message := 'released in the first cycle after HomeActive ended');
+AssertTrue(Condition := bDone, Message := 'ended done (calibrated again)');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Regression_Derotator_Calibrated_Rehome" Id="{a45e1473-7478-44bf-a5a8-dc3fec695216}">
+      <Declaration><![CDATA[// #136, derotator: MC_ForceCalibration, Homed never clears, HomeActive for 2 cycles.
+METHOD PRIVATE Regression_Derotator_Calibrated_Rehome
+VAR
+	bHeld	: BOOL;
+	nRel	: INT;
+	bDone	: BOOL;
+	bOld	: BOOL;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Regression_Derotator_Calibrated_Rehome');
+RunRehome(nPending := 1, nActive := 2, nHomedDropAt := 1000, nHomedRiseAt := 1000, bHomedAtPress := TRUE,
+	bHeld => bHeld, nReleaseCycle => nRel, bDoneAtRelease => bDone, bOldRuleCleared => bOld);
+AssertTrue(Condition := bHeld, Message := 'bHomeAxis (the homing overrides) stays TRUE from the request to the end of HomeActive');
+AssertEquals_INT(Expected := 4, Actual := nRel, Message := 'released in the first cycle after HomeActive ended');
+AssertTrue(Condition := bDone, Message := 'ended done (calibrated again)');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Regression_Old_Rule_Would_Fail" Id="{f0203c55-71f2-41a0-adef-c91abff85ab2}">
+      <Declaration><![CDATA[// Documents the bug: on the same trace the clear of the axis blocks before #136, (Calibrated AND NOT HomeActive) OR bError, is
+// TRUE in the first cycle, so the request was dropped before MC_Home started.
+METHOD PRIVATE Regression_Old_Rule_Would_Fail
+VAR
+	bHeld	: BOOL;
+	nRel	: INT;
+	bDone	: BOOL;
+	bOld	: BOOL;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Regression_Old_Rule_Would_Fail');
+RunRehome(nPending := 2, nActive := 250, nHomedDropAt := 22, nHomedRiseAt := 247, bHomedAtPress := TRUE,
+	bHeld => bHeld, nReleaseCycle => nRel, bDoneAtRelease => bDone, bOldRuleCleared => bOld);
+AssertTrue(Condition := bOld, Message := 'the old rule ends the request in cycle 1');
+AssertTrue(Condition := bHeld, Message := 'the new block keeps it');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Start_Timeout" Id="{16a63700-410c-4b98-b36c-e5a43fa3eb8e}">
+      <Declaration><![CDATA[// A request that stays pending without starting is ended after tStartTimeout (T#100MS here, PLC cycle 10 ms): one bTimedOut.
+METHOD PRIVATE Start_Timeout
+VAR_INST
+	fb			: HalfBROT.FB_HomeRequest;
+	nCycles		: UINT;
+	bFinished	: BOOL;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Start_Timeout');
+IF bFinished THEN
+	RETURN;
+END_IF
+nCycles := nCycles + 1;
+fb(bRequest := TRUE, bHomeActive := FALSE, bHomePending := TRUE, bCalibrated := TRUE, bError := FALSE, tStartTimeout := T#100MS);
+IF nCycles <= 3 THEN
+	AssertFalse(Condition := fb.bRelease, Message := 'not released right away');
+END_IF
+IF fb.bRelease THEN
+	AssertTrue(Condition := fb.bTimedOut, Message := 'timed out');
+	AssertTrue(Condition := fb.bFailed, Message := 'failed');
+	AssertFalse(Condition := fb.bDone, Message := 'not done');
+	bFinished := TRUE;
+	TEST_FINISHED();
+ELSIF nCycles > 200 THEN
+	AssertTrue(Condition := FALSE, Message := 'the start timeout never ended the request');
+	bFinished := TRUE;
+	TEST_FINISHED();
+END_IF
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Start_Timeout_Zero_Waits_Forever_And_Active_Is_Not_Timed" Id="{27fe6576-10af-4209-b279-89048dd2bca8}">
+      <Declaration><![CDATA[// T#0S: wait for ever. And a request that is HomeActive is never timed out, however long it runs (here with T#50MS).
+METHOD PRIVATE Start_Timeout_Zero_Waits_Forever_And_Active_Is_Not_Timed
+VAR_INST
+	fbZero		: HalfBROT.FB_HomeRequest;
+	fbActive	: HalfBROT.FB_HomeRequest;
+	nCycles		: UINT;
+	bFinished	: BOOL;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Start_Timeout_Zero_Waits_Forever_And_Active_Is_Not_Timed');
+IF bFinished THEN
+	RETURN;
+END_IF
+nCycles := nCycles + 1;
+fbZero(bRequest := TRUE, bHomeActive := FALSE, bHomePending := TRUE, bCalibrated := TRUE, bError := FALSE, tStartTimeout := T#0S);
+fbActive(bRequest := TRUE, bHomeActive := nCycles > 1, bHomePending := nCycles = 1, bCalibrated := TRUE, bError := FALSE, tStartTimeout := T#50MS);
+AssertFalse(Condition := fbZero.bRelease, Message := 'T#0S never ends the request');
+AssertFalse(Condition := fbActive.bRelease, Message := 'an active homing is not timed out');
+IF nCycles >= 30 THEN
+	bFinished := TRUE;
+	TEST_FINISHED();
+END_IF
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Cycle" Id="{8adc01c0-361b-4dd4-9ee1-3d4e030e1299}">
+      <Declaration><![CDATA[// One cycle of the block under test with the timeout switched off.
+METHOD PRIVATE Cycle
+VAR_IN_OUT
+	fb			: HalfBROT.FB_HomeRequest;
+END_VAR
+VAR_INPUT
+	bRequest	: BOOL;
+	bActive		: BOOL;
+	bPending	: BOOL;
+	bCal		: BOOL;
+	bErr		: BOOL;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[fb(bRequest := bRequest, bHomeActive := bActive, bHomePending := bPending, bCalibrated := bCal, bError := bErr, tStartTimeout := T#0S);
+
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="RunRehome" Id="{e6ace6e3-9eba-4f80-a2f0-e43dbe6e2d70}">
+      <Declaration><![CDATA[// A small model of the scan order of an axis block around FB_Axis, over many cycles in one call (no timers): the setter
+// writes bHomeAxis in cycle 1, FB_Axis answers HomePending for nPending cycles (axis not Ready yet), then HomeActive for nActive
+// cycles, the NC clears Homed (Calibrated) in cycle nHomedDropAt and sets it again in cycle nHomedRiseAt (before HomeActive ends).
+// bHeld: bHomeAxis, i.e. the input of the homing overrides, is TRUE at the start of every cycle up to the end of HomeActive.
+METHOD PRIVATE RunRehome
+VAR_INPUT
+	nPending		: INT;		// cycles of HomePending before HomeActive
+	nActive			: INT;		// cycles of HomeActive
+	nHomedDropAt	: INT;		// cycle in which Homed drops (1000 = never)
+	nHomedRiseAt	: INT;		// cycle in which Homed rises again
+	bHomedAtPress	: BOOL;		// the axis is calibrated when the homing is requested (re-home)
+END_VAR
+VAR_OUTPUT
+	bHeld			: BOOL;
+	nReleaseCycle	: INT;		// cycle of the release, 0 = none
+	bDoneAtRelease	: BOOL;
+	bOldRuleCleared	: BOOL;		// the clear of the axis blocks before #136 would have ended the request in cycle 1
+END_VAR
+VAR
+	fb				: HalfBROT.FB_HomeRequest;
+	c				: INT;
+	bHomeAxis		: BOOL;
+	bAct			: BOOL;
+	bPend			: BOOL;
+	bCal			: BOOL;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[bHeld := TRUE;
+nReleaseCycle := 0;
+bDoneAtRelease := FALSE;
+bOldRuleCleared := FALSE;
+bHomeAxis := TRUE;
+FOR c := 1 TO 400 DO
+	bPend := c <= nPending;
+	bAct := c > nPending AND c <= nPending + nActive;
+	IF c < nHomedDropAt THEN
+		bCal := bHomedAtPress;
+	ELSIF c < nHomedRiseAt THEN
+		bCal := FALSE;
+	ELSE
+		bCal := TRUE;
+	END_IF
+	IF c = 1 THEN
+		// (Calibrated AND NOT HomeActive) OR bError, the pre-#136 clear
+		bOldRuleCleared := bCal AND NOT bAct;
+	END_IF
+	IF c <= nPending + nActive AND NOT bHomeAxis THEN
+		bHeld := FALSE;
+	END_IF
+	fb(bRequest := bHomeAxis, bHomeActive := bAct, bHomePending := bPend, bCalibrated := bCal, bError := FALSE, tStartTimeout := T#0S);
+	IF fb.bRelease THEN
+		IF nReleaseCycle = 0 THEN
+			nReleaseCycle := c;
+			bDoneAtRelease := fb.bDone;
+		END_IF
+		bHomeAxis := FALSE;
+	END_IF
+END_FOR
+
+]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>
