@@ -175,6 +175,10 @@ request go with one reset; a hydraulics error needs the hydraulics reset first).
 sets it too. It is a signal only: the library does not act on it, the site `MAIN` closes the roof on it (behind its enable
 switch, only in automatic; not wired yet, step 7 PR 2). It is updated in every automatic scan; in manual
 (`SuspendAutomatic`) it keeps its last value. The MQTT watchdog closes the roof on its own, as before.
+`FB_MonetCabinetControl` has an output of the same name for the cabinet over-temperature (#32, owner decision 2026-11-03:
+a critical cabinet temperature parks everything, the roof included): TRUE while `bCabinetOverTemp` (BT1 > 60 C until
+< 50 C), not latched and no reset. The site `MAIN` ORs both into its roof close condition (same enable switch, automatic
+only): `... AND (TelescopeControl.bCloseRoofRequest OR CabinetControl.bCloseRoofRequest)`.
 
 **Motion limits (`stMotion`, #24).** The input `stMotion : BROTLib.ST_MotionConfig` (BROTLib >= 0.17.0, alt-az only)
 holds the move velocities (azimuth/derotator 10.0, elevation 5.0 deg/s), the timeouts (goto/home/slew state machine
