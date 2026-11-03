@@ -66,6 +66,19 @@ hydraulics and safety, publishes MQTT telemetry and handles error states and
 recovery. Each site passes its own pointing model (`fbPointing`,
 `fbPointingInverse`) from `MAIN`.
 
+**Command inputs are edge-triggered and read-only (#24 step 5, breaking).** The inputs inherited from BROTLib's
+`FB_BaseTelescopeControl` (`bPower`, `bGoHome`, `bPark`, `bTrack`, `bGoto`, `bSlew`, `bStop`, `bReset`) are never written
+by the block. Their rising edge is a command, exactly like the method (`Init`, `Home`, `Park`, `Track`/`TrackRaDec`/
+`MoveRaDec` for `bGoto`, `Slew`/`MoveAltAz`, `Stop`, `Reset`; `bTrack` tracks the target inputs): a held input starts its
+command once, the input falling aborts nothing, and a method call and an input edge in the same scan are one command. A
+method call (or a new edge) while the same command runs is still a command (a new `Track` retargets, a second `Stop`
+restarts the stop, #96). The requests are the read-only outputs `bPowerActive`, `bGoHomeActive`, `bParkActive`,
+`bTrackActive`, `bGotoActive`, `bSlewActive`, `bStopActive`, `bResetActive` (requested or running, cleared by the block
+where it used to clear the inputs). Until 0.14.x the block wrote the inputs: a writer could write `TRUE` again after a
+command ended and get a new one; now it must write `FALSE` first. MQTT clients (pybrotlib, pyobs-brot, brotgui) are not
+affected, the PLC turns their verbs into method calls. The MONET Visu `TOGGLE` switches on these inputs need TAP mode or
+method calls (plan `specs/plans/2026-11-02-step-4c-client-check.md`), and status lamps should show the `b*Active` outputs.
+
 A new axis, focus or hydraulics error or a power failure on a telescope that is not parked starts the
 emergency park by itself (brake closed, covers closed, hydraulics off,
 `bIsParked`); not during an E-stop (the E-stop holds its own park until the release, below), not when already parked, and not for

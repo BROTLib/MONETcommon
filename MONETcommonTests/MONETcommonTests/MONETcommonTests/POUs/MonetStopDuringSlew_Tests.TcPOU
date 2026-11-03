@@ -59,8 +59,8 @@ CASE nStep OF
 	END_IF
 20:	// wait until the slew moves the axes (all three at once)
 	IF rig.fbElev.MoveAxis AND rig.fbAzim.MoveAxis AND rig.fbDero.MoveAxis THEN
-		AssertTrue(Condition := rig.fbTel.bSlew, Message := 'bSlew is set while the slew runs');
-		F_Note(bFailed := NOT rig.fbTel.bSlew, sText := CONCAT(sTest, 'bSlew is set while the slew runs'));
+		AssertTrue(Condition := rig.fbTel.bSlewActive, Message := 'bSlew is set while the slew runs');
+		F_Note(bFailed := NOT rig.fbTel.bSlewActive, sText := CONCAT(sTest, 'bSlew is set while the slew runs'));
 		nStep := 30;
 		nCycles := 0;
 	ELSIF nCycles > 300 THEN
@@ -76,7 +76,7 @@ CASE nStep OF
 		nCycles := 0;
 	END_IF
 40:	// wait until the stop has settled
-	IF NOT rig.fbTel.bStop AND rig.fbTel.bStopped AND nCycles > 5 THEN
+	IF NOT rig.fbTel.bStopActive AND rig.fbTel.bStopped AND nCycles > 5 THEN
 		AssertEquals_UINT(Expected := 1, Actual := rig.fbElev.nStopEdges, Message := 'elevation: one stop');
 		F_Note(bFailed := rig.fbElev.nStopEdges <> 1, sText := CONCAT(sTest, 'elevation: one stop'));
 		AssertEquals_UINT(Expected := 1, Actual := rig.fbAzim.nStopEdges, Message := 'azimuth: one stop');
@@ -141,8 +141,8 @@ CASE nStep OF
 	END_IF
 20:	// wait until the slew moves the axes (all three at once)
 	IF rig.fbElev.MoveAxis AND rig.fbAzim.MoveAxis AND rig.fbDero.MoveAxis THEN
-		AssertTrue(Condition := rig.fbTel.bSlew, Message := 'bSlew is set while the slew runs');
-		F_Note(bFailed := NOT rig.fbTel.bSlew, sText := CONCAT(sTest, 'bSlew is set while the slew runs'));
+		AssertTrue(Condition := rig.fbTel.bSlewActive, Message := 'bSlew is set while the slew runs');
+		F_Note(bFailed := NOT rig.fbTel.bSlewActive, sText := CONCAT(sTest, 'bSlew is set while the slew runs'));
 		nStep := 30;
 		nCycles := 0;
 	ELSIF nCycles > 300 THEN
@@ -216,8 +216,8 @@ CASE nStep OF
 	END_IF
 20:	// wait until the slew moves the axes (all three at once)
 	IF rig.fbElev.MoveAxis AND rig.fbAzim.MoveAxis AND rig.fbDero.MoveAxis THEN
-		AssertTrue(Condition := rig.fbTel.bSlew, Message := 'bSlew is set while the slew runs');
-		F_Note(bFailed := NOT rig.fbTel.bSlew, sText := CONCAT(sTest, 'bSlew is set while the slew runs'));
+		AssertTrue(Condition := rig.fbTel.bSlewActive, Message := 'bSlew is set while the slew runs');
+		F_Note(bFailed := NOT rig.fbTel.bSlewActive, sText := CONCAT(sTest, 'bSlew is set while the slew runs'));
 		nStep := 30;
 		nCycles := 0;
 	ELSIF nCycles > 300 THEN
@@ -234,11 +234,11 @@ CASE nStep OF
 	END_IF
 40:
 	IF nCycles = 2 THEN
-		AssertFalse(Condition := rig.fbTel.bSlew, Message := 'the stop dropped bSlew');
-		F_Note(bFailed := (rig.fbTel.bSlew), sText := CONCAT(sTest, 'the stop dropped bSlew'));
+		AssertFalse(Condition := rig.fbTel.bSlewActive, Message := 'the stop dropped bSlew');
+		F_Note(bFailed := (rig.fbTel.bSlewActive), sText := CONCAT(sTest, 'the stop dropped bSlew'));
 		AssertTrue(Condition := rig.fbTel.bMoveAbortPending, Message := 'bMoveAbortPending is set while the axes stop');
 		F_Note(bFailed := NOT (rig.fbTel.bMoveAbortPending), sText := CONCAT(sTest, 'bMoveAbortPending is set while the axes stop'));
-	ELSIF NOT rig.fbTel.bStop AND rig.fbTel.bStopped AND nCycles > 5 THEN
+	ELSIF NOT rig.fbTel.bStopActive AND rig.fbTel.bStopped AND nCycles > 5 THEN
 		AssertFalse(Condition := rig.fbTel.bMoveAbortPending, Message := 'bMoveAbortPending is released with the stop');
 		F_Note(bFailed := (rig.fbTel.bMoveAbortPending), sText := CONCAT(sTest, 'bMoveAbortPending is released with the stop'));
 		AssertTrue(Condition := rig.fbTel.ReadyState = 1.0, Message := 'the telescope stays online (READY_STATE 1.0)');

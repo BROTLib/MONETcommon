@@ -61,8 +61,8 @@ CASE nStep OF
 	END_IF
 20:	// wait until the park has finished
 	IF rig.fbTel.bIsParked AND nCycles > 5 THEN
-		AssertFalse(Condition := rig.fbTel.bPark, Message := 'the park is over');
-		F_Note(bFailed := (rig.fbTel.bPark), sText := CONCAT(sTest, 'the park is over'));
+		AssertFalse(Condition := rig.fbTel.bParkActive, Message := 'the park is over');
+		F_Note(bFailed := (rig.fbTel.bParkActive), sText := CONCAT(sTest, 'the park is over'));
 		AssertTrue(Condition := rig.fbCovers.bClosed AND rig.fbCovers.nCloseCalls >= 1, Message := 'the covers the power-on opened are closed again');
 		F_Note(bFailed := NOT (rig.fbCovers.bClosed AND rig.fbCovers.nCloseCalls >= 1), sText := CONCAT(sTest, 'the covers the power-on opened are closed again'));
 		AssertFalse(Condition := rig.fbElev.bEnable OR rig.fbAzim.bEnable OR rig.fbDero.bEnable, Message := 'all three axes are disabled (parked in place)');
@@ -197,11 +197,11 @@ CASE nStep OF
 		TEST_FINISHED();
 	END_IF
 20:	// wait until the stop has settled
-	IF NOT rig.fbTel.bStop AND rig.fbTel.bStopped AND nCycles > 5 THEN
-		AssertFalse(Condition := rig.fbTel.bPower, Message := 'the power-on request is dropped');
-		F_Note(bFailed := (rig.fbTel.bPower), sText := CONCAT(sTest, 'the power-on request is dropped'));
-		AssertFalse(Condition := rig.fbTel.bPark OR rig.fbTel.bIsParked, Message := 'the stop does not park');
-		F_Note(bFailed := (rig.fbTel.bPark OR rig.fbTel.bIsParked), sText := CONCAT(sTest, 'the stop does not park'));
+	IF NOT rig.fbTel.bStopActive AND rig.fbTel.bStopped AND nCycles > 5 THEN
+		AssertFalse(Condition := rig.fbTel.bPowerActive, Message := 'the power-on request is dropped');
+		F_Note(bFailed := (rig.fbTel.bPowerActive), sText := CONCAT(sTest, 'the power-on request is dropped'));
+		AssertFalse(Condition := rig.fbTel.bParkActive OR rig.fbTel.bIsParked, Message := 'the stop does not park');
+		F_Note(bFailed := (rig.fbTel.bParkActive OR rig.fbTel.bIsParked), sText := CONCAT(sTest, 'the stop does not park'));
 		AssertTrue(Condition := rig.fbTel.ReadyState = -2.0, Message := 'READY_STATE is -2.0 (startup aborted)');
 		F_Note(bFailed := NOT (rig.fbTel.ReadyState = -2.0), sText := CONCAT(sTest, 'READY_STATE is -2.0 (startup aborted)'));
 		AssertTrue(Condition := rig.fbCovers.bOpened, Message := 'the covers stay open');
@@ -267,14 +267,14 @@ CASE nStep OF
 		F_Note(bFailed := NOT (rig.fbTel.bInitRefused), sText := CONCAT(sTest, 'the Init() is refused'));
 		AssertTrue(Condition := rig.fbTel.sInitRefusedReason = 'park in progress, send stop to cancel it', Message := 'the reason names the park');
 		F_Note(bFailed := NOT (rig.fbTel.sInitRefusedReason = 'park in progress, send stop to cancel it'), sText := CONCAT(sTest, 'the reason names the park'));
-		AssertFalse(Condition := rig.fbTel.bPower, Message := 'no power-on is started');
-		F_Note(bFailed := (rig.fbTel.bPower), sText := CONCAT(sTest, 'no power-on is started'));
+		AssertFalse(Condition := rig.fbTel.bPowerActive, Message := 'no power-on is started');
+		F_Note(bFailed := (rig.fbTel.bPowerActive), sText := CONCAT(sTest, 'no power-on is started'));
 	nStep := 30;
 	nCycles := 0;
 30:	// wait until the park has finished
 	IF rig.fbTel.bIsParked AND nCycles > 5 THEN
-		AssertFalse(Condition := rig.fbTel.bPower, Message := 'the power-on request is still dropped');
-		F_Note(bFailed := (rig.fbTel.bPower), sText := CONCAT(sTest, 'the power-on request is still dropped'));
+		AssertFalse(Condition := rig.fbTel.bPowerActive, Message := 'the power-on request is still dropped');
+		F_Note(bFailed := (rig.fbTel.bPowerActive), sText := CONCAT(sTest, 'the power-on request is still dropped'));
 		AssertTrue(Condition := rig.fbTel.ReadyState = 0.0, Message := 'the park ended parked (0.0)');
 		F_Note(bFailed := NOT (rig.fbTel.ReadyState = 0.0), sText := CONCAT(sTest, 'the park ended parked (0.0)'));
 		nStep := 99;
