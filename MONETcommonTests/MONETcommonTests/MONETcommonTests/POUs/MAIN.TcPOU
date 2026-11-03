@@ -5,15 +5,10 @@
 VAR
 	// TcUnit finds every FB_TestSuite instance by itself; it is enough to declare them here.
 	fbAzimuthOffsetTests	: F_AzimuthOffsetOnAxis_Tests;
-	fbHomeBelowHorizonTests	: F_HomeBelowHorizon_Tests;
 	fbCommandAcceptanceTests	: F_CommandAcceptance_Tests;
 	fbAxisTurnTests	: F_AxisTurn_Tests;
-	fbTargetBelowHorizonWarningTests	: F_TargetBelowHorizonWarning_Tests;
-	fbErrorParkRequestTests	: F_ErrorParkRequest_Tests;
 	fbBrakeMustCloseTests	: F_BrakeMustClose_Tests;
 	fbParkAxesCanMoveTests	: F_ParkAxesCanMove_Tests;
-	fbResetMoveAbortTests	: F_ResetMoveAbort_Tests;
-	fbSuspendStopTests		: F_SuspendStop_Tests;
 	fbWakeShakeErrorExemptTests	: F_WakeShakeErrorExempt_Tests;
 	fbWakeShakeWindowTests	: F_WakeShakeWindow_Tests;
 	fbFocusHomeReleaseTests	: F_FocusHomeRelease_Tests;
@@ -27,7 +22,6 @@ VAR
 	fbFocusTargetInitSimTests	: FocusTargetInit_Sim_Tests;
 	fbOilLevelValidTests	: F_OilLevelValid_Tests;
 	fbOilSuctionLatchTests	: F_OilSuctionLatch_Tests;
-	fbGotoTargetCheckTests	: F_GotoTargetCheck_Tests;
 	fbStopTransactionTests	: FB_MonetStopTransaction_Tests;
 	fbStopLoopSimTests	: StopLoop_Sim_Tests;
 	fbTempSensorTests	: FB_MonetTempSensor_Tests;
@@ -43,8 +37,8 @@ VAR
 	fbMonetBrakeReleaseTests	: MonetBrakeRelease_Tests;
 	fbMonetTimeoutsTests : MonetTimeouts_Tests;
 	fbMonetSafeStateTests	: MonetSafeState_Tests;
-	fbStageAbortTests	: F_StageAbort_Tests;	// suite 40 of 41
-	fbHomeRequestTests	: FB_HomeRequest_Tests;	// suite 41 of 41 (MAXNUMBEROFTESTSUITES)
+	fbStageAbortTests	: F_StageAbort_Tests;	// suite 34 of 41
+	fbHomeRequestTests	: FB_HomeRequest_Tests;	// suite 35 of 41 (MAXNUMBEROFTESTSUITES); #24 step 6 freed 6 slots (the BROTLib duplicates)
 END_VAR
 ]]></Declaration>
     <Implementation>
