@@ -1,7 +1,7 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
   <POU Name="FB_FocusManualHome_Tests" Id="{0817fa45-2195-4f20-91e2-fdb09ceb798d}" SpecialFunc="None">
-    <Declaration><![CDATA[// Tests for HalfBROT.FB_FocusManualHome, the decision and the end detection of a manual focus re-home (HalfBROT 0.7.x).
+    <Declaration><![CDATA[// Tests for HalfBROT.FB_FocusManualHome, the decision and the end detection of a manual focus re-home, calibrated or not (HalfBROT 0.11.0, #138).
 // The wiring in FB_FocusControl and the NC behaviour are not testable here (the mock skips the body): on-site test.
 FUNCTION_BLOCK FB_FocusManualHome_Tests EXTENDS TcUnit.FB_TestSuite
 VAR
@@ -12,7 +12,18 @@ END_VAR
 Rejected_In_Manual_Mode();
 Rejected_With_Manual_Unlock();
 Rejected_With_Axis_Error();
-Rejected_When_Not_Calibrated();
+Accepted_When_Not_Calibrated();
+Uncalibrated_Rejected_In_Manual_Mode();
+Uncalibrated_Rejected_While_Homing();
+Uncalibrated_Rejected_With_Error();
+Uncalibrated_Rejected_With_Manual_Unlock();
+Uncalibrated_Rejected_While_Moving();
+NotAutomatic_Before_Homing();
+No_Second_Request_While_Running_Uncalibrated();
+Calibrated_Request_Restores_Target();
+Uncalibrated_Done_No_Restore();
+Uncalibrated_Abort_Blocks_AutoHome();
+Uncalibrated_Abort_Before_Start();
 Rejected_While_Homing();
 Rejected_While_Moving();
 No_Second_Request_While_Running();
@@ -43,6 +54,7 @@ AssertTrue(Condition := eRes = HalfBROT.E_FocusManualHome.Accepted, Message := '
 AssertTrue(Condition := fb.bRunning, Message := 'running');
 AssertFalse(Condition := fb.bBlockAutoHome, Message := 'no block');
 AssertEquals_LREAL(Expected := 36.0, Actual := fb.fRestoreTarget, Delta := 1.0E-9, Message := 'target kept');
+AssertTrue(Condition := fb.bRestoreTarget, Message := 'restore the target');
 TEST_FINISHED();
 ]]></ST>
       </Implementation>
@@ -91,23 +103,6 @@ END_VAR
         <ST><![CDATA[TEST('Rejected_With_Axis_Error');
 eRes := fb.Request(bAutomatic := TRUE, bManualUnlock := FALSE, bError := TRUE, bCalibrated := TRUE, bHoming := FALSE, bMoving := FALSE, fTarget := 36.0);
 AssertTrue(Condition := eRes = HalfBROT.E_FocusManualHome.AxisError, Message := 'axis error');
-AssertFalse(Condition := fb.bRunning, Message := 'nothing started');
-TEST_FINISHED();
-]]></ST>
-      </Implementation>
-    </Method>
-    <Method Name="Rejected_When_Not_Calibrated" Id="{63c7149f-4971-465f-8849-c853e7ebc84d}">
-      <Declaration><![CDATA[// The automatic homing handles an uncalibrated focus.
-METHOD PRIVATE Rejected_When_Not_Calibrated
-VAR
-	fb	: HalfBROT.FB_FocusManualHome;
-	eRes	: HalfBROT.E_FocusManualHome;
-END_VAR
-]]></Declaration>
-      <Implementation>
-        <ST><![CDATA[TEST('Rejected_When_Not_Calibrated');
-eRes := fb.Request(bAutomatic := TRUE, bManualUnlock := FALSE, bError := FALSE, bCalibrated := FALSE, bHoming := FALSE, bMoving := FALSE, fTarget := 36.0);
-AssertTrue(Condition := eRes = HalfBROT.E_FocusManualHome.NotCalibrated, Message := 'not calibrated');
 AssertFalse(Condition := fb.bRunning, Message := 'nothing started');
 TEST_FINISHED();
 ]]></ST>
@@ -347,6 +342,7 @@ eRes := fb.Request(bAutomatic := TRUE, bManualUnlock := FALSE, bError := FALSE, 
 AssertTrue(Condition := eRes = HalfBROT.E_FocusManualHome.Accepted, Message := 'accepted while blocked');
 AssertFalse(Condition := fb.bBlockAutoHome, Message := 'block lifted');
 AssertTrue(Condition := fb.bRunning, Message := 'running');
+AssertFalse(Condition := fb.bRestoreTarget, Message := 'uncalibrated: no target to restore');
 TEST_FINISHED();
 ]]></ST>
       </Implementation>
@@ -367,6 +363,226 @@ fb(bHomeActive := FALSE, bHomePending := FALSE, bCalibrated := FALSE, bAbortPuls
 AssertTrue(Condition := fb.bBlockAutoHome, Message := 'block');
 fb.ClearBlock();
 AssertFalse(Condition := fb.bBlockAutoHome, Message := 'cleared');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Accepted_When_Not_Calibrated" Id="{a3001c94-58ca-4dce-9d09-f28ec50baad7}">
+      <Declaration><![CDATA[// An uncalibrated focus is accepted (#138): no target to restore, fPosition is junk there (#115).
+METHOD PRIVATE Accepted_When_Not_Calibrated
+VAR
+	fb	: HalfBROT.FB_FocusManualHome;
+	eRes	: HalfBROT.E_FocusManualHome;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Accepted_When_Not_Calibrated');
+eRes := fb.Request(bAutomatic := TRUE, bManualUnlock := FALSE, bError := FALSE, bCalibrated := FALSE, bHoming := FALSE, bMoving := FALSE, fTarget := 36.0);
+AssertTrue(Condition := eRes = HalfBROT.E_FocusManualHome.Accepted, Message := 'accepted');
+AssertTrue(Condition := fb.bRunning, Message := 'running');
+AssertFalse(Condition := fb.bRestoreTarget, Message := 'no target to restore');
+AssertFalse(Condition := fb.bBlockAutoHome, Message := 'no block');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Uncalibrated_Rejected_In_Manual_Mode" Id="{79806093-271d-4703-8a65-023d75ab3d02}">
+      <Declaration><![CDATA[// Manual mode stays refused: the drive is only enabled in automatic.
+METHOD PRIVATE Uncalibrated_Rejected_In_Manual_Mode
+VAR
+	fb	: HalfBROT.FB_FocusManualHome;
+	eRes	: HalfBROT.E_FocusManualHome;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Uncalibrated_Rejected_In_Manual_Mode');
+eRes := fb.Request(bAutomatic := FALSE, bManualUnlock := FALSE, bError := FALSE, bCalibrated := FALSE, bHoming := FALSE, bMoving := FALSE, fTarget := 36.0);
+AssertTrue(Condition := eRes = HalfBROT.E_FocusManualHome.NotAutomatic, Message := 'manual mode');
+AssertFalse(Condition := fb.bRunning, Message := 'nothing started');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Uncalibrated_Rejected_While_Homing" Id="{a06b993f-dc3c-4532-8059-c0023594597b}">
+      <Declaration><![CDATA[// The automatic homing was already requested: the request is refused.
+METHOD PRIVATE Uncalibrated_Rejected_While_Homing
+VAR
+	fb	: HalfBROT.FB_FocusManualHome;
+	eRes	: HalfBROT.E_FocusManualHome;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Uncalibrated_Rejected_While_Homing');
+eRes := fb.Request(bAutomatic := TRUE, bManualUnlock := FALSE, bError := FALSE, bCalibrated := FALSE, bHoming := TRUE, bMoving := FALSE, fTarget := 36.0);
+AssertTrue(Condition := eRes = HalfBROT.E_FocusManualHome.Homing, Message := 'homing');
+AssertFalse(Condition := fb.bRunning, Message := 'nothing started');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Uncalibrated_Rejected_With_Error" Id="{2f9f5488-d7b3-48aa-a0c6-4d100b99d905}">
+      <Declaration><![CDATA[// The checks before the acceptance still apply.
+METHOD PRIVATE Uncalibrated_Rejected_With_Error
+VAR
+	fb	: HalfBROT.FB_FocusManualHome;
+	eRes	: HalfBROT.E_FocusManualHome;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Uncalibrated_Rejected_With_Error');
+eRes := fb.Request(bAutomatic := TRUE, bManualUnlock := FALSE, bError := TRUE, bCalibrated := FALSE, bHoming := FALSE, bMoving := FALSE, fTarget := 36.0);
+AssertTrue(Condition := eRes = HalfBROT.E_FocusManualHome.AxisError, Message := 'axis error');
+AssertFalse(Condition := fb.bRunning, Message := 'nothing started');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Uncalibrated_Rejected_With_Manual_Unlock" Id="{7aa45950-6016-4606-ac65-e878cef48129}">
+      <Declaration><![CDATA[// The checks before the acceptance still apply.
+METHOD PRIVATE Uncalibrated_Rejected_With_Manual_Unlock
+VAR
+	fb	: HalfBROT.FB_FocusManualHome;
+	eRes	: HalfBROT.E_FocusManualHome;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Uncalibrated_Rejected_With_Manual_Unlock');
+eRes := fb.Request(bAutomatic := TRUE, bManualUnlock := TRUE, bError := FALSE, bCalibrated := FALSE, bHoming := FALSE, bMoving := FALSE, fTarget := 36.0);
+AssertTrue(Condition := eRes = HalfBROT.E_FocusManualHome.ManualUnlock, Message := 'manual unlock');
+AssertFalse(Condition := fb.bRunning, Message := 'nothing started');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Uncalibrated_Rejected_While_Moving" Id="{a1241849-47bf-4806-a215-3a564b8fdb8c}">
+      <Declaration><![CDATA[// The checks before the acceptance still apply.
+METHOD PRIVATE Uncalibrated_Rejected_While_Moving
+VAR
+	fb	: HalfBROT.FB_FocusManualHome;
+	eRes	: HalfBROT.E_FocusManualHome;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Uncalibrated_Rejected_While_Moving');
+eRes := fb.Request(bAutomatic := TRUE, bManualUnlock := FALSE, bError := FALSE, bCalibrated := FALSE, bHoming := FALSE, bMoving := TRUE, fTarget := 36.0);
+AssertTrue(Condition := eRes = HalfBROT.E_FocusManualHome.Moving, Message := 'moving');
+AssertFalse(Condition := fb.bRunning, Message := 'nothing started');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="NotAutomatic_Before_Homing" Id="{fbbc905a-8a7b-4bae-81d0-797435a25854}">
+      <Declaration><![CDATA[// Priority: manual mode is reported before a running homing.
+METHOD PRIVATE NotAutomatic_Before_Homing
+VAR
+	fb	: HalfBROT.FB_FocusManualHome;
+	eRes	: HalfBROT.E_FocusManualHome;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('NotAutomatic_Before_Homing');
+eRes := fb.Request(bAutomatic := FALSE, bManualUnlock := FALSE, bError := FALSE, bCalibrated := FALSE, bHoming := TRUE, bMoving := FALSE, fTarget := 36.0);
+AssertTrue(Condition := eRes = HalfBROT.E_FocusManualHome.NotAutomatic, Message := 'manual mode first');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="No_Second_Request_While_Running_Uncalibrated" Id="{941d1345-f033-4b9b-a803-152d47a402cc}">
+      <Declaration><![CDATA[// A doubled Start is refused and the first request is kept.
+METHOD PRIVATE No_Second_Request_While_Running_Uncalibrated
+VAR
+	fb	: HalfBROT.FB_FocusManualHome;
+	eRes	: HalfBROT.E_FocusManualHome;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('No_Second_Request_While_Running_Uncalibrated');
+eRes := fb.Request(bAutomatic := TRUE, bManualUnlock := FALSE, bError := FALSE, bCalibrated := FALSE, bHoming := FALSE, bMoving := FALSE, fTarget := 36.0);
+eRes := fb.Request(bAutomatic := TRUE, bManualUnlock := FALSE, bError := FALSE, bCalibrated := FALSE, bHoming := FALSE, bMoving := FALSE, fTarget := 50.0);
+AssertTrue(Condition := eRes = HalfBROT.E_FocusManualHome.Homing, Message := 'second request');
+AssertFalse(Condition := fb.bRestoreTarget, Message := 'still no target');
+AssertEquals_LREAL(Expected := 0.0, Actual := fb.fRestoreTarget, Delta := 1.0E-9, Message := 'no junk target kept');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Calibrated_Request_Restores_Target" Id="{346d1933-320b-4f57-81fd-21fb0d003118}">
+      <Declaration><![CDATA[// A request on a calibrated focus keeps its target for the end.
+METHOD PRIVATE Calibrated_Request_Restores_Target
+VAR
+	fb	: HalfBROT.FB_FocusManualHome;
+	eRes	: HalfBROT.E_FocusManualHome;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Calibrated_Request_Restores_Target');
+eRes := fb.Request(bAutomatic := TRUE, bManualUnlock := FALSE, bError := FALSE, bCalibrated := TRUE, bHoming := FALSE, bMoving := FALSE, fTarget := 36.0);
+AssertTrue(Condition := fb.bRestoreTarget, Message := 'restore the target');
+AssertEquals_LREAL(Expected := 36.0, Actual := fb.fRestoreTarget, Delta := 1.0E-9, Message := 'target kept');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Uncalibrated_Done_No_Restore" Id="{6296907d-41bf-4dc3-9728-18dea77f3b27}">
+      <Declaration><![CDATA[// Pending, active, then calibrated and idle: done, nothing to restore.
+METHOD PRIVATE Uncalibrated_Done_No_Restore
+VAR
+	fb	: HalfBROT.FB_FocusManualHome;
+	eRes	: HalfBROT.E_FocusManualHome;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Uncalibrated_Done_No_Restore');
+eRes := fb.Request(bAutomatic := TRUE, bManualUnlock := FALSE, bError := FALSE, bCalibrated := FALSE, bHoming := FALSE, bMoving := FALSE, fTarget := 36.0);
+fb(bHomeActive := FALSE, bHomePending := TRUE, bCalibrated := FALSE, bAbortPulse := FALSE);
+fb(bHomeActive := TRUE, bHomePending := FALSE, bCalibrated := FALSE, bAbortPulse := FALSE);
+fb(bHomeActive := TRUE, bHomePending := FALSE, bCalibrated := TRUE, bAbortPulse := FALSE);
+fb(bHomeActive := FALSE, bHomePending := FALSE, bCalibrated := TRUE, bAbortPulse := FALSE);
+AssertTrue(Condition := fb.bDone, Message := 'done');
+AssertFalse(Condition := fb.bAborted, Message := 'not aborted');
+AssertFalse(Condition := fb.bBlockAutoHome, Message := 'no block');
+AssertFalse(Condition := fb.bRestoreTarget, Message := 'no restore');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Uncalibrated_Abort_Blocks_AutoHome" Id="{1fbb80e5-38c9-4f7c-a6e2-bb46173ad65b}">
+      <Declaration><![CDATA[// A stop during an uncalibrated homing: aborted, the automatic homing stays off.
+METHOD PRIVATE Uncalibrated_Abort_Blocks_AutoHome
+VAR
+	fb	: HalfBROT.FB_FocusManualHome;
+	eRes	: HalfBROT.E_FocusManualHome;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Uncalibrated_Abort_Blocks_AutoHome');
+eRes := fb.Request(bAutomatic := TRUE, bManualUnlock := FALSE, bError := FALSE, bCalibrated := FALSE, bHoming := FALSE, bMoving := FALSE, fTarget := 36.0);
+fb(bHomeActive := TRUE, bHomePending := FALSE, bCalibrated := FALSE, bAbortPulse := FALSE);
+fb(bHomeActive := TRUE, bHomePending := FALSE, bCalibrated := FALSE, bAbortPulse := TRUE);
+fb(bHomeActive := FALSE, bHomePending := FALSE, bCalibrated := FALSE, bAbortPulse := FALSE);
+AssertTrue(Condition := fb.bAborted, Message := 'aborted');
+AssertFalse(Condition := fb.bDone, Message := 'not done');
+AssertTrue(Condition := fb.bBlockAutoHome, Message := 'block');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Uncalibrated_Abort_Before_Start" Id="{b01c3621-de5c-4a89-89f5-b0495d65e4c1}">
+      <Declaration><![CDATA[// Stop() cancels a Home() that waits for the drive: never active, aborted, blocked.
+METHOD PRIVATE Uncalibrated_Abort_Before_Start
+VAR
+	fb	: HalfBROT.FB_FocusManualHome;
+	eRes	: HalfBROT.E_FocusManualHome;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Uncalibrated_Abort_Before_Start');
+eRes := fb.Request(bAutomatic := TRUE, bManualUnlock := FALSE, bError := FALSE, bCalibrated := FALSE, bHoming := FALSE, bMoving := FALSE, fTarget := 36.0);
+fb(bHomeActive := FALSE, bHomePending := TRUE, bCalibrated := FALSE, bAbortPulse := FALSE);
+fb(bHomeActive := FALSE, bHomePending := FALSE, bCalibrated := FALSE, bAbortPulse := FALSE);
+AssertTrue(Condition := fb.bAborted, Message := 'aborted');
+AssertFalse(Condition := fb.bDone, Message := 'not done: never active');
+AssertTrue(Condition := fb.bBlockAutoHome, Message := 'block');
 TEST_FINISHED();
 ]]></ST>
       </Implementation>
