@@ -192,8 +192,8 @@ CASE nStep OF
 	IF rig.fbTel.bError THEN
 		AssertTrue(Condition := rig.fbTel.nErrorID = 16#16, Message := 'the target above stMotion.fGotoMaxElevation is error 16#16');
 		F_Note(bFailed := NOT (rig.fbTel.nErrorID = 16#16), sText := CONCAT(sTest, 'the target above stMotion.fGotoMaxElevation is error 16#16'));
-		AssertFalse(Condition := rig.fbTel.bGoto, Message := 'the goto is dropped');
-		F_Note(bFailed := (rig.fbTel.bGoto), sText := CONCAT(sTest, 'the goto is dropped'));
+		AssertFalse(Condition := rig.fbTel.bGotoActive, Message := 'the goto is dropped');
+		F_Note(bFailed := (rig.fbTel.bGotoActive), sText := CONCAT(sTest, 'the goto is dropped'));
 		nStep := 99;
 		TEST_FINISHED();
 	ELSIF nCycles > 300 THEN

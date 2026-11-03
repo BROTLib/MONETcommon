@@ -83,8 +83,8 @@ CASE nStep OF
 	IF NOT rig.fbTel.bMoveAbortPending AND rig.fbTel.bStopped AND nCycles > 5 THEN
 		AssertTrue(Condition := rig.fbElev.nStopEdges = 1 AND rig.fbAzim.nStopEdges = 1 AND rig.fbDero.nStopEdges = 1, Message := 'each moving axis was stopped once');
 		F_Note(bFailed := NOT (rig.fbElev.nStopEdges = 1 AND rig.fbAzim.nStopEdges = 1 AND rig.fbDero.nStopEdges = 1), sText := CONCAT(sTest, 'each moving axis was stopped once'));
-		AssertFalse(Condition := rig.fbTel.bSlew, Message := 'the slew is dropped');
-		F_Note(bFailed := (rig.fbTel.bSlew), sText := CONCAT(sTest, 'the slew is dropped'));
+		AssertFalse(Condition := rig.fbTel.bSlewActive, Message := 'the slew is dropped');
+		F_Note(bFailed := (rig.fbTel.bSlewActive), sText := CONCAT(sTest, 'the slew is dropped'));
 		AssertFalse(Condition := rig.fbTel.bSuspendStop, Message := 'the suspend stop is over');
 		F_Note(bFailed := (rig.fbTel.bSuspendStop), sText := CONCAT(sTest, 'the suspend stop is over'));
 		AssertTrue(Condition := rig.fbTel.ReadyState <> 1.0, Message := 'never online in manual');
@@ -221,8 +221,8 @@ CASE nStep OF
 	IF NOT rig.fbTel.bMoveAbortPending AND rig.fbTel.bStopped AND nCycles > 5 THEN
 		AssertTrue(Condition := rig.fbElev.nStopEdges = 1 AND rig.fbAzim.nStopEdges = 1 AND rig.fbDero.nStopEdges = 1, Message := 'the park motion was stopped, once per axis');
 		F_Note(bFailed := NOT (rig.fbElev.nStopEdges = 1 AND rig.fbAzim.nStopEdges = 1 AND rig.fbDero.nStopEdges = 1), sText := CONCAT(sTest, 'the park motion was stopped, once per axis'));
-		AssertTrue(Condition := rig.fbTel.bPark, Message := 'bPark is kept');
-		F_Note(bFailed := NOT (rig.fbTel.bPark), sText := CONCAT(sTest, 'bPark is kept'));
+		AssertTrue(Condition := rig.fbTel.bParkActive, Message := 'bPark is kept');
+		F_Note(bFailed := NOT (rig.fbTel.bParkActive), sText := CONCAT(sTest, 'bPark is kept'));
 		AssertFalse(Condition := rig.fbTel.bIsParked, Message := 'the telescope is not parked');
 		F_Note(bFailed := (rig.fbTel.bIsParked), sText := CONCAT(sTest, 'the telescope is not parked'));
 		nStep := 99;
@@ -369,8 +369,8 @@ CASE nStep OF
 	IF nCycles >= 60 THEN
 		AssertTrue(Condition := rig.fbTel.bError, Message := 'the error is still there');
 		F_Note(bFailed := NOT (rig.fbTel.bError), sText := CONCAT(sTest, 'the error is still there'));
-		AssertFalse(Condition := rig.fbTel.bPark OR rig.fbTel.bIsParked, Message := 'no emergency park');
-		F_Note(bFailed := (rig.fbTel.bPark OR rig.fbTel.bIsParked), sText := CONCAT(sTest, 'no emergency park'));
+		AssertFalse(Condition := rig.fbTel.bParkActive OR rig.fbTel.bIsParked, Message := 'no emergency park');
+		F_Note(bFailed := (rig.fbTel.bParkActive OR rig.fbTel.bIsParked), sText := CONCAT(sTest, 'no emergency park'));
 		AssertTrue(Condition := rig.fbCovers.nCloseCalls = 0, Message := 'the covers were not closed');
 		F_Note(bFailed := NOT (rig.fbCovers.nCloseCalls = 0), sText := CONCAT(sTest, 'the covers were not closed'));
 		nStep := 99;
@@ -440,8 +440,8 @@ CASE nStep OF
 		AssertTrue(Condition := rig.fbTel.ReadyState = -2.0, Message := 'READY_STATE is -2.0 before the Init');
 		F_Note(bFailed := NOT (rig.fbTel.ReadyState = -2.0), sText := CONCAT(sTest, 'READY_STATE is -2.0 before the Init'));
 		rig.fbTel.Slew(fAzimuth := 180.0, fAltitude := 45.0);
-		AssertFalse(Condition := rig.fbTel.bSlew, Message := 'the slew method is rejected');
-		F_Note(bFailed := (rig.fbTel.bSlew), sText := CONCAT(sTest, 'the slew method is rejected'));
+		AssertFalse(Condition := rig.fbTel.bSlewActive, Message := 'the slew method is rejected');
+		F_Note(bFailed := (rig.fbTel.bSlewActive), sText := CONCAT(sTest, 'the slew method is rejected'));
 		AssertTrue(Condition := rig.fbTel.eLastRejectReason = MONETcommon.E_CommandRejectReason.init_required, Message := 'reason init_required');
 		F_Note(bFailed := NOT (rig.fbTel.eLastRejectReason = MONETcommon.E_CommandRejectReason.init_required), sText := CONCAT(sTest, 'reason init_required'));
 		nStep := 40;
@@ -449,8 +449,8 @@ CASE nStep OF
 	END_IF
 40:	// nothing moves
 	IF nCycles >= 30 THEN
-		AssertFalse(Condition := rig.fbTel.bGoto OR rig.fbTel.bSlew, Message := 'no move flag survives');
-		F_Note(bFailed := (rig.fbTel.bGoto OR rig.fbTel.bSlew), sText := CONCAT(sTest, 'no move flag survives'));
+		AssertFalse(Condition := rig.fbTel.bGotoActive OR rig.fbTel.bSlewActive, Message := 'no move flag survives');
+		F_Note(bFailed := (rig.fbTel.bGotoActive OR rig.fbTel.bSlewActive), sText := CONCAT(sTest, 'no move flag survives'));
 		AssertFalse(Condition := rig.fbElev.MoveAxis OR rig.fbAzim.MoveAxis OR rig.fbDero.MoveAxis, Message := 'no axis moves');
 		F_Note(bFailed := (rig.fbElev.MoveAxis OR rig.fbAzim.MoveAxis OR rig.fbDero.MoveAxis), sText := CONCAT(sTest, 'no axis moves'));
 		rig.fbTel.Init();
@@ -602,8 +602,8 @@ CASE nStep OF
 10:	// automatic: wait for the clock, a slew is rejected before the Init
 	IF rig.ClockValid AND nCycles >= 5 THEN
 		rig.fbTel.Slew(fAzimuth := 180.0, fAltitude := 45.0);
-		AssertFalse(Condition := rig.fbTel.bSlew, Message := 'the slew is rejected before the Init');
-		F_Note(bFailed := (rig.fbTel.bSlew), sText := CONCAT(sTest, 'the slew is rejected before the Init'));
+		AssertFalse(Condition := rig.fbTel.bSlewActive, Message := 'the slew is rejected before the Init');
+		F_Note(bFailed := (rig.fbTel.bSlewActive), sText := CONCAT(sTest, 'the slew is rejected before the Init'));
 		rig.fbTel.Init();
 		nStep := 20;
 		nCycles := 0;

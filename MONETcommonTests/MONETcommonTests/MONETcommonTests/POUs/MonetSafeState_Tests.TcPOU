@@ -24,7 +24,7 @@ Power_Failure_During_Goto_Ramps_Then_Parks_In_Place();
 Power_Failure_With_Pressure_Loss_Parks_In_Place_Without_Ramp();
 Goto_Times_Out_Ramps_Then_Drives_To_Park();
 Home_Times_Out_Ramps_Then_Drives_To_Park();
-Clock_Invalid_Slew_Takes_The_Stop_Path();
+Clock_Invalid_Slew_Input_Is_Rejected();
 Watchdog_Parks_And_Closes_The_Roof_In_One_Scan();
 Invalid_Motion_Config_Is_Software_Error_32();
 Roof_Request_On_Axis_Errors();
@@ -113,15 +113,15 @@ CASE nStep OF
 		TEST_FINISHED();
 	END_IF
 30:	// ramp, then the park in place
-	bSawStop := bSawStop OR rig.fbTel.bStop;
+	bSawStop := bSawStop OR rig.fbTel.bStopActive;
 	nEdgesNow := rig.fbElev.nStopEdges + rig.fbAzim.nStopEdges + rig.fbDero.nStopEdges;
 	IF nEdgesNow > nEdgesLast AND NOT (rig.fbElev.bEnable AND rig.fbAzim.bEnable AND rig.fbDero.bEnable) THEN
 		bStopOnDisabled := TRUE;
 	END_IF
 	nEdgesLast := nEdgesNow;
 	IF nCycles = 1 THEN	// the scan that saw the error
-		AssertTrue(Condition := rig.fbTel.bStop AND rig.fbTel.bError, Message := 'the error stops the axes in its scan (bStop) and is a telescope error');
-		F_Note(bFailed := NOT (rig.fbTel.bStop AND rig.fbTel.bError), sText := CONCAT(sTest, 'the error stops the axes in its scan (bStop) and is a telescope error'));
+		AssertTrue(Condition := rig.fbTel.bStopActive AND rig.fbTel.bError, Message := 'the error stops the axes in its scan (bStop) and is a telescope error');
+		F_Note(bFailed := NOT (rig.fbTel.bStopActive AND rig.fbTel.bError), sText := CONCAT(sTest, 'the error stops the axes in its scan (bStop) and is a telescope error'));
 		AssertTrue(Condition := rig.fbElev.bEnable AND rig.fbAzim.bEnable AND rig.fbDero.bEnable, Message := 'the axes stay enabled for the ramp');
 		F_Note(bFailed := NOT (rig.fbElev.bEnable AND rig.fbAzim.bEnable AND rig.fbDero.bEnable), sText := CONCAT(sTest, 'the axes stay enabled for the ramp'));
 	END_IF
@@ -134,8 +134,8 @@ CASE nStep OF
 		F_Note(bFailed := (bStopOnDisabled), sText := CONCAT(sTest, 'the stops came before the disable'));
 		AssertTrue(Condition := rig.fbElev.nExtErrors + rig.fbAzim.nExtErrors + rig.fbDero.nExtErrors = nExt0, Message := 'no stop met the setpoint generator (0x4257)');
 		F_Note(bFailed := NOT (rig.fbElev.nExtErrors + rig.fbAzim.nExtErrors + rig.fbDero.nExtErrors = nExt0), sText := CONCAT(sTest, 'no stop met the setpoint generator (0x4257)'));
-		AssertTrue(Condition := rig.fbTel.bParkedInPlace AND NOT rig.fbTel.bPark, Message := 'the park ended in place');
-		F_Note(bFailed := NOT (rig.fbTel.bParkedInPlace AND NOT rig.fbTel.bPark), sText := CONCAT(sTest, 'the park ended in place'));
+		AssertTrue(Condition := rig.fbTel.bParkedInPlace AND NOT rig.fbTel.bParkActive, Message := 'the park ended in place');
+		F_Note(bFailed := NOT (rig.fbTel.bParkedInPlace AND NOT rig.fbTel.bParkActive), sText := CONCAT(sTest, 'the park ended in place'));
 		AssertFalse(Condition := rig.fbElev.bEnable OR rig.fbAzim.bEnable OR rig.fbDero.bEnable, Message := 'all three axes are disabled');
 		F_Note(bFailed := (rig.fbElev.bEnable OR rig.fbAzim.bEnable OR rig.fbDero.bEnable), sText := CONCAT(sTest, 'all three axes are disabled'));
 		AssertFalse(Condition := rig.fbBrakeHyd.BrakeOpen, Message := 'the brake is closed');
@@ -144,8 +144,8 @@ CASE nStep OF
 		F_Note(bFailed := NOT (rig.fbCovers.bClosed AND rig.fbCovers.nCloseCalls >= 1), sText := CONCAT(sTest, 'the covers are closed'));
 		AssertTrue(Condition := rig.fbBrakeHyd.nDisableCalls > nDisable0, Message := 'the hydraulics are switched off');
 		F_Note(bFailed := NOT (rig.fbBrakeHyd.nDisableCalls > nDisable0), sText := CONCAT(sTest, 'the hydraulics are switched off'));
-		AssertFalse(Condition := rig.fbTel.bTrack OR rig.fbAzim.Tracking OR rig.fbElev.Tracking OR rig.fbDero.Tracking, Message := 'nothing tracks any more');
-		F_Note(bFailed := (rig.fbTel.bTrack OR rig.fbAzim.Tracking OR rig.fbElev.Tracking OR rig.fbDero.Tracking), sText := CONCAT(sTest, 'nothing tracks any more'));
+		AssertFalse(Condition := rig.fbTel.bTrackActive OR rig.fbAzim.Tracking OR rig.fbElev.Tracking OR rig.fbDero.Tracking, Message := 'nothing tracks any more');
+		F_Note(bFailed := (rig.fbTel.bTrackActive OR rig.fbAzim.Tracking OR rig.fbElev.Tracking OR rig.fbDero.Tracking), sText := CONCAT(sTest, 'nothing tracks any more'));
 		AssertTrue(Condition := rig.fbTel.bError AND rig.fbTel.ReadyState = -1.0, Message := 'the error stays, READY_STATE -1.0');
 		F_Note(bFailed := NOT (rig.fbTel.bError AND rig.fbTel.ReadyState = -1.0), sText := CONCAT(sTest, 'the error stays, READY_STATE -1.0'));
 		AssertTrue(Condition := rig.fbTel.bCloseRoofRequest, Message := 'the roof close is requested');
@@ -229,7 +229,7 @@ CASE nStep OF
 		TEST_FINISHED();
 	END_IF
 30:
-	bSawStop := bSawStop OR rig.fbTel.bStop;
+	bSawStop := bSawStop OR rig.fbTel.bStopActive;
 	IF nCycles = 1 THEN	// the scan that saw the error
 		AssertFalse(Condition := rig.fbElev.bEnable OR rig.fbAzim.bEnable OR rig.fbDero.bEnable, Message := 'the lock is the stop: disabled in the scan of the error');
 		F_Note(bFailed := (rig.fbElev.bEnable OR rig.fbAzim.bEnable OR rig.fbDero.bEnable), sText := CONCAT(sTest, 'the lock is the stop: disabled in the scan of the error'));
@@ -239,8 +239,8 @@ CASE nStep OF
 		F_Note(bFailed := (bSawStop), sText := CONCAT(sTest, 'no ramp (bStop never set)'));
 		AssertTrue(Condition := rig.fbElev.nStopEdges + rig.fbAzim.nStopEdges + rig.fbDero.nStopEdges = nEdges0, Message := 'no MC_Stop was sent');
 		F_Note(bFailed := NOT (rig.fbElev.nStopEdges + rig.fbAzim.nStopEdges + rig.fbDero.nStopEdges = nEdges0), sText := CONCAT(sTest, 'no MC_Stop was sent'));
-		AssertTrue(Condition := rig.fbTel.bParkedInPlace AND NOT rig.fbTel.bPark, Message := 'the park ended in place');
-		F_Note(bFailed := NOT (rig.fbTel.bParkedInPlace AND NOT rig.fbTel.bPark), sText := CONCAT(sTest, 'the park ended in place'));
+		AssertTrue(Condition := rig.fbTel.bParkedInPlace AND NOT rig.fbTel.bParkActive, Message := 'the park ended in place');
+		F_Note(bFailed := NOT (rig.fbTel.bParkedInPlace AND NOT rig.fbTel.bParkActive), sText := CONCAT(sTest, 'the park ended in place'));
 		AssertFalse(Condition := rig.fbBrakeHyd.BrakeOpen, Message := 'the brake is locked');
 		F_Note(bFailed := (rig.fbBrakeHyd.BrakeOpen), sText := CONCAT(sTest, 'the brake is locked'));
 		AssertTrue(Condition := rig.fbCovers.bClosed AND rig.fbCovers.nCloseCalls >= 1, Message := 'the covers are closed');
@@ -300,16 +300,16 @@ CASE nStep OF
 	END_IF
 5:	// parked: nothing happens; then power on
 	IF nCycles >= 10 THEN
-		AssertTrue(Condition := rig.fbTel.bIsParked AND NOT rig.fbTel.bPark AND NOT rig.fbTel.bError, Message := 'a cover error on a parked telescope starts no park and is no telescope error');
-		F_Note(bFailed := NOT (rig.fbTel.bIsParked AND NOT rig.fbTel.bPark AND NOT rig.fbTel.bError), sText := CONCAT(sTest, 'a cover error on a parked telescope starts no park and is no telescope error'));
+		AssertTrue(Condition := rig.fbTel.bIsParked AND NOT rig.fbTel.bParkActive AND NOT rig.fbTel.bError, Message := 'a cover error on a parked telescope starts no park and is no telescope error');
+		F_Note(bFailed := NOT (rig.fbTel.bIsParked AND NOT rig.fbTel.bParkActive AND NOT rig.fbTel.bError), sText := CONCAT(sTest, 'a cover error on a parked telescope starts no park and is no telescope error'));
 		rig.fbTel.Init();
 		nStep := 10;
 		nCycles := 0;
 	END_IF
 10:	// the power-on fails in its first scan
 	IF nCycles >= 10 THEN
-		AssertFalse(Condition := rig.fbTel.bPower OR rig.fbTel.fbStartup.Initializing, Message := 'the power-on is over');
-		F_Note(bFailed := (rig.fbTel.bPower OR rig.fbTel.fbStartup.Initializing), sText := CONCAT(sTest, 'the power-on is over'));
+		AssertFalse(Condition := rig.fbTel.bPowerActive OR rig.fbTel.fbStartup.Initializing, Message := 'the power-on is over');
+		F_Note(bFailed := (rig.fbTel.bPowerActive OR rig.fbTel.fbStartup.Initializing), sText := CONCAT(sTest, 'the power-on is over'));
 		AssertTrue(Condition := rig.fbTel.bPowerFailure AND rig.fbTel.ReadyState = -1.0, Message := 'power-on failure, READY_STATE -1.0');
 		F_Note(bFailed := NOT (rig.fbTel.bPowerFailure AND rig.fbTel.ReadyState = -1.0), sText := CONCAT(sTest, 'power-on failure, READY_STATE -1.0'));
 		AssertTrue(Condition := rig.fbCovers.nOpenCalls = 0 AND NOT rig.fbCovers.bOpened, Message := 'the covers were not commanded');
@@ -413,8 +413,8 @@ CASE nStep OF
 	IF rig.fbTel.bIsParked THEN
 		AssertFalse(Condition := bSawError, Message := 'no telescope error during the drive');
 		F_Note(bFailed := (bSawError), sText := CONCAT(sTest, 'no telescope error during the drive'));
-		AssertFalse(Condition := rig.fbTel.bPark OR rig.fbTel.bParkedInPlace, Message := 'the park is over, not in place');
-		F_Note(bFailed := (rig.fbTel.bPark OR rig.fbTel.bParkedInPlace), sText := CONCAT(sTest, 'the park is over, not in place'));
+		AssertFalse(Condition := rig.fbTel.bParkActive OR rig.fbTel.bParkedInPlace, Message := 'the park is over, not in place');
+		F_Note(bFailed := (rig.fbTel.bParkActive OR rig.fbTel.bParkedInPlace), sText := CONCAT(sTest, 'the park is over, not in place'));
 		AssertTrue(Condition := ABS(rig.fbElev.fActualPosition - 60.0) < 0.001 AND ABS(rig.fbAzim.fActualPosition - 175.0) < 0.001, Message := 'at the park position');
 		F_Note(bFailed := NOT (ABS(rig.fbElev.fActualPosition - 60.0) < 0.001 AND ABS(rig.fbAzim.fActualPosition - 175.0) < 0.001), sText := CONCAT(sTest, 'at the park position'));
 		AssertFalse(Condition := rig.fbElev.bEnable OR rig.fbAzim.bEnable OR rig.fbDero.bEnable, Message := 'all three axes are disabled');
@@ -508,18 +508,18 @@ CASE nStep OF
 	END_IF
 30:
 	IF nCycles = 1 THEN	// the scan that saw the error
-		AssertTrue(Condition := rig.fbTel.bPark AND NOT rig.fbTel.bTrack, Message := 'the park is requested in the scan of the error, the track is dropped');
-		F_Note(bFailed := NOT (rig.fbTel.bPark AND NOT rig.fbTel.bTrack), sText := CONCAT(sTest, 'the park is requested in the scan of the error, the track is dropped'));
+		AssertTrue(Condition := rig.fbTel.bParkActive AND NOT rig.fbTel.bTrackActive, Message := 'the park is requested in the scan of the error, the track is dropped');
+		F_Note(bFailed := NOT (rig.fbTel.bParkActive AND NOT rig.fbTel.bTrackActive), sText := CONCAT(sTest, 'the park is requested in the scan of the error, the track is dropped'));
 		AssertTrue(Condition := NOT rig.fbTel.bError AND rig.fbElev.bEnable AND rig.fbAzim.bEnable AND rig.fbDero.bEnable, Message := 'no telescope error, the axes stay enabled');
 		F_Note(bFailed := NOT (NOT rig.fbTel.bError AND rig.fbElev.bEnable AND rig.fbAzim.bEnable AND rig.fbDero.bEnable), sText := CONCAT(sTest, 'no telescope error, the axes stay enabled'));
 	END_IF
 	IF rig.fbTel.bIsParked AND nCycles > 5 THEN
-		AssertFalse(Condition := rig.fbTel.bPark OR rig.fbTel.bParkedInPlace, Message := 'the park is over, not in place');
-		F_Note(bFailed := (rig.fbTel.bPark OR rig.fbTel.bParkedInPlace), sText := CONCAT(sTest, 'the park is over, not in place'));
+		AssertFalse(Condition := rig.fbTel.bParkActive OR rig.fbTel.bParkedInPlace, Message := 'the park is over, not in place');
+		F_Note(bFailed := (rig.fbTel.bParkActive OR rig.fbTel.bParkedInPlace), sText := CONCAT(sTest, 'the park is over, not in place'));
 		AssertTrue(Condition := ABS(rig.fbElev.fActualPosition - 60.0) < 0.001 AND ABS(rig.fbAzim.fActualPosition - 175.0) < 0.001, Message := 'at the park position');
 		F_Note(bFailed := NOT (ABS(rig.fbElev.fActualPosition - 60.0) < 0.001 AND ABS(rig.fbAzim.fActualPosition - 175.0) < 0.001), sText := CONCAT(sTest, 'at the park position'));
-		AssertFalse(Condition := rig.fbTel.bTrack OR rig.fbAzim.Tracking OR rig.fbElev.Tracking OR rig.fbDero.Tracking, Message := 'nothing tracks any more');
-		F_Note(bFailed := (rig.fbTel.bTrack OR rig.fbAzim.Tracking OR rig.fbElev.Tracking OR rig.fbDero.Tracking), sText := CONCAT(sTest, 'nothing tracks any more'));
+		AssertFalse(Condition := rig.fbTel.bTrackActive OR rig.fbAzim.Tracking OR rig.fbElev.Tracking OR rig.fbDero.Tracking, Message := 'nothing tracks any more');
+		F_Note(bFailed := (rig.fbTel.bTrackActive OR rig.fbAzim.Tracking OR rig.fbElev.Tracking OR rig.fbDero.Tracking), sText := CONCAT(sTest, 'nothing tracks any more'));
 		AssertFalse(Condition := rig.fbElev.bEnable OR rig.fbAzim.bEnable OR rig.fbDero.bEnable OR rig.fbBrakeHyd.BrakeOpen, Message := 'axes disabled, brake closed');
 		F_Note(bFailed := (rig.fbElev.bEnable OR rig.fbAzim.bEnable OR rig.fbDero.bEnable OR rig.fbBrakeHyd.BrakeOpen), sText := CONCAT(sTest, 'axes disabled, brake closed'));
 		AssertTrue(Condition := rig.fbBrakeHyd.nDisableCalls > nDisable0, Message := 'the hydraulics are switched off');
@@ -614,7 +614,7 @@ CASE nStep OF
 		nCycles := 0;
 	END_IF
 40:	// the lock is the stop; the park is held while the E-stop is pressed
-	bSawStop := bSawStop OR rig.fbTel.bStop;
+	bSawStop := bSawStop OR rig.fbTel.bStopActive;
 	IF nCycles = 1 THEN	// the scan that saw the E-stop
 		AssertFalse(Condition := rig.fbElev.bEnable OR rig.fbAzim.bEnable OR rig.fbDero.bEnable, Message := 'the axes are disabled in the scan of the E-stop');
 		F_Note(bFailed := (rig.fbElev.bEnable OR rig.fbAzim.bEnable OR rig.fbDero.bEnable), sText := CONCAT(sTest, 'the axes are disabled in the scan of the E-stop'));
@@ -630,10 +630,10 @@ CASE nStep OF
 		F_Note(bFailed := (bSawStop), sText := CONCAT(sTest, 'no ramp (bStop never set)'));
 		AssertTrue(Condition := rig.fbElev.nStopEdges + rig.fbAzim.nStopEdges + rig.fbDero.nStopEdges = nEdges0, Message := 'no MC_Stop was sent');
 		F_Note(bFailed := NOT (rig.fbElev.nStopEdges + rig.fbAzim.nStopEdges + rig.fbDero.nStopEdges = nEdges0), sText := CONCAT(sTest, 'no MC_Stop was sent'));
-		AssertFalse(Condition := rig.fbTel.bSlew, Message := 'the slew has ended');
-		F_Note(bFailed := (rig.fbTel.bSlew), sText := CONCAT(sTest, 'the slew has ended'));
-		AssertFalse(Condition := rig.fbTel.bPark OR rig.fbTel.bIsParked, Message := 'no park during the E-stop');
-		F_Note(bFailed := (rig.fbTel.bPark OR rig.fbTel.bIsParked), sText := CONCAT(sTest, 'no park during the E-stop'));
+		AssertFalse(Condition := rig.fbTel.bSlewActive, Message := 'the slew has ended');
+		F_Note(bFailed := (rig.fbTel.bSlewActive), sText := CONCAT(sTest, 'the slew has ended'));
+		AssertFalse(Condition := rig.fbTel.bParkActive OR rig.fbTel.bIsParked, Message := 'no park during the E-stop');
+		F_Note(bFailed := (rig.fbTel.bParkActive OR rig.fbTel.bIsParked), sText := CONCAT(sTest, 'no park during the E-stop'));
 		AssertTrue(Condition := rig.fbCovers.nCloseCalls = 0, Message := 'the covers are not commanded during the E-stop');
 		F_Note(bFailed := NOT (rig.fbCovers.nCloseCalls = 0), sText := CONCAT(sTest, 'the covers are not commanded during the E-stop'));
 		AssertFalse(Condition := rig.fbTel.bError, Message := 'the E-stop is not bError');
@@ -646,20 +646,20 @@ CASE nStep OF
 		nCycles := 0;
 	END_IF
 50:	// a reset during the E-stop does not start the park
-	bSawStop := bSawStop OR rig.fbTel.bStop;
+	bSawStop := bSawStop OR rig.fbTel.bStopActive;
 	IF nCycles >= 10 THEN
-		AssertTrue(Condition := NOT (rig.fbTel.bPark OR rig.fbTel.bIsParked) AND rig.fbCovers.nCloseCalls = 0, Message := 'a reset during the E-stop does not start the park');
-		F_Note(bFailed := NOT (NOT (rig.fbTel.bPark OR rig.fbTel.bIsParked) AND rig.fbCovers.nCloseCalls = 0), sText := CONCAT(sTest, 'a reset during the E-stop does not start the park'));
+		AssertTrue(Condition := NOT (rig.fbTel.bParkActive OR rig.fbTel.bIsParked) AND rig.fbCovers.nCloseCalls = 0, Message := 'a reset during the E-stop does not start the park');
+		F_Note(bFailed := NOT (NOT (rig.fbTel.bParkActive OR rig.fbTel.bIsParked) AND rig.fbCovers.nCloseCalls = 0), sText := CONCAT(sTest, 'a reset during the E-stop does not start the park'));
 		nDisable1 := rig.fbBrakeHyd.nDisableCalls;
 		rig.SetEstop(FALSE);	// released, safety reset done
 		nStep := 60;
 		nCycles := 0;
 	END_IF
 60:	// after the release: the park in place
-	bSawStop := bSawStop OR rig.fbTel.bStop;
+	bSawStop := bSawStop OR rig.fbTel.bStopActive;
 	IF rig.fbTel.bIsParked AND nCycles > 5 THEN
-		AssertTrue(Condition := rig.fbTel.bParkedInPlace AND NOT rig.fbTel.bPark, Message := 'the park after the release ended in place');
-		F_Note(bFailed := NOT (rig.fbTel.bParkedInPlace AND NOT rig.fbTel.bPark), sText := CONCAT(sTest, 'the park after the release ended in place'));
+		AssertTrue(Condition := rig.fbTel.bParkedInPlace AND NOT rig.fbTel.bParkActive, Message := 'the park after the release ended in place');
+		F_Note(bFailed := NOT (rig.fbTel.bParkedInPlace AND NOT rig.fbTel.bParkActive), sText := CONCAT(sTest, 'the park after the release ended in place'));
 		AssertTrue(Condition := rig.fbCovers.bClosed AND rig.fbCovers.nCloseCalls >= 1, Message := 'the covers are closed after the release');
 		F_Note(bFailed := NOT (rig.fbCovers.bClosed AND rig.fbCovers.nCloseCalls >= 1), sText := CONCAT(sTest, 'the covers are closed after the release'));
 		AssertTrue(Condition := rig.fbBrakeHyd.nDisableCalls > nDisable1, Message := 'the park switches the hydraulics off');
@@ -771,7 +771,7 @@ CASE nStep OF
 		TEST_FINISHED();
 	END_IF
 30:	// the lock is the stop; the park is held while the safety error is there
-	bSawStop := bSawStop OR rig.fbTel.bStop;
+	bSawStop := bSawStop OR rig.fbTel.bStopActive;
 	IF nCycles = 1 THEN	// the scan that saw the safety error
 		AssertFalse(Condition := rig.fbElev.bEnable OR rig.fbAzim.bEnable OR rig.fbDero.bEnable, Message := 'the axes are disabled in the scan of the safety error');
 		F_Note(bFailed := (rig.fbElev.bEnable OR rig.fbAzim.bEnable OR rig.fbDero.bEnable), sText := CONCAT(sTest, 'the axes are disabled in the scan of the safety error'));
@@ -779,12 +779,12 @@ CASE nStep OF
 		F_Note(bFailed := NOT (rig.fbBrakeHyd.nDisableCalls > nDisable0), sText := CONCAT(sTest, 'the hydraulics go off in the scan of the safety error'));
 	END_IF
 	IF nCycles >= 30 THEN
-		AssertFalse(Condition := rig.fbTel.bTrack OR rig.fbAzim.Tracking OR rig.fbElev.Tracking OR rig.fbDero.Tracking, Message := 'tracking has ended');
-		F_Note(bFailed := (rig.fbTel.bTrack OR rig.fbAzim.Tracking OR rig.fbElev.Tracking OR rig.fbDero.Tracking), sText := CONCAT(sTest, 'tracking has ended'));
+		AssertFalse(Condition := rig.fbTel.bTrackActive OR rig.fbAzim.Tracking OR rig.fbElev.Tracking OR rig.fbDero.Tracking, Message := 'tracking has ended');
+		F_Note(bFailed := (rig.fbTel.bTrackActive OR rig.fbAzim.Tracking OR rig.fbElev.Tracking OR rig.fbDero.Tracking), sText := CONCAT(sTest, 'tracking has ended'));
 		AssertFalse(Condition := rig.fbElev.bEnable OR rig.fbAzim.bEnable OR rig.fbDero.bEnable, Message := 'the three axes stay disabled');
 		F_Note(bFailed := (rig.fbElev.bEnable OR rig.fbAzim.bEnable OR rig.fbDero.bEnable), sText := CONCAT(sTest, 'the three axes stay disabled'));
-		AssertFalse(Condition := rig.fbTel.bPark OR rig.fbTel.bIsParked, Message := 'no park while the safety error is there');
-		F_Note(bFailed := (rig.fbTel.bPark OR rig.fbTel.bIsParked), sText := CONCAT(sTest, 'no park while the safety error is there'));
+		AssertFalse(Condition := rig.fbTel.bParkActive OR rig.fbTel.bIsParked, Message := 'no park while the safety error is there');
+		F_Note(bFailed := (rig.fbTel.bParkActive OR rig.fbTel.bIsParked), sText := CONCAT(sTest, 'no park while the safety error is there'));
 		AssertTrue(Condition := rig.fbCovers.nCloseCalls = 0, Message := 'the covers are not commanded while the safety error is there');
 		F_Note(bFailed := NOT (rig.fbCovers.nCloseCalls = 0), sText := CONCAT(sTest, 'the covers are not commanded while the safety error is there'));
 		AssertFalse(Condition := rig.fbTel.bError, Message := 'the safety error is not bError');
@@ -797,10 +797,10 @@ CASE nStep OF
 		nCycles := 0;
 	END_IF
 40:	// the safety error is gone: the park in place
-	bSawStop := bSawStop OR rig.fbTel.bStop;
+	bSawStop := bSawStop OR rig.fbTel.bStopActive;
 	IF rig.fbTel.bIsParked AND nCycles > 5 THEN
-		AssertTrue(Condition := rig.fbTel.bParkedInPlace AND NOT rig.fbTel.bPark, Message := 'the park ended in place');
-		F_Note(bFailed := NOT (rig.fbTel.bParkedInPlace AND NOT rig.fbTel.bPark), sText := CONCAT(sTest, 'the park ended in place'));
+		AssertTrue(Condition := rig.fbTel.bParkedInPlace AND NOT rig.fbTel.bParkActive, Message := 'the park ended in place');
+		F_Note(bFailed := NOT (rig.fbTel.bParkedInPlace AND NOT rig.fbTel.bParkActive), sText := CONCAT(sTest, 'the park ended in place'));
 		AssertTrue(Condition := rig.fbCovers.bClosed AND rig.fbCovers.nCloseCalls >= 1, Message := 'the covers are closed');
 		F_Note(bFailed := NOT (rig.fbCovers.bClosed AND rig.fbCovers.nCloseCalls >= 1), sText := CONCAT(sTest, 'the covers are closed'));
 		AssertTrue(Condition := rig.fbBrakeHyd.nDisableCalls > nDisable1, Message := 'the park switches the hydraulics off');
@@ -904,15 +904,15 @@ CASE nStep OF
 		nCycles := 0;
 	END_IF
 40:	// ramp, then the park in place
-	bSawStop := bSawStop OR rig.fbTel.bStop;
+	bSawStop := bSawStop OR rig.fbTel.bStopActive;
 	nEdgesNow := rig.fbElev.nStopEdges + rig.fbAzim.nStopEdges + rig.fbDero.nStopEdges;
 	IF nEdgesNow > nEdgesLast AND NOT (rig.fbElev.bEnable AND rig.fbAzim.bEnable AND rig.fbDero.bEnable) THEN
 		bStopOnDisabled := TRUE;
 	END_IF
 	nEdgesLast := nEdgesNow;
 	IF nCycles = 1 THEN	// the scan that saw the failure
-		AssertTrue(Condition := rig.fbTel.bStop AND rig.fbTel.bError, Message := 'the failure stops the axes in its scan (bStop) and is a telescope error');
-		F_Note(bFailed := NOT (rig.fbTel.bStop AND rig.fbTel.bError), sText := CONCAT(sTest, 'the failure stops the axes in its scan (bStop) and is a telescope error'));
+		AssertTrue(Condition := rig.fbTel.bStopActive AND rig.fbTel.bError, Message := 'the failure stops the axes in its scan (bStop) and is a telescope error');
+		F_Note(bFailed := NOT (rig.fbTel.bStopActive AND rig.fbTel.bError), sText := CONCAT(sTest, 'the failure stops the axes in its scan (bStop) and is a telescope error'));
 		AssertTrue(Condition := rig.fbElev.bEnable AND rig.fbAzim.bEnable AND rig.fbDero.bEnable, Message := 'the axes stay enabled for the ramp');
 		F_Note(bFailed := NOT (rig.fbElev.bEnable AND rig.fbAzim.bEnable AND rig.fbDero.bEnable), sText := CONCAT(sTest, 'the axes stay enabled for the ramp'));
 	END_IF
@@ -925,8 +925,8 @@ CASE nStep OF
 		F_Note(bFailed := (bStopOnDisabled), sText := CONCAT(sTest, 'the stops came before the disable'));
 		AssertTrue(Condition := rig.fbElev.nExtErrors + rig.fbAzim.nExtErrors + rig.fbDero.nExtErrors = nExt0, Message := 'no stop met the setpoint generator (0x4257)');
 		F_Note(bFailed := NOT (rig.fbElev.nExtErrors + rig.fbAzim.nExtErrors + rig.fbDero.nExtErrors = nExt0), sText := CONCAT(sTest, 'no stop met the setpoint generator (0x4257)'));
-		AssertTrue(Condition := rig.fbTel.bParkedInPlace AND NOT rig.fbTel.bPark, Message := 'the park ended in place');
-		F_Note(bFailed := NOT (rig.fbTel.bParkedInPlace AND NOT rig.fbTel.bPark), sText := CONCAT(sTest, 'the park ended in place'));
+		AssertTrue(Condition := rig.fbTel.bParkedInPlace AND NOT rig.fbTel.bParkActive, Message := 'the park ended in place');
+		F_Note(bFailed := NOT (rig.fbTel.bParkedInPlace AND NOT rig.fbTel.bParkActive), sText := CONCAT(sTest, 'the park ended in place'));
 		AssertFalse(Condition := rig.fbElev.bEnable OR rig.fbAzim.bEnable OR rig.fbDero.bEnable, Message := 'all three axes are disabled');
 		F_Note(bFailed := (rig.fbElev.bEnable OR rig.fbAzim.bEnable OR rig.fbDero.bEnable), sText := CONCAT(sTest, 'all three axes are disabled'));
 		AssertFalse(Condition := rig.fbBrakeHyd.BrakeOpen, Message := 'the brake is closed');
@@ -935,8 +935,8 @@ CASE nStep OF
 		F_Note(bFailed := NOT (rig.fbCovers.bClosed AND rig.fbCovers.nCloseCalls >= 1), sText := CONCAT(sTest, 'the covers are closed'));
 		AssertTrue(Condition := rig.fbBrakeHyd.nDisableCalls > nDisable0, Message := 'the hydraulics are switched off');
 		F_Note(bFailed := NOT (rig.fbBrakeHyd.nDisableCalls > nDisable0), sText := CONCAT(sTest, 'the hydraulics are switched off'));
-		AssertFalse(Condition := rig.fbTel.bGoto OR rig.fbTel.bTrack, Message := 'the goto and the track are dropped');
-		F_Note(bFailed := (rig.fbTel.bGoto OR rig.fbTel.bTrack), sText := CONCAT(sTest, 'the goto and the track are dropped'));
+		AssertFalse(Condition := rig.fbTel.bGotoActive OR rig.fbTel.bTrackActive, Message := 'the goto and the track are dropped');
+		F_Note(bFailed := (rig.fbTel.bGotoActive OR rig.fbTel.bTrackActive), sText := CONCAT(sTest, 'the goto and the track are dropped'));
 		AssertTrue(Condition := rig.fbTel.bError AND rig.fbTel.ReadyState = -1.0, Message := 'the failure is a telescope error, READY_STATE -1.0');
 		F_Note(bFailed := NOT (rig.fbTel.bError AND rig.fbTel.ReadyState = -1.0), sText := CONCAT(sTest, 'the failure is a telescope error, READY_STATE -1.0'));
 		AssertTrue(Condition := rig.fbTel.bCloseRoofRequest, Message := 'the roof close is requested');
@@ -1032,7 +1032,7 @@ CASE nStep OF
 		TEST_FINISHED();
 	END_IF
 30:
-	bSawStop := bSawStop OR rig.fbTel.bStop;
+	bSawStop := bSawStop OR rig.fbTel.bStopActive;
 	IF nCycles = 1 THEN	// the scan that saw the failure
 		AssertFalse(Condition := rig.fbElev.bEnable OR rig.fbAzim.bEnable OR rig.fbDero.bEnable, Message := 'the lock is the stop: disabled in the scan of the failure');
 		F_Note(bFailed := (rig.fbElev.bEnable OR rig.fbAzim.bEnable OR rig.fbDero.bEnable), sText := CONCAT(sTest, 'the lock is the stop: disabled in the scan of the failure'));
@@ -1042,8 +1042,8 @@ CASE nStep OF
 		F_Note(bFailed := (bSawStop), sText := CONCAT(sTest, 'no ramp (bStop never set)'));
 		AssertTrue(Condition := rig.fbElev.nStopEdges + rig.fbAzim.nStopEdges + rig.fbDero.nStopEdges = nEdges0, Message := 'no MC_Stop was sent');
 		F_Note(bFailed := NOT (rig.fbElev.nStopEdges + rig.fbAzim.nStopEdges + rig.fbDero.nStopEdges = nEdges0), sText := CONCAT(sTest, 'no MC_Stop was sent'));
-		AssertTrue(Condition := rig.fbTel.bParkedInPlace AND NOT rig.fbTel.bPark, Message := 'the park ended in place');
-		F_Note(bFailed := NOT (rig.fbTel.bParkedInPlace AND NOT rig.fbTel.bPark), sText := CONCAT(sTest, 'the park ended in place'));
+		AssertTrue(Condition := rig.fbTel.bParkedInPlace AND NOT rig.fbTel.bParkActive, Message := 'the park ended in place');
+		F_Note(bFailed := NOT (rig.fbTel.bParkedInPlace AND NOT rig.fbTel.bParkActive), sText := CONCAT(sTest, 'the park ended in place'));
 		AssertTrue(Condition := rig.fbCovers.bClosed AND rig.fbBrakeHyd.nDisableCalls > nDisable0, Message := 'covers closed, hydraulics switched off');
 		F_Note(bFailed := NOT (rig.fbCovers.bClosed AND rig.fbBrakeHyd.nDisableCalls > nDisable0), sText := CONCAT(sTest, 'covers closed, hydraulics switched off'));
 		AssertTrue(Condition := rig.fbTel.bError AND rig.fbTel.ReadyState = -1.0 AND rig.fbTel.bCloseRoofRequest, Message := 'READY_STATE -1.0, roof close requested');
@@ -1126,8 +1126,8 @@ CASE nStep OF
 		rig.SetTimeDivisor(nValue := 1);
 		AssertTrue(Condition := rig.fbTel.nErrorID = 16#10, Message := 'the goto timeout is error 16#10');
 		F_Note(bFailed := NOT (rig.fbTel.nErrorID = 16#10), sText := CONCAT(sTest, 'the goto timeout is error 16#10'));
-		AssertFalse(Condition := rig.fbTel.bGoto, Message := 'the goto is dropped');
-		F_Note(bFailed := (rig.fbTel.bGoto), sText := CONCAT(sTest, 'the goto is dropped'));
+		AssertFalse(Condition := rig.fbTel.bGotoActive, Message := 'the goto is dropped');
+		F_Note(bFailed := (rig.fbTel.bGotoActive), sText := CONCAT(sTest, 'the goto is dropped'));
 		nEl0 := rig.fbElev.nStopEdges;
 		nAz0 := rig.fbAzim.nStopEdges;
 		nDr0 := rig.fbDero.nStopEdges;
@@ -1144,19 +1144,19 @@ CASE nStep OF
 		TEST_FINISHED();
 	END_IF
 30:	// the ramp, then the park to the park position
-	bSawStop := bSawStop OR rig.fbTel.bStop;
+	bSawStop := bSawStop OR rig.fbTel.bStopActive;
 	nEdgesNow := rig.fbElev.nStopEdges + rig.fbAzim.nStopEdges + rig.fbDero.nStopEdges;
 	IF nEdgesNow > nEdgesLast AND NOT (rig.fbElev.bEnable AND rig.fbAzim.bEnable AND rig.fbDero.bEnable) THEN
 		bStopOnDisabled := TRUE;
 	END_IF
 	nEdgesLast := nEdgesNow;
-	IF rig.fbTel.bPark AND NOT bParkMoveScans THEN	// the stop has settled (the goto move is aborted): the park move is a normal one
+	IF rig.fbTel.bParkActive AND NOT bParkMoveScans THEN	// the stop has settled (the goto move is aborted): the park move is a normal one
 		rig.SetMoveScans(nScans := 60);
 		bParkMoveScans := TRUE;
 	END_IF
 	IF nCycles = 1 THEN	// the scan after the one that raised the timeout
-		AssertTrue(Condition := rig.fbTel.bStop AND rig.fbTel.bError, Message := 'the timeout stops the axes in the next scan (bStop)');
-		F_Note(bFailed := NOT (rig.fbTel.bStop AND rig.fbTel.bError), sText := CONCAT(sTest, 'the timeout stops the axes in the next scan (bStop)'));
+		AssertTrue(Condition := rig.fbTel.bStopActive AND rig.fbTel.bError, Message := 'the timeout stops the axes in the next scan (bStop)');
+		F_Note(bFailed := NOT (rig.fbTel.bStopActive AND rig.fbTel.bError), sText := CONCAT(sTest, 'the timeout stops the axes in the next scan (bStop)'));
 		AssertTrue(Condition := rig.fbElev.bEnable AND rig.fbAzim.bEnable AND rig.fbDero.bEnable, Message := 'the axes stay enabled for the ramp');
 		F_Note(bFailed := NOT (rig.fbElev.bEnable AND rig.fbAzim.bEnable AND rig.fbDero.bEnable), sText := CONCAT(sTest, 'the axes stay enabled for the ramp'));
 	END_IF
@@ -1165,8 +1165,8 @@ CASE nStep OF
 		F_Note(bFailed := NOT (bSawStop AND rig.fbElev.nStopEdges > nEl0 AND rig.fbAzim.nStopEdges > nAz0 AND rig.fbDero.nStopEdges > nDr0), sText := CONCAT(sTest, 'the timeout ramped: every axis was sent its MC_Stop'));
 		AssertFalse(Condition := bStopOnDisabled, Message := 'the stops came before the disable');
 		F_Note(bFailed := (bStopOnDisabled), sText := CONCAT(sTest, 'the stops came before the disable'));
-		AssertTrue(Condition := NOT rig.fbTel.bParkedInPlace AND NOT rig.fbTel.bPark, Message := 'the park drove to the park position (not in place)');
-		F_Note(bFailed := NOT (NOT rig.fbTel.bParkedInPlace AND NOT rig.fbTel.bPark), sText := CONCAT(sTest, 'the park drove to the park position (not in place)'));
+		AssertTrue(Condition := NOT rig.fbTel.bParkedInPlace AND NOT rig.fbTel.bParkActive, Message := 'the park drove to the park position (not in place)');
+		F_Note(bFailed := NOT (NOT rig.fbTel.bParkedInPlace AND NOT rig.fbTel.bParkActive), sText := CONCAT(sTest, 'the park drove to the park position (not in place)'));
 		AssertTrue(Condition := ABS(rig.fbElev.fActualPosition - 60.0) < 0.001 AND ABS(rig.fbAzim.fActualPosition - 175.0) < 0.001, Message := 'the axes stand at the park position');
 		F_Note(bFailed := NOT (ABS(rig.fbElev.fActualPosition - 60.0) < 0.001 AND ABS(rig.fbAzim.fActualPosition - 175.0) < 0.001), sText := CONCAT(sTest, 'the axes stand at the park position'));
 		AssertFalse(Condition := rig.fbElev.bEnable OR rig.fbAzim.bEnable OR rig.fbDero.bEnable, Message := 'the three axes are disabled');
@@ -1253,8 +1253,8 @@ CASE nStep OF
 		rig.SetTimeDivisor(nValue := 1);
 		AssertTrue(Condition := rig.fbTel.nErrorID = 16#30, Message := 'the home timeout is error 16#30');
 		F_Note(bFailed := NOT (rig.fbTel.nErrorID = 16#30), sText := CONCAT(sTest, 'the home timeout is error 16#30'));
-		AssertFalse(Condition := rig.fbTel.bGoHome, Message := 'the home is dropped');
-		F_Note(bFailed := (rig.fbTel.bGoHome), sText := CONCAT(sTest, 'the home is dropped'));
+		AssertFalse(Condition := rig.fbTel.bGoHomeActive, Message := 'the home is dropped');
+		F_Note(bFailed := (rig.fbTel.bGoHomeActive), sText := CONCAT(sTest, 'the home is dropped'));
 		nEdges0 := rig.fbElev.nStopEdges + rig.fbAzim.nStopEdges + rig.fbDero.nStopEdges;
 		nDisable0 := rig.fbBrakeHyd.nDisableCalls;
 		nCoverClose0 := rig.fbCovers.nCloseCalls;
@@ -1268,14 +1268,14 @@ CASE nStep OF
 		TEST_FINISHED();
 	END_IF
 30:	// the ramp, then the park to the park position
-	bSawStop := bSawStop OR rig.fbTel.bStop;
-	IF rig.fbTel.bPark AND NOT bParkMoveScans THEN	// the stop has settled (the home move is aborted): the park move is a normal one
+	bSawStop := bSawStop OR rig.fbTel.bStopActive;
+	IF rig.fbTel.bParkActive AND NOT bParkMoveScans THEN	// the stop has settled (the home move is aborted): the park move is a normal one
 		rig.SetMoveScans(nScans := 60);
 		bParkMoveScans := TRUE;
 	END_IF
 	IF nCycles = 1 THEN	// the scan after the one that raised the timeout
-		AssertTrue(Condition := rig.fbTel.bStop AND rig.fbElev.bEnable AND rig.fbAzim.bEnable AND rig.fbDero.bEnable, Message := 'the timeout ramps (bStop) with the axes enabled');
-		F_Note(bFailed := NOT (rig.fbTel.bStop AND rig.fbElev.bEnable AND rig.fbAzim.bEnable AND rig.fbDero.bEnable), sText := CONCAT(sTest, 'the timeout ramps (bStop) with the axes enabled'));
+		AssertTrue(Condition := rig.fbTel.bStopActive AND rig.fbElev.bEnable AND rig.fbAzim.bEnable AND rig.fbDero.bEnable, Message := 'the timeout ramps (bStop) with the axes enabled');
+		F_Note(bFailed := NOT (rig.fbTel.bStopActive AND rig.fbElev.bEnable AND rig.fbAzim.bEnable AND rig.fbDero.bEnable), sText := CONCAT(sTest, 'the timeout ramps (bStop) with the axes enabled'));
 	END_IF
 	IF rig.fbTel.bIsParked AND nCycles > 5 THEN
 		AssertTrue(Condition := bSawStop AND rig.fbElev.nStopEdges + rig.fbAzim.nStopEdges + rig.fbDero.nStopEdges > nEdges0, Message := 'the timeout ramped (MC_Stop sent)');
@@ -1308,11 +1308,12 @@ END_CASE
       </Implementation>
     </Method>
     <Method Name="Clock_Invalid_Slew_Takes_The_Stop_Path" Id="{3ae55bea-8d37-4402-9d1c-a6193ab6ddcb}">
-      <Declaration><![CDATA[// M:236-238: a move flag while the clock is not valid sets bStop (the normal stop path), and the direct-write gate rejects the move
-// with clock_invalid (_CommandState M:2487, F_CommandAcceptance); nothing parks. This is only reachable before the first clock sync:
-// FB_AstroClockSync latches bValid, so "the clock becomes invalid during a track" cannot happen today. The flag is written directly
-// (an ADS write), since the methods reject the move before it is set.
-METHOD PRIVATE Clock_Invalid_Slew_Takes_The_Stop_Path
+      <Declaration><![CDATA[// #24 step 5: the rising edge of the slew input while the clock is not valid is rejected with clock_invalid by the input gate
+// (_CommandState, F_CommandAcceptance), like the Slew() method: no request is set, so the clock check of the body (a request while the
+// clock is not valid sets bStopActive, the normal stop path) has nothing to stop and nothing parks. Until 0.14.x the written flag was
+// seen by that check before the gate and also took the stop path (this test was Clock_Invalid_Slew_Takes_The_Stop_Path, same Id).
+// Only reachable before the first clock sync: FB_AstroClockSync latches bValid. The input is written directly (an ADS write).
+METHOD PRIVATE Clock_Invalid_Slew_Input_Is_Rejected
 VAR_INST
 	rig			: FB_MonetRig;
 	nStep		: INT;
@@ -1322,8 +1323,8 @@ VAR_INST
 END_VAR
 ]]></Declaration>
       <Implementation>
-        <ST><![CDATA[TEST('Clock_Invalid_Slew_Takes_The_Stop_Path');
-sTest := 'Clock_Invalid_Slew_Takes_The_Stop_Path: ';
+        <ST><![CDATA[TEST('Clock_Invalid_Slew_Input_Is_Rejected');
+sTest := 'Clock_Invalid_Slew_Input_Is_Rejected: ';
 IF nStep >= 90 THEN
 	RETURN;
 END_IF
@@ -1342,18 +1343,18 @@ CASE nStep OF
 		TEST_FINISHED();
 	END_IF
 10:
-	bSawStop := bSawStop OR rig.fbTel.bStop;
+	bSawStop := bSawStop OR rig.fbTel.bStopActive;
 	IF nCycles >= 10 THEN
 		AssertFalse(Condition := rig.ClockValid, Message := 'the clock is still not valid');
 		F_Note(bFailed := (rig.ClockValid), sText := CONCAT(sTest, 'the clock is still not valid'));
-		AssertTrue(Condition := bSawStop, Message := 'the slew flag took the stop path (bStop)');
-		F_Note(bFailed := NOT (bSawStop), sText := CONCAT(sTest, 'the slew flag took the stop path (bStop)'));
-		AssertFalse(Condition := rig.fbTel.bSlew, Message := 'the slew is dropped');
-		F_Note(bFailed := (rig.fbTel.bSlew), sText := CONCAT(sTest, 'the slew is dropped'));
+		AssertFalse(Condition := bSawStop, Message := 'the rejected slew input sets no request, so no stop');
+		F_Note(bFailed := (bSawStop), sText := CONCAT(sTest, 'the rejected slew input sets no request, so no stop'));
+		AssertFalse(Condition := rig.fbTel.bSlewActive, Message := 'the slew is dropped');
+		F_Note(bFailed := (rig.fbTel.bSlewActive), sText := CONCAT(sTest, 'the slew is dropped'));
 		AssertTrue(Condition := rig.fbTel.eLastRejectReason = MONETcommon.E_CommandRejectReason.clock_invalid, Message := 'the slew is rejected with clock_invalid');
 		F_Note(bFailed := NOT (rig.fbTel.eLastRejectReason = MONETcommon.E_CommandRejectReason.clock_invalid), sText := CONCAT(sTest, 'the slew is rejected with clock_invalid'));
-		AssertFalse(Condition := rig.fbTel.bPark OR rig.fbTel.bError, Message := 'no park, no error');
-		F_Note(bFailed := (rig.fbTel.bPark OR rig.fbTel.bError), sText := CONCAT(sTest, 'no park, no error'));
+		AssertFalse(Condition := rig.fbTel.bParkActive OR rig.fbTel.bError, Message := 'no park, no error');
+		F_Note(bFailed := (rig.fbTel.bParkActive OR rig.fbTel.bError), sText := CONCAT(sTest, 'no park, no error'));
 		nStep := 99;
 		TEST_FINISHED();
 	END_IF
@@ -1388,8 +1389,8 @@ nCycles := nCycles + 1;
 CASE nStep OF
 0:	// never connected: not armed, also after more than tGrace; then the broker connects
 	IF nCycles >= 30 THEN
-		AssertFalse(Condition := rig.fbWatchdog.bTriggered OR rig.fbTel.bPark OR fbRoof.nCloseCalls > 0, Message := 'not armed before the first connect');
-		F_Note(bFailed := (rig.fbWatchdog.bTriggered OR rig.fbTel.bPark OR fbRoof.nCloseCalls > 0), sText := CONCAT(sTest, 'not armed before the first connect'));
+		AssertFalse(Condition := rig.fbWatchdog.bTriggered OR rig.fbTel.bParkActive OR fbRoof.nCloseCalls > 0, Message := 'not armed before the first connect');
+		F_Note(bFailed := (rig.fbWatchdog.bTriggered OR rig.fbTel.bParkActive OR fbRoof.nCloseCalls > 0), sText := CONCAT(sTest, 'not armed before the first connect'));
 		bConnected := TRUE;
 		nStep := 10;
 		nCycles := 0;
@@ -1400,11 +1401,11 @@ CASE nStep OF
 	nCycles := 0;
 20:
 	IF rig.fbWatchdog.bTriggered THEN
-		AssertTrue(Condition := rig.fbTel.bPark AND fbRoof.nCloseCalls = 1, Message := 'park and roof close in the trigger scan');
-		F_Note(bFailed := NOT (rig.fbTel.bPark AND fbRoof.nCloseCalls = 1), sText := CONCAT(sTest, 'park and roof close in the trigger scan'));
+		AssertTrue(Condition := rig.fbTel.bParkActive AND fbRoof.nCloseCalls = 1, Message := 'park and roof close in the trigger scan');
+		F_Note(bFailed := NOT (rig.fbTel.bParkActive AND fbRoof.nCloseCalls = 1), sText := CONCAT(sTest, 'park and roof close in the trigger scan'));
 		nStep := 30;
 		nCycles := 0;
-	ELSIF rig.fbTel.bPark OR fbRoof.nCloseCalls > 0 THEN
+	ELSIF rig.fbTel.bParkActive OR fbRoof.nCloseCalls > 0 THEN
 		AssertTrue(Condition := FALSE, Message := 'park or roof close before the watchdog triggered');
 		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'park or roof close before the watchdog triggered'));
 		nStep := 99;
@@ -1669,8 +1670,8 @@ IF nCycles >= 3 THEN
 		AssertTrue(Condition := rig.fbTel.bCloseRoofRequest, Message := 'latched after the release');
 		F_Note(bFailed := NOT (rig.fbTel.bCloseRoofRequest), sText := CONCAT(sTest, 'latched after the release'));
 		// #24 step 7 PR 6: parked since the start, so the E-stop holds no park and nothing parks after the release
-		AssertTrue(Condition := rig.fbTel.bIsParked AND NOT rig.fbTel.bPark AND rig.fbCovers.nCloseCalls = 0, Message := 'parked: no park after the release');
-		F_Note(bFailed := NOT (rig.fbTel.bIsParked AND NOT rig.fbTel.bPark AND rig.fbCovers.nCloseCalls = 0), sText := CONCAT(sTest, 'parked: no park after the release'));
+		AssertTrue(Condition := rig.fbTel.bIsParked AND NOT rig.fbTel.bParkActive AND rig.fbCovers.nCloseCalls = 0, Message := 'parked: no park after the release');
+		F_Note(bFailed := NOT (rig.fbTel.bIsParked AND NOT rig.fbTel.bParkActive AND rig.fbCovers.nCloseCalls = 0), sText := CONCAT(sTest, 'parked: no park after the release'));
 		rig.fbTel.Reset();
 		nStep := 40;
 	40:
