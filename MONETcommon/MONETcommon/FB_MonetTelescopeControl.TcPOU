@@ -4,8 +4,10 @@
     <Declaration><![CDATA[FUNCTION_BLOCK FB_MonetTelescopeControl EXTENDS FB_AltAzTelescopeControl IMPLEMENTS I_AltAzTelescope
 VAR_INPUT
 	fbFocus				: I_Focus;
-	fbCovers			: I_MirrorCovers;
-	fbBrake				: I_Brake;	
+	// the concrete block, not I_MirrorCovers: an E-stop / safety error stops the covers (Stop(), which I_MirrorCovers does not carry,
+	// as for the pendant). MAIN passes its HalfBROT.FB_CoverControl instance as before (fbCovers := CoverControl).
+	fbCovers			: REFERENCE TO HalfBROT.FB_CoverControl;
+	fbBrake				: I_Brake;
 	fbHydraulics   		: I_Hydraulics;
 	fbElevation			: REFERENCE TO FB_ElevationControl;
 	fbAzimuth			: REFERENCE TO FB_AzimuthControl;
@@ -288,6 +290,9 @@ VAR
 	// (the hydraulic brake locks), every move ends (flags dropped, stage machines reset, no MC_Stop: the axes are disabled) and,
 	// if the telescope is not parked, a park in place is held (bSafetyParkPending) until both are gone; then it runs like the
 	// emergency park (bSafetyPark: past the ready gate, in place because the axes are disabled) and closes the covers.
+	// The covers are not on the E-stop circuit (they keep their supply, owner): "E-stop means stop", so on the edge and in every scan
+	// while bSafetyStop the covers get Stop() and no stage commands Open()/Close() (the power-on and the park wait in their stage); they
+	// close only after the release, by the held park.
 	bSafetyStop				: BOOL;	// bEstopTriggered OR bSafetyError in this scan
 	bSafetyStopLast			: BOOL;	// its value of the last automatic scan (edge memory)
 	bSafetyParkPending		: BOOL;	// the park in place of a safety stop, held until the E-stop and the safety error are gone
@@ -719,14 +724,17 @@ END_IF
 // #24 step 7 PR 6 (D8, rows E-stop / safety error): the E-stop or a safety error cuts the drives (STO), the brake lock is the
 // stop (no ramp, no MC_Stop; the axes are disabled at the end of the body). On the rising edge: hydraulics off at once (the
 // hydraulic brake locks, D4), every move ends (as the park branch interrupts them, #26 one-shot) and, unless the telescope is
-// parked, the park in place is held until the E-stop and the safety error are both gone: the covers may hang on the same
-// circuit, so they close after the release (target "covers as possible after release"). The #86 park on an axis error stays
+// parked, the park in place is held until the E-stop and the safety error are both gone: the covers close only after the release.
+// The covers are not on the E-stop circuit (owner): a cover run (power-on opening, park closing, pendant) would go on, so they get
+// Stop() here and in every scan while bSafetyStop (end of the body, after the stages), and no stage commands them meanwhile
+// (_PowerOn, _ParkTelescope check bSafetyStop). The #86 park on an axis error stays
 // exempt during the E-stop (F_ErrorParkRequest unchanged); this park comes after the release instead. Not for a safety error
 // alone in the Wake&Shake window: the window survives it so that the operator can go on (#155); an E-stop ends the window.
 // After the #86 block for the same reason (the stop branch cannot clear the park in the scan of the release).
 bSafetyStop := bEstopTriggered OR bSafetyError;
 IF bSafetyStop AND NOT bSafetyStopLast THEN
 	fbHydraulics.Enable := FALSE;
+	fbCovers.Stop();	// "E-stop means stop": a running open/close ends where it is (held at the end of the body)
 	bGoHomeActive := FALSE;
 	bGotoActive := FALSE;
 	bSlewActive := FALSE;
@@ -1032,6 +1040,9 @@ IF bSafetyStop THEN
 	fbElevation.Enable := FALSE;
 	fbAzimuth.Enable := FALSE;
 	fbDerotator.Enable := FALSE;
+	// the covers stay stopped (not on the E-stop circuit): held in every scan, after the stages, so that no command of this scan
+	// (a pendant press in the last scan included: MAIN calls the pendant after the cover block) moves them before the release
+	fbCovers.Stop();
 END_IF
 
 // send telemetry
@@ -1290,8 +1301,11 @@ CASE eParkStage OF
 			fbBrake.CloseBrake();
 			fbElevation.Enable := FALSE;
 			fbAzimuth.Enable := FALSE;
-			fbDerotator.Enable := FALSE;	
-			fbCovers.Close();	
+			fbDerotator.Enable := FALSE;
+			// #24 step 7 PR 6 follow-up: not during an E-stop / safety error, the covers stay stopped (stage secure closes them after the release)
+			IF NOT bSafetyStop THEN
+				fbCovers.Close();
+			END_IF
 			bParkedInPlace := TRUE;
 			bParkedInPlaceLogged := TRUE;
 			eParkStage := E_ParkStage.secure;
@@ -1354,7 +1368,11 @@ CASE eParkStage OF
 			eParkStage := E_ParkStage.disable_axes;
 		END_IF
 		IF NOT fbBrake.BrakeOpen THEN
-			fbCovers.Close();
+			// #24 step 7 PR 6 follow-up: during an E-stop / safety error the covers stay stopped and the park waits here (the hydraulics
+			// still go off); after the release this line closes them and the park ends as before
+			IF NOT bSafetyStop THEN
+				fbCovers.Close();
+			END_IF
 			fbHydraulics.Enable := FALSE;
 		END_IF
 		IF fbCovers.Closed THEN
@@ -1445,10 +1463,14 @@ CASE ePowerOnStage OF
 		// unconditional by design: does not consult bCoverAutoOpen (see CoverAutoOpen.Set)
 		// #113: from the cover command on, a park must close what the power-on opens (with bIsParked TRUE it would only
 		// clear bPark). A power-on that fails before this line (checks above) has opened nothing and stays parked.
-		bIsParked := FALSE;
-		bParkedInPlace := FALSE;
-		fbCovers.Open();
-		IF bMainReady AND fbCovers.Opened THEN
+		// #24 step 7 PR 6 follow-up: during an E-stop / safety error the covers stay stopped: no cover command, the stage waits (a
+		// power-on that had opened before keeps bIsParked FALSE, so the held park closes after the release and aborts it, #87).
+		IF NOT bSafetyStop THEN
+			bIsParked := FALSE;
+			bParkedInPlace := FALSE;
+			fbCovers.Open();
+		END_IF
+		IF bMainReady AND fbCovers.Opened AND NOT bSafetyStop THEN	// waits here during the safety stop (bIsParked cleared above first)
 			ePowerOnStage := E_PowerOnStage.home_axes;
 		END_IF
 		

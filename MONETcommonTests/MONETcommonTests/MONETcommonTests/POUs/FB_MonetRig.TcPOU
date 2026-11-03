@@ -13,7 +13,7 @@ VAR
 	fbAzim			: FB_AzimuthMock(comm := fbComm);
 	fbDero			: FB_DerotatorMock(comm := fbComm);
 	fbFocus			: FB_FocusMock(comm := fbComm);
-	fbCovers		: FB_CoversMock;
+	fbCovers		: FB_CoversMock(comm := fbComm);	// a HalfBROT.FB_CoverControl subclass, its FB_Init takes comm
 	fbBrakeHyd		: FB_BrakeHydraulicsMock;
 	fbPointing		: FB_PointingModelForward(AOFF := 0.0, BNP := 0.0, AN_A := 0.0, AE_A := 0.0, NPAE := 0.0, EOFF := 0.0, AN_E := 0.0, AE_E := 0.0, TF := 0.0);	// zero coefficients
 	fbPointingInv	: FB_PointingModelInversion(fbPointing := fbPointing);
@@ -120,6 +120,7 @@ ELSE
 		fElevationMoveVelocity := fElevationMoveVelocityIn,
 		nTimeDivisor := nTimeDivisor);
 END_IF
+fbCovers();	// after the telescope, as MAIN calls CoverControl(); only the travel model (SetCoverTravelScans) runs in it
 fbElev(fbCovers := fbCovers, fbBrake := fbBrakeHyd);
 fbAzim();
 fbDero();
@@ -183,6 +184,18 @@ END_VAR
 ]]></Declaration>
       <Implementation>
         <ST><![CDATA[bManual := bValue;
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="SetCoverTravelScans" Id="{44131a3b-7ab9-4087-a9e2-27fc7d8d14c2}">
+      <Declaration><![CDATA[// scans a full open or close of the mock covers takes (default 0: at once); > 0 lets a test press the E-stop during a cover run
+METHOD SetCoverTravelScans
+VAR_INPUT
+	nScans	: UINT;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[fbCovers.nMockTravelScans := nScans;
 ]]></ST>
       </Implementation>
     </Method>

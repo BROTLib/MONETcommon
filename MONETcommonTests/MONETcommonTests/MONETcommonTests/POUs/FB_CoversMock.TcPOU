@@ -1,19 +1,56 @@
 <?xml version="1.0" encoding="utf-8"?>
 <TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
   <POU Name="FB_CoversMock" Id="{f17dfb05-8c2f-48a0-9523-e0aa4e3eb81e}" SpecialFunc="None">
-    <Declaration><![CDATA[// Mock of the mirror covers (I_MirrorCovers): Open/Close take effect at once. After InjectError() the covers report an error
-// and do not move (HalfBROT FB_CoverControl inhibits every cover output while bError), until Reset(); Open/Close are still counted.
-FUNCTION_BLOCK FB_CoversMock IMPLEMENTS BROTLib.I_MirrorCovers
+    <Declaration><![CDATA[// Mock of the mirror covers. A subclass of HalfBROT.FB_CoverControl, since FB_MonetTelescopeControl takes the concrete block (it calls
+// Stop(), which I_MirrorCovers does not carry); the real body (limit switches, AT%I*/AT%Q*, timers) does not run (no SUPER^()), as for
+// the axis mocks. With nMockTravelScans = 0 (default) Open/Close take effect at once. With nMockTravelScans > 0 a run takes that many
+// calls of the body (FB_MonetRig.Scan calls it after the telescope, the MAIN order): Open()/Close() latch the direction as the real
+// block does and Stop() drops it, so the covers stay where they are (neither Opened nor Closed in between). After InjectError() the
+// covers report an error and do not move (HalfBROT FB_CoverControl inhibits every cover output while bError), until Reset();
+// Open/Close/Stop are still counted.
+FUNCTION_BLOCK FB_CoversMock EXTENDS HalfBROT.FB_CoverControl
+VAR_INPUT
+	nMockTravelScans	: UINT;	// scans a full open or close takes, 0 = at once (FB_MonetRig.SetCoverTravelScans)
+END_VAR
 VAR
 	bOpened		: BOOL;
 	bClosed		: BOOL := TRUE;
 	bFailed		: BOOL;
 	nOpenCalls	: UINT;
 	nCloseCalls	: UINT;
+	nStopCalls	: UINT;
+	bRunOpen	: BOOL;	// an open runs (nMockTravelScans > 0)
+	bRunClose	: BOOL;	// a close runs
+	nTravelPos	: UINT;	// 0 = closed .. nMockTravelScans = open
 END_VAR
 ]]></Declaration>
     <Implementation>
-      <ST><![CDATA[
+      <ST><![CDATA[// No SUPER^(): only the travel model below runs
+IF bFailed THEN
+	bRunOpen := FALSE;
+	bRunClose := FALSE;
+ELSIF bRunOpen THEN
+	IF nTravelPos < nMockTravelScans THEN
+		nTravelPos := nTravelPos + 1;
+	END_IF
+	IF nTravelPos >= nMockTravelScans THEN
+		bRunOpen := FALSE;
+	END_IF
+ELSIF bRunClose THEN
+	IF nTravelPos > 0 THEN
+		nTravelPos := nTravelPos - 1;
+	END_IF
+	IF nTravelPos = 0 THEN
+		bRunClose := FALSE;
+	END_IF
+END_IF
+IF nMockTravelScans > 0 THEN
+	bOpened := nTravelPos >= nMockTravelScans;
+	bClosed := nTravelPos = 0;
+END_IF
+bAllOpen := bOpened;
+bAllClosed := bClosed;
+bError := bFailed;
 ]]></ST>
     </Implementation>
     <Method Name="Open" Id="{878b5598-7bb7-4d16-819f-f7ff964312ca}">
@@ -21,8 +58,13 @@ END_VAR
 ]]></Declaration>
       <Implementation>
         <ST><![CDATA[IF NOT bFailed THEN
-	bOpened := TRUE;
-	bClosed := FALSE;
+	IF nMockTravelScans = 0 THEN
+		bOpened := TRUE;
+		bClosed := FALSE;
+	ELSE
+		bRunOpen := TRUE;
+		bRunClose := FALSE;
+	END_IF
 END_IF
 nOpenCalls := nOpenCalls + 1;
 Open := NOT bFailed;
@@ -34,11 +76,29 @@ Open := NOT bFailed;
 ]]></Declaration>
       <Implementation>
         <ST><![CDATA[IF NOT bFailed THEN
-	bOpened := FALSE;
-	bClosed := TRUE;
+	IF nMockTravelScans = 0 THEN
+		bOpened := FALSE;
+		bClosed := TRUE;
+		nTravelPos := 0;
+	ELSE
+		bRunClose := TRUE;
+		bRunOpen := FALSE;
+	END_IF
 END_IF
 nCloseCalls := nCloseCalls + 1;
 Close := NOT bFailed;
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Stop" Id="{c4becc20-75cd-4a2b-9be2-342968dc4e3a}">
+      <Declaration><![CDATA[// drops a running open or close: the covers stay where they are (HalfBROT FB_CoverControl.Stop)
+METHOD Stop : BOOL
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[bRunOpen := FALSE;
+bRunClose := FALSE;
+nStopCalls := nStopCalls + 1;
+Stop := TRUE;
 ]]></ST>
       </Implementation>
     </Method>

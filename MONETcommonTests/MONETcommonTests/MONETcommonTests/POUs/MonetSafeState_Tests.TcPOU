@@ -620,6 +620,8 @@ CASE nStep OF
 		F_Note(bFailed := (rig.fbElev.bEnable OR rig.fbAzim.bEnable OR rig.fbDero.bEnable), sText := CONCAT(sTest, 'the axes are disabled in the scan of the E-stop'));
 		AssertTrue(Condition := rig.fbBrakeHyd.nDisableCalls > nDisable0, Message := 'the hydraulics go off in the scan of the E-stop');
 		F_Note(bFailed := NOT (rig.fbBrakeHyd.nDisableCalls > nDisable0), sText := CONCAT(sTest, 'the hydraulics go off in the scan of the E-stop'));
+		AssertTrue(Condition := rig.fbCovers.nStopCalls >= 1, Message := 'the covers get Stop() in the scan of the E-stop (not on the E-stop circuit)');
+		F_Note(bFailed := NOT (rig.fbCovers.nStopCalls >= 1), sText := CONCAT(sTest, 'the covers get Stop() in the scan of the E-stop (not on the E-stop circuit)'));
 	END_IF
 	IF nCycles >= 60 THEN
 		AssertFalse(Condition := rig.fbElev.bEnable OR rig.fbAzim.bEnable OR rig.fbDero.bEnable, Message := 'the three axes are disabled');
@@ -777,6 +779,8 @@ CASE nStep OF
 		F_Note(bFailed := (rig.fbElev.bEnable OR rig.fbAzim.bEnable OR rig.fbDero.bEnable), sText := CONCAT(sTest, 'the axes are disabled in the scan of the safety error'));
 		AssertTrue(Condition := rig.fbBrakeHyd.nDisableCalls > nDisable0, Message := 'the hydraulics go off in the scan of the safety error');
 		F_Note(bFailed := NOT (rig.fbBrakeHyd.nDisableCalls > nDisable0), sText := CONCAT(sTest, 'the hydraulics go off in the scan of the safety error'));
+		AssertTrue(Condition := rig.fbCovers.nStopCalls >= 1, Message := 'the covers get Stop() in the scan of the safety error (not on the E-stop circuit)');
+		F_Note(bFailed := NOT (rig.fbCovers.nStopCalls >= 1), sText := CONCAT(sTest, 'the covers get Stop() in the scan of the safety error (not on the E-stop circuit)'));
 	END_IF
 	IF nCycles >= 30 THEN
 		AssertFalse(Condition := rig.fbTel.bTrackActive OR rig.fbAzim.Tracking OR rig.fbElev.Tracking OR rig.fbDero.Tracking, Message := 'tracking has ended');
