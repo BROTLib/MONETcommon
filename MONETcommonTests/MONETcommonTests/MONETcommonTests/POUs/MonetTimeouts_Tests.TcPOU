@@ -65,8 +65,8 @@ CASE nStep OF
 	IF rig.fbTel.bError THEN
 		AssertTrue(Condition := rig.fbTel.nErrorID = 16#40, Message := 'the slew timeout is error 16#40');
 		F_Note(bFailed := NOT (rig.fbTel.nErrorID = 16#40), sText := CONCAT(sTest, 'the slew timeout is error 16#40'));
-		AssertTrue(Condition := NOT rig.fbTel.bSlew, Message := 'the slew is dropped');
-		F_Note(bFailed := NOT (NOT rig.fbTel.bSlew), sText := CONCAT(sTest, 'the slew is dropped'));
+		AssertTrue(Condition := NOT rig.fbTel.bSlewActive, Message := 'the slew is dropped');
+		F_Note(bFailed := NOT (NOT rig.fbTel.bSlewActive), sText := CONCAT(sTest, 'the slew is dropped'));
 		rig.SetTimeDivisor(nValue := 1);
 		nStep := 99;
 		TEST_FINISHED();
@@ -126,10 +126,10 @@ CASE nStep OF
 		TEST_FINISHED();
 	END_IF
 20:
-	IF rig.fbTel.bPark OR rig.fbTel.bIsParked THEN
+	IF rig.fbTel.bParkActive OR rig.fbTel.bIsParked THEN
 		rig.SetTimeDivisor(nValue := 1);
-		AssertTrue(Condition := rig.fbTel.bPark OR rig.fbTel.bIsParked, Message := 'the idle telescope parked itself');
-		F_Note(bFailed := NOT (rig.fbTel.bPark OR rig.fbTel.bIsParked), sText := CONCAT(sTest, 'the idle telescope parked itself'));
+		AssertTrue(Condition := rig.fbTel.bParkActive OR rig.fbTel.bIsParked, Message := 'the idle telescope parked itself');
+		F_Note(bFailed := NOT (rig.fbTel.bParkActive OR rig.fbTel.bIsParked), sText := CONCAT(sTest, 'the idle telescope parked itself'));
 		nStep := 99;
 		TEST_FINISHED();
 	ELSIF nCycles > 3000 THEN
@@ -355,8 +355,8 @@ CASE nStep OF
 20:	// the slew times out (the scan that raised 16#40)
 	IF rig.fbTel.bError THEN
 		rig.SetTimeDivisor(nValue := 1);
-		AssertTrue(Condition := rig.fbTel.nErrorID = 16#40 AND NOT rig.fbTel.bSlew, Message := 'the slew timeout is error 16#40, the slew is dropped');
-		F_Note(bFailed := NOT (rig.fbTel.nErrorID = 16#40 AND NOT rig.fbTel.bSlew), sText := CONCAT(sTest, 'the slew timeout is error 16#40, the slew is dropped'));
+		AssertTrue(Condition := rig.fbTel.nErrorID = 16#40 AND NOT rig.fbTel.bSlewActive, Message := 'the slew timeout is error 16#40, the slew is dropped');
+		F_Note(bFailed := NOT (rig.fbTel.nErrorID = 16#40 AND NOT rig.fbTel.bSlewActive), sText := CONCAT(sTest, 'the slew timeout is error 16#40, the slew is dropped'));
 		nEdges0 := rig.fbElev.nStopEdges + rig.fbAzim.nStopEdges + rig.fbDero.nStopEdges;
 		nDisable0 := rig.fbBrakeHyd.nDisableCalls;
 		nStep := 30;
@@ -369,14 +369,14 @@ CASE nStep OF
 		TEST_FINISHED();
 	END_IF
 30:	// the ramp, then the park to the park position
-	bSawStop := bSawStop OR rig.fbTel.bStop;
-	IF rig.fbTel.bPark AND NOT bParkMoveScans THEN	// the stop has settled (the slew move is aborted): the park move is a normal one
+	bSawStop := bSawStop OR rig.fbTel.bStopActive;
+	IF rig.fbTel.bParkActive AND NOT bParkMoveScans THEN	// the stop has settled (the slew move is aborted): the park move is a normal one
 		rig.SetMoveScans(nScans := 60);
 		bParkMoveScans := TRUE;
 	END_IF
 	IF nCycles = 1 THEN	// the scan after the one that raised the timeout
-		AssertTrue(Condition := rig.fbTel.bStop AND rig.fbElev.bEnable AND rig.fbAzim.bEnable AND rig.fbDero.bEnable, Message := 'the timeout ramps (bStop) with the axes enabled');
-		F_Note(bFailed := NOT (rig.fbTel.bStop AND rig.fbElev.bEnable AND rig.fbAzim.bEnable AND rig.fbDero.bEnable), sText := CONCAT(sTest, 'the timeout ramps (bStop) with the axes enabled'));
+		AssertTrue(Condition := rig.fbTel.bStopActive AND rig.fbElev.bEnable AND rig.fbAzim.bEnable AND rig.fbDero.bEnable, Message := 'the timeout ramps (bStop) with the axes enabled');
+		F_Note(bFailed := NOT (rig.fbTel.bStopActive AND rig.fbElev.bEnable AND rig.fbAzim.bEnable AND rig.fbDero.bEnable), sText := CONCAT(sTest, 'the timeout ramps (bStop) with the axes enabled'));
 	END_IF
 	IF rig.fbTel.bIsParked AND nCycles > 5 THEN
 		AssertTrue(Condition := bSawStop AND rig.fbElev.nStopEdges + rig.fbAzim.nStopEdges + rig.fbDero.nStopEdges > nEdges0, Message := 'the timeout ramped (MC_Stop sent)');
@@ -402,8 +402,8 @@ CASE nStep OF
 	END_IF
 40:	// reset=1 clears the software error
 	IF nCycles >= 10 THEN
-		AssertTrue(Condition := NOT rig.fbTel.bError AND rig.fbTel.nErrorID = 0 AND NOT rig.fbTel.bReset, Message := 'reset=1 clears 16#40 and is not held');
-		F_Note(bFailed := NOT (NOT rig.fbTel.bError AND rig.fbTel.nErrorID = 0 AND NOT rig.fbTel.bReset), sText := CONCAT(sTest, 'reset=1 clears 16#40 and is not held'));
+		AssertTrue(Condition := NOT rig.fbTel.bError AND rig.fbTel.nErrorID = 0 AND NOT rig.fbTel.bResetActive, Message := 'reset=1 clears 16#40 and is not held');
+		F_Note(bFailed := NOT (NOT rig.fbTel.bError AND rig.fbTel.nErrorID = 0 AND NOT rig.fbTel.bResetActive), sText := CONCAT(sTest, 'reset=1 clears 16#40 and is not held'));
 		AssertTrue(Condition := rig.fbTel.bIsParked AND NOT rig.fbTel.bCloseRoofRequest, Message := 'still parked, no roof close request');
 		F_Note(bFailed := NOT (rig.fbTel.bIsParked AND NOT rig.fbTel.bCloseRoofRequest), sText := CONCAT(sTest, 'still parked, no roof close request'));
 		rig.fbTel.Init();

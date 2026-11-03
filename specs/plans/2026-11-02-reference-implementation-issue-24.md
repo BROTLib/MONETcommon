@@ -14,7 +14,8 @@ written 2026-11-02 on `feat/hydraulics-error-reaction` (status at step 7); not c
 timeouts ramp, then park) written 2026-11-02 on `feat/timeout-error-reaction` (status at step 7); not compiled or run yet. Step 7 PR 7 (power failure
 reaction) written 2026-11-02 on `feat/power-failure-reaction` (status at step 7); not compiled or run yet. Step 7 PR 8 (focus error
 reaction) written 2026-11-02 on `feat/focus-error-reaction` (status at step 7); not compiled or run yet. Step 7 PR 6 (E-stop / safety
-error reaction) written 2026-11-02 on `feat/estop-safety-reaction` (status at step 7); not compiled or run yet.
+error reaction) written 2026-11-02 on `feat/estop-safety-reaction` (status at step 7); not compiled or run yet. Step 5
+(read-only command inputs) written 2026-11-03 on `feat/read-only-command-inputs` (status at the step); not compiled or run yet.
 Repo: BROTLib/MONETcommon (steps 2a/2b also BROTLib and IAG50cm). Base: read at `develop` @ `adc1013` (0.11.1, pins
 BROTLib 0.15.1, HalfBROT 0.10.1); line numbers are from that commit. `origin/develop` has since moved to `c34470f`
 (0.11.2, pins BROTLib 0.16.0 / HalfBROT 0.10.2; pendant release-on-exit #3, null-reference fix #156); none of that
@@ -325,6 +326,47 @@ cases go into existing suites where they fit; step 6 frees slots by moving dupli
 - Release: MONETcommon minor (breaking pre-1.0), BROTLib comment update, MONETS/MONETN re-pin, client release if
   4c requires one. Full on-site check (the SM plan's step 6 list, MONETcommon#63/#64) on MONET/S, then MONET/N, with
   pyobs-brot and brotgui driving it.
+- **Status (2026-11-03): written on `feat/read-only-command-inputs` (from `develop` @ `265bc94`, 0.14.1, pins BROTLib 0.17.0 /
+  HalfBROT 0.11.0), not compiled, not run (CI on push). Version not bumped.** Three commits: code, the mechanical edit of the rig
+  suites (reviewable alone), the new cases; docs separately. Decided by 4c / D3: edge-triggered inputs plus methods.
+  - Latches: the read-only outputs `bPowerActive`, `bGoHomeActive`, `bParkActive`, `bTrackActive`, `bGotoActive`, `bSlewActive`,
+    `bStopActive`, `bResetActive` (no `stReq` struct: one variable per request is both the latch and the status output, so no copy
+    at the end of the scan can lag behind a method call; no new DUT). Every place that read or cleared an input now reads or
+    clears its latch, statement for statement (a scripted rename of the code outside comments and strings, checked by diff): stage
+    machines and `F_StageAbort` calls, stop branch and stop transaction release (`bParkAfterStop` -> `bParkActive`), `_HandleReset`
+    and the reset hold, the #118 `bPark` kept in manual (`SuspendAutomatic`), the horizon guard, the idle park, the error reactions
+    of step 7 (hydraulics/power ramps and the timeout/focus/safety parks set `bStopActive` or call `Park()`), `_CommandState`,
+    the events, `F_TargetBelowHorizonWarning`/`F_AxisTurn` (`bHold`), `F_WakeShakeWindow`, READY_STATE `Parking`. The deprecated
+    `stMotion` aliases are untouched.
+  - Edges: `b*Checked` (the #83 gate) is the edge memory: the input of the last scan (snapshot at the end of the body), set TRUE by
+    the method of that command (before its accept decision, so a rejected call is not decided twice either). The rising edge of
+    `bStop`/`bPark`/`bReset`/`bPower` calls `Stop()`/`Park()`/`Reset()`/`Init()` at the start of the body (where a direct write
+    acted before; order stop, park, reset, power, so `Init()` refuses a power-on together with a stop or park, #87); the move
+    inputs are decided at the old gate with `_AcceptMove(cmd, no_command)` like the methods and set the latch when accepted.
+    `Track()`/`TrackRaDec()` mark `bGoto` and `bTrack` as decided. "Same scan" = from one body call to the next; a method called
+    after the body and an edge in the next scan are one command, a method after the body and an edge already seen by that body are
+    two.
+  - Behaviour changes (all for direct writers of the inputs; methods/MQTT unchanged): (1) the input is never cleared, a new
+    command needs FALSE then TRUE; (2) the input falling does nothing (`bTrack` FALSE used to end a track by the arbitration, a
+    dropped `bGoto` aborted the goto stage machine); (3) a written `bPark` during a stop is queued like `Park()` (was dropped by
+    the stop branch), a written `bPower` passes `Init()`'s refusals (was only `BeginScan`), a written move while the clock is
+    invalid is rejected without a stop (was: stop path; `Clock_Invalid_Slew_Takes_The_Stop_Path` -> `Clock_Invalid_Slew_Input_Is_
+    Rejected`, same Id); (4) an edge while the same command runs re-commands (replace) like the method; (5) BROTLib's
+    `_PublishTelemetry` still selects `OBJECT.EQUATORIAL.RA/DEC` (and `OBJECT.HORIZONTAL.*`, which `fbTelemetry` overwrites
+    anyway) by the input `bSlew`; `_SendTelemetry` republishes the two RA/Dec fields from `bSlewActive` where they differ, so the
+    wire keeps the 0.14 values (during a slew `fRightAscensionCalc`, which MONET never computes: 0.0, unchanged oddity).
+  - Tests (41 of 41 suites, no new suite): the rig suites read `rig.fbTel.b*Active` instead of the inputs (one commit, ~210 reads,
+    no assertion changed except the clock case above); `FB_MonetRig_Tests` (10 tests) gets `Held_Slew_Input_Starts_The_Slew_Once`,
+    `Slew_Input_Falling_Does_Not_Abort_The_Slew`, `Slew_Method_And_Input_Edge_In_One_Scan_Count_Once`,
+    `Repeated_Track_Retargets_And_Second_Stop_Works`; rig methods `SetSlewInput`, `SetSlewTargetInput`.
+  - Not done here: the BROTLib doc comments of the eight inputs in `FB_BaseTelescopeControl` ("edge-triggered", separate BROTLib
+    PR), BROTLib `_PublishTelemetry` reading a status instead of `bSlew`; the MONETS/MONETN `Telescope.TcVIS` `TOGGLE` switches
+    (TAP or method helpers, 4c item 1) and BROTweb (4c item 2) must change in the same release; HalfBROT `FB_PendantControl`
+    level writes (SM 5.4). Comments in M written before step 5 still name the requests by the inputs (noted at the declaration).
+  - Unverified until CI: the build (outputs written in methods, `Init()`/`Stop()`/`Reset()` called from the body, the read of
+    `nCommandRejectCount`/`fActualPosition` in the new tests), the test timing (second stop at scan 2 of the first). To run (Tim):
+    `tcbuild.yml` on push, or the library install + `tctool MONETcommonTests.sln build run`; on site: the full check above with the
+    Visu changed, plus an ADS write of each input held TRUE (one command) and released (nothing happens).
 
 ### Step 6 - Coupling (aim 5, small breaking cleanup; D6)
 - Pendant: drop the unused `fbBrake`/`fbHydraulics` inputs (one-line removal in both `MAIN`s); covers via
@@ -337,6 +379,32 @@ cases go into existing suites where they fit; step 6 frees slots by moving dupli
   call the BROTLib ones, deleting the duplicated test suites (frees suite slots). Diff the copies first; neutral only
   if identical.
 - Tests: rig suites green. Release: minor (pendant signature), MONETS/MONETN `MAIN` edit + re-pin.
+- **Status (2026-11-03): written on `refactor/coupling-cleanup` (from `develop` @ `c086ac6`), not compiled, not run (CI on push).
+  Version not bumped.**
+  - Pendant (breaking): `fbBrake`/`fbHydraulics` removed (declared, never read). `fbFocus` is `BROTLib.I_Focus` (the pendant only
+    uses `I_BaseAxis` members: `Enable`, `Ready`, `InPosLimit`, `InNegLimit`, `MovePos`, `MoveNeg`, `Reset()`, `Error`; HalfBROT's
+    `FB_FocusControl` implements it, so `fbFocus := FocusControl` in `MAIN` is unchanged; the guards are `fbFocus <> 0`). The
+    covers stay `REFERENCE TO HalfBROT.FB_CoverControl`: the pendant calls `Stop()` and reads `bError`, `I_MirrorCovers` has
+    neither (it has `Error`). MONETS and MONETN `MAIN` (develop and main): delete the two lines `fbBrake := HydraulicsControl,`
+    and `fbHydraulics := HydraulicsControl,` of the `PendantControl(...)` call (MONETS lines 228-229, MONETN 238-239), with the
+    re-pin. #177 (gate the pendant on the mode) and #168 (mode state machine) touch the same block and call: they add
+    `eTelescopeMode` and gating in the CASE branches, this changes only the declarations and the focus guards, so whoever comes
+    second rebases a few lines; the `MAIN` edit of #177 (`eTelescopeMode := eTelescopeMode`) goes into the same call.
+  - Axes (D6): unchanged; the README has the rationale (limits, `fActualPosition`, `fbAxis` NC status; BROTLib cannot reference
+    HalfBROT; the rig subclasses the concrete blocks).
+  - Duplicates, diffed against BROTLib 0.17.0 `Telescope/Command/` (CR/BOM stripped): identical except the object Id:
+    `F_ErrorParkRequest`, `F_GotoTargetCheck`, `F_HomeBelowHorizon`, `F_TargetBelowHorizonWarning`, `F_TCSCommandText`,
+    `E_CommandDecision`. Same logic, other signature: `F_ResetMoveAbort`, `F_SuspendStop` (BROTLib: one `bAnyAxisMoving` instead
+    of `bAzMoving`/`bElMoving`/`bDrMoving`, OR-ed inside). Different (kept): `F_CommandAcceptance` (MONETcommon has the #72 row
+    `bInitRequired` -> `init_required`), `F_CommandRejectText` (its text), `E_CommandRejectReason` (`init_required`),
+    `ST_CommandState` (`bInitRequired`); `E_CommandDecision` stays with them. M calls `BROTLib.F_*` for the seven, the OR of the
+    three axes is at the two call sites; the seven local units are removed.
+  - Tests: the six suites of the removed functions (`F_ErrorParkRequest_Tests`, `F_GotoTargetCheck_Tests`,
+    `F_HomeBelowHorizon_Tests`, `F_TargetBelowHorizonWarning_Tests`, `F_ResetMoveAbort_Tests`, `F_SuspendStop_Tests`) are the same
+    cases as in BROTLibTests and are deleted: 35 of 41 suites. The rig case `Goto_Window_From_stMotion_Refuses_The_Pole` (tests M,
+    not the function) moved to `FB_MonetRig_Tests` (10 tests, 55 assert lines). `F_CommandAcceptance_Tests` stays.
+  - Unverified until CI: the build (`BROTLib.I_Focus` as `VAR_INPUT`, an `FB_FocusMock` `VAR_IN_OUT` passed to it in the pendant
+    tests, `BROTLib.F_*` qualified calls), the rig suites green. On site: the pendant check (#69 list), focus on selector 5.
 
 ### Step 7 - Safe-state fixes (aim 6, one PR per row of the step-0 table)
 - Each row where today differs from the target becomes a PR: flip the `_Current` test, change M (expected first
@@ -729,7 +797,9 @@ are batched with re-pins; 7 is policy and goes row by row. Step 3 can come befor
 - **D2 Deprecated inputs.** `fElevationMoveVelocity` and the track margin/cap inputs stay as deprecated aliases for
   one release.
 - **D3 Clients.** The command clients are pyobs-brot and brotgui, both via pybrotlib. Inspect how pybrotlib sends
-  commands before step 5 (step 4c).
+  commands before step 5 (step 4c). Checked in step 4c ([2026-11-02-step-4c-client-check.md](2026-11-02-step-4c-client-check.md)):
+  MQTT verbs only, mapped to the methods by the PLC; the MONET Visu writes the flags. Outcome: edge-triggered inputs plus
+  methods (step 5, done as written).
 - **D4 Safe state.** Roof closed, park if possible, covers closed as far as possible, hydraulics off. The brakes are
   hydraulic and lock when the hydraulics go off, so no brake-before-hydraulics ordering is needed. The roof does not
   wait for `bIsParked`.
@@ -754,7 +824,8 @@ are batched with re-pins; 7 is policy and goes row by row. Step 3 can come befor
 
 1. Decided as D8 (ramp or lock per error class).
 2. Decided as D9 (roof for classes other than the watchdog); what is left of it is in 8.4-8.7.
-3. **pybrotlib findings** (step 4c) decide edge-triggered inputs vs methods only for step 5.
+3. **pybrotlib findings** (step 4c) decide edge-triggered inputs vs methods only for step 5. Settled: edge-triggered inputs
+   plus methods (D3, step 4c); written in step 5.
 4. **Focus error and the roof:** kept as no close (D9); is a focus error serious enough to close the roof?
 5. **Exact signal:** name (`bCloseRoofRequest` proposed), latch and reset (proposed: latched on the rising edge,
    cleared by `bReset` once no cause is active) and the name of the `MAIN` enable switch (`bRoofCloseOnErrorEnable`

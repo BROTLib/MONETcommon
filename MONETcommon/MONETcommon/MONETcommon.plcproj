@@ -19,7 +19,7 @@
     <Company>IAG</Company>
     <Released>false</Released>
     <Title>MONETcommon</Title>
-    <ProjectVersion>0.14.1</ProjectVersion>
+    <ProjectVersion>0.15.0</ProjectVersion>
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="E_CommandDecision.TcDUT">
@@ -64,9 +64,6 @@
     <Compile Include="F_CommandRejectText.TcPOU">
       <SubType>Code</SubType>
     </Compile>
-    <Compile Include="F_TCSCommandText.TcPOU">
-      <SubType>Code</SubType>
-    </Compile>
     <Compile Include="E_ModeLanguage.TcDUT">
       <SubType>Code</SubType>
     </Compile>
@@ -94,13 +91,7 @@
     <Compile Include="FB_MonetTempSensor.TcPOU">
       <SubType>Code</SubType>
     </Compile>
-    <Compile Include="F_HomeBelowHorizon.TcPOU">
-      <SubType>Code</SubType>
-    </Compile>
     <Compile Include="F_AxisTurn.TcPOU">
-      <SubType>Code</SubType>
-    </Compile>
-    <Compile Include="F_TargetBelowHorizonWarning.TcPOU">
       <SubType>Code</SubType>
     </Compile>
     <Compile Include="F_BrakeMustClose.TcPOU">
@@ -109,22 +100,10 @@
     <Compile Include="F_ParkAxesCanMove.TcPOU">
       <SubType>Code</SubType>
     </Compile>
-    <Compile Include="F_ErrorParkRequest.TcPOU">
-      <SubType>Code</SubType>
-    </Compile>
-    <Compile Include="F_ResetMoveAbort.TcPOU">
-      <SubType>Code</SubType>
-    </Compile>
-    <Compile Include="F_SuspendStop.TcPOU">
-      <SubType>Code</SubType>
-    </Compile>
     <Compile Include="F_WakeShakeErrorExempt.TcPOU">
       <SubType>Code</SubType>
     </Compile>
     <Compile Include="F_WakeShakeWindow.TcPOU">
-      <SubType>Code</SubType>
-    </Compile>
-    <Compile Include="F_GotoTargetCheck.TcPOU">
       <SubType>Code</SubType>
     </Compile>
     <Compile Include="FB_MonetStopTransaction.TcPOU">

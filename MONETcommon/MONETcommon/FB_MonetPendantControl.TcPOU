@@ -4,10 +4,11 @@
     <Declaration><![CDATA[FUNCTION_BLOCK FB_MonetPendantControl
 VAR_INPUT
 	eTelescopeMode		: E_TelescopeMode;
+	// #24 step 6: the concrete block stays, the pendant also calls Stop() and reads bError, which I_MirrorCovers does not carry
 	fbCovers			: REFERENCE TO HalfBROT.FB_CoverControl;
-	fbBrake				: REFERENCE TO FB_HydraulicsControl;
-	fbHydraulics		: REFERENCE TO FB_HydraulicsControl;
-	fbFocus		 		: REFERENCE TO FB_FocusControl;
+	// #24 step 6: an interface, the pendant only uses I_Focus members (Enable, Ready, In*Limit, Move*, Reset, Error).
+	// fbBrake/fbHydraulics are gone (never read); MAIN drops its two lines.
+	fbFocus		 		: BROTLib.I_Focus;
 	fbElevation			: REFERENCE TO FB_ElevationControl;
 	fbAzimuth	 		: REFERENCE TO FB_AzimuthControl;
 	fbDerotator			: REFERENCE TO FB_DerotatorControl;
@@ -170,7 +171,7 @@ CASE nSelectionStable OF
 	4:	// Nasmyth / mirror M3 control
 		
 	5:	// Focus Control
-		IF __ISVALIDREF(fbFocus) THEN
+		IF fbFocus <> 0 THEN
 			nOwned := 5;
 			bOwnedEnable := IbEnableButton;
 			fbFocus.Enable := IbEnableButton;			
@@ -243,7 +244,7 @@ END_VAR
       <Implementation>
         <ST><![CDATA[CASE nFunction OF
 	5:
-		IF __ISVALIDREF(fbFocus) THEN
+		IF fbFocus <> 0 THEN
 			fbFocus.MovePos := FALSE;
 			fbFocus.MoveNeg := FALSE;
 		END_IF
@@ -276,7 +277,7 @@ END_VAR
       <Implementation>
         <ST><![CDATA[CASE nFunction OF
 	5:
-		IF __ISVALIDREF(fbFocus) THEN
+		IF fbFocus <> 0 THEN
 			fbFocus.Enable := FALSE;
 		END_IF
 	6:

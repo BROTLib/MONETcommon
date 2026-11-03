@@ -6,6 +6,8 @@
 // nested fbAxis outputs from the derived block, (b) a body override without SUPER^(), (c) AT%I* of FB_AxisControl on the target.
 // Also the telemetry record of the telescope (#24 step 4a, MONETcommon.FB_MonetTelescopeTelemetry) for a fixed snapshot, recorded
 // by FB_RecordingComm: here because all 40 suite slots are used and this suite is about the parts of FB_MonetTelescopeControl.
+// And the command inputs of #24 step 5 (read-only, edge-triggered; the requests are the b*Active outputs), here for the same reason.
+// And the goto window from stMotion (#24 step 2c), moved here in #24 step 6 when F_GotoTargetCheck_Tests went to BROTLib.
 FUNCTION_BLOCK FB_MonetRig_Tests EXTENDS TcUnit.FB_TestSuite
 VAR
 	fbComm			: FB_NullComm;
@@ -33,6 +35,11 @@ Rig_Instantiates_Telescope_With_Mock_Axes();
 Monets_Elevation_Velocity_Alias_Is_Used();
 Telemetry_Publishes_The_Snapshot();
 Telemetry_Axis_State_Branches();
+Held_Slew_Input_Starts_The_Slew_Once();
+Slew_Input_Falling_Does_Not_Abort_The_Slew();
+Slew_Method_And_Input_Edge_In_One_Scan_Count_Once();
+Repeated_Track_Retargets_And_Second_Stop_Works();
+Goto_Window_From_stMotion_Refuses_The_Pole();
 ]]></ST>
     </Implementation>
     <Method Name="Mock_Axis_Move_Reports_MoveDone" Id="{4aeb9af3-2d82-44f2-87fd-050f1d95d90d}">
@@ -407,6 +414,416 @@ END_IF
 IF NOT bOk AND sMismatch = '' THEN
 	sMismatch := CONCAT(INT_TO_STRING(nIndex), CONCAT(' ', sTopic));
 END_IF
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Held_Slew_Input_Starts_The_Slew_Once" Id="{2cbbc467-9318-48ab-a81f-afbc9c1b11f3}">
+      <Declaration><![CDATA[// #24 step 5: the slew input is held TRUE (a client or Visu that never releases it). Its rising edge starts the slew once; the
+// telescope does not clear the input any more, and the held level is no new command: after the slew has ended (bSlewActive FALSE)
+// nothing starts again while the input stays TRUE. Until 0.14.x the block cleared the flag at the end, so a held flag was not
+// possible; a writer had to write TRUE again (and that was a new command).
+METHOD PRIVATE Held_Slew_Input_Starts_The_Slew_Once
+VAR_INST
+	rig			: FB_MonetRig;
+	nStep		: INT;
+	nCycles		: UINT;
+	sTest		: STRING(80);
+	nStarts		: UINT;
+	bActiveLast	: BOOL;
+	nRejects0	: UDINT;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Held_Slew_Input_Starts_The_Slew_Once');
+sTest := 'Held_Slew_Input_Starts_The_Slew_Once: ';
+IF nStep >= 90 THEN
+	RETURN;
+END_IF
+rig.Scan();
+nCycles := nCycles + 1;
+CASE nStep OF
+0:	// wait for the clock, then power on
+	IF rig.ClockValid THEN
+		rig.fbTel.Init();
+		nStep := 10;
+		nCycles := 0;
+	ELSIF nCycles > 2000 THEN
+		AssertTrue(Condition := FALSE, Message := 'the astronomical clock never became valid');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the astronomical clock never became valid'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+10:	// wait until the startup has finished (READY_STATE 1.0)
+	IF rig.Online THEN
+		nRejects0 := rig.fbTel.nCommandRejectCount;
+		rig.SetSlewTargetInput(fAzimuth := 180.0, fAltitude := 45.0);
+		rig.SetSlewInput(bValue := TRUE);	// held from now on
+		nStep := 20;
+		nCycles := 0;
+	ELSIF nCycles > 1500 THEN
+		AssertTrue(Condition := FALSE, Message := 'the mock telescope did not reach READY_STATE 1.0');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the mock telescope did not reach READY_STATE 1.0'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+20:	// the slew runs and ends with the input still held
+	IF rig.fbTel.bSlewActive AND NOT bActiveLast THEN
+		nStarts := nStarts + 1;
+	END_IF
+	bActiveLast := rig.fbTel.bSlewActive;
+	IF nStarts > 0 AND NOT rig.fbTel.bSlewActive AND rig.fbTel.bStopped THEN
+		nStep := 30;
+		nCycles := 0;
+	ELSIF nCycles > 600 THEN
+		AssertTrue(Condition := FALSE, Message := 'the held slew input did not start and end a slew');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the held slew input did not start and end a slew'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+30:	// keep the input held for 100 more scans: no second slew
+	IF rig.fbTel.bSlewActive AND NOT bActiveLast THEN
+		nStarts := nStarts + 1;
+	END_IF
+	bActiveLast := rig.fbTel.bSlewActive;
+	IF nCycles >= 100 THEN
+		AssertTrue(Condition := nStarts = 1 AND NOT rig.fbTel.bSlewActive, Message := 'the held input started the slew once, no second slew');
+		F_Note(bFailed := NOT (nStarts = 1 AND NOT rig.fbTel.bSlewActive), sText := CONCAT(sTest, 'the held input started the slew once, no second slew'));
+		AssertTrue(Condition := ABS(rig.fbElev.fActualPosition - 45.0) < 0.01, Message := 'the slew reached the target of the target inputs');
+		F_Note(bFailed := NOT (ABS(rig.fbElev.fActualPosition - 45.0) < 0.01), sText := CONCAT(sTest, 'the slew reached the target of the target inputs'));
+		AssertTrue(Condition := rig.fbTel.nCommandRejectCount = nRejects0, Message := 'the held level is no command (nothing rejected)');
+		F_Note(bFailed := NOT (rig.fbTel.nCommandRejectCount = nRejects0), sText := CONCAT(sTest, 'the held level is no command (nothing rejected)'));
+		AssertTrue(Condition := rig.fbTel.bSlew, Message := 'the telescope did not write the input');
+		F_Note(bFailed := NOT (rig.fbTel.bSlew), sText := CONCAT(sTest, 'the telescope did not write the input'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+END_CASE
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Slew_Input_Falling_Does_Not_Abort_The_Slew" Id="{9bf36a98-0f45-4f12-b5d7-9652a70f249d}">
+      <Declaration><![CDATA[// #24 step 5: the input falling while its command runs aborts nothing (a Visu button released, a client writing FALSE). The slew
+// that the rising edge started runs to its target: no stop, no abort stop, no MC_Stop on any axis.
+METHOD PRIVATE Slew_Input_Falling_Does_Not_Abort_The_Slew
+VAR_INST
+	rig			: FB_MonetRig;
+	nStep		: INT;
+	nCycles		: UINT;
+	sTest		: STRING(80);
+	bSawStop	: BOOL;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Slew_Input_Falling_Does_Not_Abort_The_Slew');
+sTest := 'Slew_Input_Falling_Does_Not_Abort_The_Slew: ';
+IF nStep >= 90 THEN
+	RETURN;
+END_IF
+rig.Scan();
+nCycles := nCycles + 1;
+CASE nStep OF
+0:	// wait for the clock, then power on
+	IF rig.ClockValid THEN
+		rig.fbTel.Init();
+		nStep := 10;
+		nCycles := 0;
+	ELSIF nCycles > 2000 THEN
+		AssertTrue(Condition := FALSE, Message := 'the astronomical clock never became valid');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the astronomical clock never became valid'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+10:	// wait until the startup has finished (READY_STATE 1.0)
+	IF rig.Online THEN
+		rig.SetSlewTargetInput(fAzimuth := 180.0, fAltitude := 45.0);
+		rig.SetSlewInput(bValue := TRUE);
+		nStep := 20;
+		nCycles := 0;
+	ELSIF nCycles > 1500 THEN
+		AssertTrue(Condition := FALSE, Message := 'the mock telescope did not reach READY_STATE 1.0');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the mock telescope did not reach READY_STATE 1.0'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+20:	// wait until the slew moves the axes, then release the input
+	IF rig.fbElev.MoveAxis AND rig.fbAzim.MoveAxis AND rig.fbDero.MoveAxis THEN
+		rig.SetSlewInput(bValue := FALSE);
+		nStep := 30;
+		nCycles := 0;
+	ELSIF nCycles > 300 THEN
+		AssertTrue(Condition := FALSE, Message := 'the slew input did not start the axis moves');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the slew input did not start the axis moves'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+30:	// the slew goes on to its target
+	bSawStop := bSawStop OR rig.fbTel.bStopActive OR rig.fbTel.bMoveAbortPending;
+	IF NOT rig.fbTel.bSlewActive AND rig.fbTel.bStopped AND nCycles > 5 THEN
+		AssertTrue(Condition := NOT bSawStop, Message := 'the falling input stopped nothing');
+		F_Note(bFailed := NOT (NOT bSawStop), sText := CONCAT(sTest, 'the falling input stopped nothing'));
+		AssertTrue(Condition := rig.fbElev.nStopEdges = 0 AND rig.fbAzim.nStopEdges = 0 AND rig.fbDero.nStopEdges = 0, Message := 'no MC_Stop on any axis');
+		F_Note(bFailed := NOT (rig.fbElev.nStopEdges = 0 AND rig.fbAzim.nStopEdges = 0 AND rig.fbDero.nStopEdges = 0), sText := CONCAT(sTest, 'no MC_Stop on any axis'));
+		AssertTrue(Condition := ABS(rig.fbElev.fActualPosition - 45.0) < 0.01, Message := 'the slew reached its target');
+		F_Note(bFailed := NOT (ABS(rig.fbElev.fActualPosition - 45.0) < 0.01), sText := CONCAT(sTest, 'the slew reached its target'));
+		nStep := 99;
+		TEST_FINISHED();
+	ELSIF nCycles > 600 THEN
+		AssertTrue(Condition := FALSE, Message := 'the slew did not end after the input fell');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the slew did not end after the input fell'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+END_CASE
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Slew_Method_And_Input_Edge_In_One_Scan_Count_Once" Id="{c3a0b8fa-340f-4d5c-91b3-7be5964445a1}">
+      <Declaration><![CDATA[// #24 step 5: Slew() and a rising slew input before the same scan are one command (b*Checked): the edge is not decided again. Counted
+// twice, the second one would replace the first (latest wins, #83) with an abort stop (bMoveAbortPending) before the slew. One slew,
+// no abort stop, no MC_Stop, nothing rejected.
+METHOD PRIVATE Slew_Method_And_Input_Edge_In_One_Scan_Count_Once
+VAR_INST
+	rig			: FB_MonetRig;
+	nStep		: INT;
+	nCycles		: UINT;
+	sTest		: STRING(80);
+	nStarts		: UINT;
+	bActiveLast	: BOOL;
+	bSawAbort	: BOOL;
+	nRejects0	: UDINT;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Slew_Method_And_Input_Edge_In_One_Scan_Count_Once');
+sTest := 'Slew_Method_And_Input_Edge_In_One_Scan_Count_Once: ';
+IF nStep >= 90 THEN
+	RETURN;
+END_IF
+rig.Scan();
+nCycles := nCycles + 1;
+CASE nStep OF
+0:	// wait for the clock, then power on
+	IF rig.ClockValid THEN
+		rig.fbTel.Init();
+		nStep := 10;
+		nCycles := 0;
+	ELSIF nCycles > 2000 THEN
+		AssertTrue(Condition := FALSE, Message := 'the astronomical clock never became valid');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the astronomical clock never became valid'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+10:	// wait until the startup has finished (READY_STATE 1.0)
+	IF rig.Online THEN
+		nRejects0 := rig.fbTel.nCommandRejectCount;
+		rig.fbTel.Slew(fAzimuth := 180.0, fAltitude := 45.0);
+		rig.SetSlewTargetInput(fAzimuth := 180.0, fAltitude := 45.0);
+		rig.SetSlewInput(bValue := TRUE);	// rises before the same scan as the method call
+		nStep := 20;
+		nCycles := 0;
+	ELSIF nCycles > 1500 THEN
+		AssertTrue(Condition := FALSE, Message := 'the mock telescope did not reach READY_STATE 1.0');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the mock telescope did not reach READY_STATE 1.0'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+20:	// one slew to the end
+	IF rig.fbTel.bSlewActive AND NOT bActiveLast THEN
+		nStarts := nStarts + 1;
+	END_IF
+	bActiveLast := rig.fbTel.bSlewActive;
+	bSawAbort := bSawAbort OR rig.fbTel.bMoveAbortPending OR rig.fbTel.bStopActive;
+	IF nStarts > 0 AND NOT rig.fbTel.bSlewActive AND rig.fbTel.bStopped AND nCycles > 5 THEN
+		AssertTrue(Condition := nStarts = 1 AND NOT bSawAbort, Message := 'one slew, the edge did not replace the method call (no abort stop)');
+		F_Note(bFailed := NOT (nStarts = 1 AND NOT bSawAbort), sText := CONCAT(sTest, 'one slew, the edge did not replace the method call (no abort stop)'));
+		AssertTrue(Condition := rig.fbElev.nStopEdges = 0 AND rig.fbAzim.nStopEdges = 0 AND rig.fbDero.nStopEdges = 0, Message := 'no MC_Stop on any axis');
+		F_Note(bFailed := NOT (rig.fbElev.nStopEdges = 0 AND rig.fbAzim.nStopEdges = 0 AND rig.fbDero.nStopEdges = 0), sText := CONCAT(sTest, 'no MC_Stop on any axis'));
+		AssertTrue(Condition := rig.fbTel.nCommandRejectCount = nRejects0, Message := 'nothing rejected');
+		F_Note(bFailed := NOT (rig.fbTel.nCommandRejectCount = nRejects0), sText := CONCAT(sTest, 'nothing rejected'));
+		AssertTrue(Condition := ABS(rig.fbElev.fActualPosition - 45.0) < 0.01, Message := 'the slew reached its target');
+		F_Note(bFailed := NOT (ABS(rig.fbElev.fActualPosition - 45.0) < 0.01), sText := CONCAT(sTest, 'the slew reached its target'));
+		nStep := 99;
+		TEST_FINISHED();
+	ELSIF nCycles > 600 THEN
+		AssertTrue(Condition := FALSE, Message := 'the slew did not end');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the slew did not end'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+END_CASE
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Repeated_Track_Retargets_And_Second_Stop_Works" Id="{bbe1e744-21ca-48ba-ba8b-b08f3f5aa9ed}">
+      <Declaration><![CDATA[// #24 step 5 (plan step 4c: pyobs sends the next target while tracking, brotgui a Stellarium goto, and a second stop): a method call
+// while the same command is active is still a command. Track() while tracking is accepted (replace, #83), the new RA/Dec is taken and
+// tracked after the abort stop; a second Stop() while the first stop runs is accepted too and the stop settles (#96).
+METHOD PRIVATE Repeated_Track_Retargets_And_Second_Stop_Works
+VAR_INST
+	rig			: FB_MonetRig;
+	nStep		: INT;
+	nCycles		: UINT;
+	sTest		: STRING(80);
+	nTracking	: UINT;
+	bAccepted	: BOOL;
+	nRejects0	: UDINT;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Repeated_Track_Retargets_And_Second_Stop_Works');
+sTest := 'Repeated_Track_Retargets_And_Second_Stop_Works: ';
+IF nStep >= 90 THEN
+	RETURN;
+END_IF
+rig.Scan();
+nCycles := nCycles + 1;
+CASE nStep OF
+0:	// wait for the clock, then power on
+	IF rig.ClockValid THEN
+		rig.fbTel.Init();
+		nStep := 10;
+		nCycles := 0;
+	ELSIF nCycles > 2000 THEN
+		AssertTrue(Condition := FALSE, Message := 'the astronomical clock never became valid');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the astronomical clock never became valid'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+10:	// wait until the startup has finished (READY_STATE 1.0)
+	IF rig.Online THEN
+		rig.fbTel.Track(fRightAscension := 0.0, fDeclination := -85.0);	// circumpolar, always above the horizon
+		nStep := 20;
+		nCycles := 0;
+	ELSIF nCycles > 1500 THEN
+		AssertTrue(Condition := FALSE, Message := 'the mock telescope did not reach READY_STATE 1.0');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the mock telescope did not reach READY_STATE 1.0'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+20:	// wait until all three axes have tracked for a few scans, then send the next target
+	IF rig.fbAzim.Tracking AND rig.fbElev.Tracking AND rig.fbDero.Tracking THEN
+		nTracking := nTracking + 1;
+	ELSE
+		nTracking := 0;
+	END_IF
+	IF nTracking >= 5 THEN
+		nRejects0 := rig.fbTel.nCommandRejectCount;
+		bAccepted := rig.fbTel.Track(fRightAscension := 180.0, fDeclination := -80.0);
+		AssertTrue(Condition := bAccepted AND rig.fbTel.bGotoActive AND rig.fbTel.fRightAscension = 180.0 AND rig.fbTel.fDeclination = -80.0, Message := 'Track() while tracking is accepted and takes the new target');
+		F_Note(bFailed := NOT (bAccepted AND rig.fbTel.bGotoActive AND rig.fbTel.fRightAscension = 180.0 AND rig.fbTel.fDeclination = -80.0), sText := CONCAT(sTest, 'Track() while tracking is accepted and takes the new target'));
+		nStep := 30;
+		nCycles := 0;
+		nTracking := 0;
+	ELSIF nCycles > 800 THEN
+		AssertTrue(Condition := FALSE, Message := 'the telescope did not start tracking');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the telescope did not start tracking'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+30:	// the new target is tracked after the abort stop
+	IF rig.fbAzim.Tracking AND rig.fbElev.Tracking AND rig.fbDero.Tracking AND NOT rig.fbTel.bMoveAbortPending THEN
+		nTracking := nTracking + 1;
+	ELSE
+		nTracking := 0;
+	END_IF
+	IF nTracking >= 5 THEN
+		AssertTrue(Condition := rig.fbTel.bTrackActive AND NOT rig.fbTel.bGotoActive AND rig.fbTel.fRightAscension = 180.0 AND rig.fbTel.nCommandRejectCount = nRejects0, Message := 'the new target is tracked, nothing rejected');
+		F_Note(bFailed := NOT (rig.fbTel.bTrackActive AND NOT rig.fbTel.bGotoActive AND rig.fbTel.fRightAscension = 180.0 AND rig.fbTel.nCommandRejectCount = nRejects0), sText := CONCAT(sTest, 'the new target is tracked, nothing rejected'));
+		rig.fbTel.Stop();
+		nStep := 40;
+		nCycles := 0;
+	ELSIF nCycles > 800 THEN
+		AssertTrue(Condition := FALSE, Message := 'the telescope did not track the new target');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the telescope did not track the new target'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+40:	// a second stop while the first one runs
+	IF nCycles = 2 THEN
+		AssertTrue(Condition := rig.fbTel.bStopActive, Message := 'the first stop is still running');
+		F_Note(bFailed := NOT (rig.fbTel.bStopActive), sText := CONCAT(sTest, 'the first stop is still running'));
+		rig.fbTel.Stop();
+	ELSIF nCycles > 5 AND NOT rig.fbTel.bStopActive AND rig.fbTel.bStopped THEN
+		AssertTrue(Condition := NOT rig.fbTel.bTrackActive AND NOT rig.fbAzim.Tracking AND NOT rig.fbElev.Tracking AND NOT rig.fbDero.Tracking, Message := 'the stop settled, nothing tracks');
+		F_Note(bFailed := NOT (NOT rig.fbTel.bTrackActive AND NOT rig.fbAzim.Tracking AND NOT rig.fbElev.Tracking AND NOT rig.fbDero.Tracking), sText := CONCAT(sTest, 'the stop settled, nothing tracks'));
+		AssertTrue(Condition := NOT rig.fbTel.bError, Message := 'no error');
+		F_Note(bFailed := NOT (NOT rig.fbTel.bError), sText := CONCAT(sTest, 'no error'));
+		nStep := 99;
+		TEST_FINISHED();
+	ELSIF nCycles > 400 THEN
+		AssertTrue(Condition := FALSE, Message := 'the stop did not settle');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the stop did not settle'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+END_CASE
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Goto_Window_From_stMotion_Refuses_The_Pole" Id="{1d00472a-4fb7-42c4-80dc-1de68a57ad43}">
+      <Declaration><![CDATA[// #24 step 2c, on the mock rig (FB_MonetRig, MONET/S, latitude -32.4; moved here from F_GotoTargetCheck_Tests in #24 step 6): the goto window of FB_MonetTelescopeControl is
+// stMotion.fGotoMinElevation/fGotoMaxElevation, no longer the literals 2.0/89.5. A target 1 deg from the south celestial pole
+// (dec -89) stands at 31.4..33.4 deg at any time; with the default window it is accepted (MonetSafeState_Tests tracks dec -85),
+// with fGotoMaxElevation 30 it is refused as above the window: software error 16#16 and the goto is dropped. Multi-cycle (VAR_INST
+// rig, one Scan() per PLC cycle, the first cycles wait for the astronomical clock). Failed checks are also noted in GVL_Diag.sFailures.
+METHOD PRIVATE Goto_Window_From_stMotion_Refuses_The_Pole
+VAR_INST
+	rig			: FB_MonetRig;
+	stCfg		: BROTLib.ST_MotionConfig;
+	nStep		: INT;
+	nCycles		: UINT;
+	sTest		: STRING(80);
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Goto_Window_From_stMotion_Refuses_The_Pole');
+sTest := 'Goto_Window_From_stMotion_Refuses_The_Pole: ';
+IF nStep >= 90 THEN
+	RETURN;
+END_IF
+rig.Scan();
+nCycles := nCycles + 1;
+CASE nStep OF
+0:	// the configuration of the test, then wait for the clock and power on
+	stCfg.fGotoMaxElevation := 30.0;
+	rig.SetMotion(stValue := stCfg);
+	IF rig.ClockValid THEN
+		rig.fbTel.Init();
+		nStep := 10;
+		nCycles := 0;
+	ELSIF nCycles > 2000 THEN
+		AssertTrue(Condition := FALSE, Message := 'the astronomical clock never became valid');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the astronomical clock never became valid'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+10:
+	IF rig.Online THEN
+		rig.fbTel.Track(fRightAscension := 0.0, fDeclination := -89.0);
+		nStep := 20;
+		nCycles := 0;
+	ELSIF nCycles > 1500 THEN
+		AssertTrue(Condition := FALSE, Message := 'the mock telescope did not reach READY_STATE 1.0');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the mock telescope did not reach READY_STATE 1.0'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+20:
+	IF rig.fbTel.bError THEN
+		AssertTrue(Condition := rig.fbTel.nErrorID = 16#16, Message := 'the target above stMotion.fGotoMaxElevation is error 16#16');
+		F_Note(bFailed := NOT (rig.fbTel.nErrorID = 16#16), sText := CONCAT(sTest, 'the target above stMotion.fGotoMaxElevation is error 16#16'));
+		AssertFalse(Condition := rig.fbTel.bGotoActive, Message := 'the goto is dropped');
+		F_Note(bFailed := (rig.fbTel.bGotoActive), sText := CONCAT(sTest, 'the goto is dropped'));
+		nStep := 99;
+		TEST_FINISHED();
+	ELSIF nCycles > 300 THEN
+		AssertTrue(Condition := FALSE, Message := 'the goto was not refused');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the goto was not refused'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+END_CASE
+
 ]]></ST>
       </Implementation>
     </Method>

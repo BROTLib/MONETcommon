@@ -219,6 +219,33 @@ METHOD SetSlewFlag
 ]]></ST>
       </Implementation>
     </Method>
+    <Method Name="SetSlewInput" Id="{7befd08b-db5e-4357-97aa-6eb3458cdf4a}">
+      <Declaration><![CDATA[// #24 step 5: the slew input of the telescope as a level (an ADS write or a Visu button held or released); the telescope never
+// writes it, its rising edge is the command
+METHOD SetSlewInput
+VAR_INPUT
+	bValue	: BOOL;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[fbTel.bSlew := bValue;
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="SetSlewTargetInput" Id="{26be7ad4-8976-4b6a-86eb-973975e56a4f}">
+      <Declaration><![CDATA[// #24 step 5: the target inputs a slew input uses (what the Visu writes before the button: fAzimuth, fElevation)
+METHOD SetSlewTargetInput
+VAR_INPUT
+	fAzimuth	: LREAL;
+	fAltitude	: LREAL;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[fbTel.fAzimuth := fAzimuth;
+fbTel.fElevation := fAltitude;
+]]></ST>
+      </Implementation>
+    </Method>
     <Method Name="SetMainReady" Id="{83eaab32-d382-48b6-babc-99dec72544d2}">
       <Declaration><![CDATA[// the power input of the telescope (bMainReady, MAIN: PowerMonitoring.phaseOK); FALSE = power failure. Default TRUE.
 METHOD SetMainReady

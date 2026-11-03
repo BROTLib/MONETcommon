@@ -76,8 +76,8 @@ CASE nStep OF
 	END_IF
 40:
 	IF nCycles = 2 THEN
-		AssertFalse(Condition := rig.fbTel.bSlew, Message := 'the reset dropped the slew');
-		F_Note(bFailed := (rig.fbTel.bSlew), sText := CONCAT(sTest, 'the reset dropped the slew'));
+		AssertFalse(Condition := rig.fbTel.bSlewActive, Message := 'the reset dropped the slew');
+		F_Note(bFailed := (rig.fbTel.bSlewActive), sText := CONCAT(sTest, 'the reset dropped the slew'));
 		AssertTrue(Condition := rig.fbTel.bMoveAbortPending, Message := 'the abort stop is pending while the axes stop');
 		F_Note(bFailed := NOT (rig.fbTel.bMoveAbortPending), sText := CONCAT(sTest, 'the abort stop is pending while the axes stop'));
 	ELSIF NOT rig.fbTel.bMoveAbortPending AND rig.fbTel.bStopped AND nCycles > 5 THEN
@@ -160,13 +160,13 @@ CASE nStep OF
 	END_IF
 40:
 	IF nCycles = 2 THEN
-		AssertTrue(Condition := rig.fbTel.bPark, Message := 'the reset keeps the park');
-		F_Note(bFailed := NOT (rig.fbTel.bPark), sText := CONCAT(sTest, 'the reset keeps the park'));
+		AssertTrue(Condition := rig.fbTel.bParkActive, Message := 'the reset keeps the park');
+		F_Note(bFailed := NOT (rig.fbTel.bParkActive), sText := CONCAT(sTest, 'the reset keeps the park'));
 		AssertFalse(Condition := rig.fbTel.bMoveAbortPending, Message := 'no abort stop during a park');
 		F_Note(bFailed := (rig.fbTel.bMoveAbortPending), sText := CONCAT(sTest, 'no abort stop during a park'));
 	ELSIF rig.fbTel.bIsParked AND nCycles > 5 THEN
-		AssertFalse(Condition := rig.fbTel.bPark, Message := 'the park is over');
-		F_Note(bFailed := (rig.fbTel.bPark), sText := CONCAT(sTest, 'the park is over'));
+		AssertFalse(Condition := rig.fbTel.bParkActive, Message := 'the park is over');
+		F_Note(bFailed := (rig.fbTel.bParkActive), sText := CONCAT(sTest, 'the park is over'));
 		AssertTrue(Condition := rig.fbElev.nStopEdges = 0 AND rig.fbAzim.nStopEdges = 0 AND rig.fbDero.nStopEdges = 0, Message := 'the reset did not stop the park motion');
 		F_Note(bFailed := NOT (rig.fbElev.nStopEdges = 0 AND rig.fbAzim.nStopEdges = 0 AND rig.fbDero.nStopEdges = 0), sText := CONCAT(sTest, 'the reset did not stop the park motion'));
 		AssertTrue(Condition := rig.fbTel.ReadyState = 0.0, Message := 'READY_STATE is parked (0.0)');
@@ -229,8 +229,8 @@ CASE nStep OF
 	END_IF
 20:	// give a slew that was not dropped time to start
 	IF nCycles >= 30 THEN
-		AssertFalse(Condition := rig.fbTel.bSlew, Message := 'the slew is dropped');
-		F_Note(bFailed := (rig.fbTel.bSlew), sText := CONCAT(sTest, 'the slew is dropped'));
+		AssertFalse(Condition := rig.fbTel.bSlewActive, Message := 'the slew is dropped');
+		F_Note(bFailed := (rig.fbTel.bSlewActive), sText := CONCAT(sTest, 'the slew is dropped'));
 		AssertFalse(Condition := rig.fbElev.MoveAxis OR rig.fbAzim.MoveAxis OR rig.fbDero.MoveAxis, Message := 'no axis was sent to the slew target');
 		F_Note(bFailed := (rig.fbElev.MoveAxis OR rig.fbAzim.MoveAxis OR rig.fbDero.MoveAxis), sText := CONCAT(sTest, 'no axis was sent to the slew target'));
 		AssertFalse(Condition := rig.fbTel.bMoveAbortPending, Message := 'no abort stop when nothing moves');

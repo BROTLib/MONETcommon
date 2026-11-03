@@ -77,7 +77,7 @@ CASE nStep OF
 	nStep := 40;
 	nCycles := 0;
 40:	// wait until the stop has settled
-	IF NOT rig.fbTel.bStop AND rig.fbTel.bStopped AND nCycles > 5 THEN
+	IF NOT rig.fbTel.bStopActive AND rig.fbTel.bStopped AND nCycles > 5 THEN
 		AssertTrue(Condition := rig.fbAzim.nExtErrors = 0 AND rig.fbElev.nExtErrors = 0 AND rig.fbDero.nExtErrors = 0, Message := 'no axis met the external setpoint generator (0x4257)');
 		F_Note(bFailed := NOT (rig.fbAzim.nExtErrors = 0 AND rig.fbElev.nExtErrors = 0 AND rig.fbDero.nExtErrors = 0), sText := CONCAT(sTest, 'no axis met the external setpoint generator (0x4257)'));
 		AssertTrue(Condition := rig.fbAzim.ErrorID <> 16#4257 AND rig.fbElev.ErrorID <> 16#4257 AND rig.fbDero.ErrorID <> 16#4257, Message := 'no axis error 0x4257');

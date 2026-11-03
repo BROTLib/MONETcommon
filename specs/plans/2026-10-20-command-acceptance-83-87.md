@@ -565,6 +565,9 @@ Steps:
    first" (goto / gohome likewise), `bSlew`/`bGoto`/`bGoHome` **never** TRUE, `tonSlewTimeout.ET` stays 0, no motion,
    READY_STATE stays 0, `nCommandRejectCount` +3. `OBJECT.HORIZONTAL.ALT/AZ` in the telemetry do not change to 50/150.
    Also via XAE: write `TelescopeControl.bSlew := TRUE` once. It must be FALSE again in the next scan and logged.
+   **Since #24 step 5:** the block no longer writes the input, so `bSlew` stays TRUE; check instead that `bSlewActive` never
+   becomes TRUE and the rejection is logged once. The write is a one-shot edge: write `bSlew := FALSE` before the next
+   `TRUE`, otherwise the second write is no command.
 2. **Park while parked, then power-on** (#87 family): `command park=1`. Expect: no motion, `bPark` back to FALSE
    within one scan (the scope may not catch it; READY_STATE must not change and stay 0). Then `command power=1`, wait for
    READY_STATE 1.0, then **watch 60 s: nothing moves**, `bPark` FALSE.
