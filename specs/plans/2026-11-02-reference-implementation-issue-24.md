@@ -379,6 +379,32 @@ cases go into existing suites where they fit; step 6 frees slots by moving dupli
   call the BROTLib ones, deleting the duplicated test suites (frees suite slots). Diff the copies first; neutral only
   if identical.
 - Tests: rig suites green. Release: minor (pendant signature), MONETS/MONETN `MAIN` edit + re-pin.
+- **Status (2026-11-03): written on `refactor/coupling-cleanup` (from `develop` @ `c086ac6`), not compiled, not run (CI on push).
+  Version not bumped.**
+  - Pendant (breaking): `fbBrake`/`fbHydraulics` removed (declared, never read). `fbFocus` is `BROTLib.I_Focus` (the pendant only
+    uses `I_BaseAxis` members: `Enable`, `Ready`, `InPosLimit`, `InNegLimit`, `MovePos`, `MoveNeg`, `Reset()`, `Error`; HalfBROT's
+    `FB_FocusControl` implements it, so `fbFocus := FocusControl` in `MAIN` is unchanged; the guards are `fbFocus <> 0`). The
+    covers stay `REFERENCE TO HalfBROT.FB_CoverControl`: the pendant calls `Stop()` and reads `bError`, `I_MirrorCovers` has
+    neither (it has `Error`). MONETS and MONETN `MAIN` (develop and main): delete the two lines `fbBrake := HydraulicsControl,`
+    and `fbHydraulics := HydraulicsControl,` of the `PendantControl(...)` call (MONETS lines 228-229, MONETN 238-239), with the
+    re-pin. #177 (gate the pendant on the mode) and #168 (mode state machine) touch the same block and call: they add
+    `eTelescopeMode` and gating in the CASE branches, this changes only the declarations and the focus guards, so whoever comes
+    second rebases a few lines; the `MAIN` edit of #177 (`eTelescopeMode := eTelescopeMode`) goes into the same call.
+  - Axes (D6): unchanged; the README has the rationale (limits, `fActualPosition`, `fbAxis` NC status; BROTLib cannot reference
+    HalfBROT; the rig subclasses the concrete blocks).
+  - Duplicates, diffed against BROTLib 0.17.0 `Telescope/Command/` (CR/BOM stripped): identical except the object Id:
+    `F_ErrorParkRequest`, `F_GotoTargetCheck`, `F_HomeBelowHorizon`, `F_TargetBelowHorizonWarning`, `F_TCSCommandText`,
+    `E_CommandDecision`. Same logic, other signature: `F_ResetMoveAbort`, `F_SuspendStop` (BROTLib: one `bAnyAxisMoving` instead
+    of `bAzMoving`/`bElMoving`/`bDrMoving`, OR-ed inside). Different (kept): `F_CommandAcceptance` (MONETcommon has the #72 row
+    `bInitRequired` -> `init_required`), `F_CommandRejectText` (its text), `E_CommandRejectReason` (`init_required`),
+    `ST_CommandState` (`bInitRequired`); `E_CommandDecision` stays with them. M calls `BROTLib.F_*` for the seven, the OR of the
+    three axes is at the two call sites; the seven local units are removed.
+  - Tests: the six suites of the removed functions (`F_ErrorParkRequest_Tests`, `F_GotoTargetCheck_Tests`,
+    `F_HomeBelowHorizon_Tests`, `F_TargetBelowHorizonWarning_Tests`, `F_ResetMoveAbort_Tests`, `F_SuspendStop_Tests`) are the same
+    cases as in BROTLibTests and are deleted: 35 of 41 suites. The rig case `Goto_Window_From_stMotion_Refuses_The_Pole` (tests M,
+    not the function) moved to `FB_MonetRig_Tests` (10 tests, 55 assert lines). `F_CommandAcceptance_Tests` stays.
+  - Unverified until CI: the build (`BROTLib.I_Focus` as `VAR_INPUT`, an `FB_FocusMock` `VAR_IN_OUT` passed to it in the pendant
+    tests, `BROTLib.F_*` qualified calls), the rig suites green. On site: the pendant check (#69 list), focus on selector 5.
 
 ### Step 7 - Safe-state fixes (aim 6, one PR per row of the step-0 table)
 - Each row where today differs from the target becomes a PR: flip the `_Current` test, change M (expected first

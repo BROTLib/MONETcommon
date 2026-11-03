@@ -222,6 +222,11 @@ with the cover command of a power-on and is FALSE after a normal park and after 
   axis or focus are set FALSE once, and its `Enable` after `tEnableRelease` (2 s) if the pendant had set it (#3). It writes
   nothing for a function it does not own, so a jog from the Visu keeps working with the pendant key off. The selector must read
   the same for `tSelectionDebounce` (100 ms) before the pendant drives that function.
+  Inputs since #24 step 6 (breaking): `fbCovers` (`REFERENCE TO HalfBROT.FB_CoverControl`), `fbFocus : BROTLib.I_Focus`,
+  `fbElevation`/`fbAzimuth`/`fbDerotator` (`REFERENCE TO` the HalfBROT axis blocks); `fbBrake` and `fbHydraulics` are gone (never
+  read), so the site `MAIN` drops those two lines of the `PendantControl(...)` call. The focus takes the interface because the
+  pendant only uses `I_Focus` members; the covers stay the concrete block because the pendant also calls `Stop()` and reads
+  `bError`, which `I_MirrorCovers` does not have.
 - `FB_MonetCabinetControl` — cabinet buttons/switches/lamps and temperature
   monitoring.
 - `FB_MonetPowerMonitoring` — monitors the three-phase supply quality.
@@ -257,6 +262,26 @@ BROTLib  ──►  HalfBROT  ──►  MONETcommon  ──►  MONETN / MONETS
   directly by **MONETS** and **MONETN**. Only each site's `MAIN` (location,
   calibration, limits, pointing model, broker, site-only sensors) differs; a fix
   to shared behaviour belongs here, not in a site repository.
+
+**Why the axes are `REFERENCE TO` the concrete HalfBROT blocks (#24, D6).** `FB_MonetTelescopeControl` takes
+`fbElevation`/`fbAzimuth`/`fbDerotator` as `REFERENCE TO` HalfBROT's `FB_ElevationControl`/`FB_AzimuthControl`/
+`FB_DerotatorControl`, not as BROTLib's `I_Axis`, and `I_Axis` is not widened:
+- M needs members `I_Axis` does not carry: the axis limits `fMinPosition`/`fMaxPosition` (azimuth/derotator turn,
+  `F_AxisTurn`), `fActualPosition`, and the NC status of the nested `fbAxis` (`InMotion`, `InRamp`, `Homing`, `Stopping`,
+  `StopDone`, `StandStill`, `Busy`, `isTracking`) that the stop transaction and the error reactions read.
+- Widening `I_Axis` with these would put HalfBROT (Halfmann mount) details into BROTLib, and BROTLib cannot reference
+  HalfBROT (the dependency goes the other way).
+- Tests do not need an interface: the mock rig of `MONETcommonTests` subclasses the concrete HalfBROT blocks
+  (`FB_ElevationMock` etc., body replaced by a motion model), so the real M runs on mocks as it is.
+
+Interfaces are used where the consumer only needs interface members (the pendant's focus, `I_Focus`).
+
+**Pure functions from BROTLib (#24 step 6).** `F_ErrorParkRequest`, `F_GotoTargetCheck`, `F_HomeBelowHorizon`,
+`F_TargetBelowHorizonWarning`, `F_TCSCommandText`, `F_ResetMoveAbort` and `F_SuspendStop` are BROTLib's (`BROTLib.F_*`,
+`Telescope/Command/`, BROTLib >= 0.17.0, tested in `BROTLibTests`); MONETcommon's copies were removed. BROTLib's
+`F_ResetMoveAbort`/`F_SuspendStop` take one `bAnyAxisMoving` (M ORs the three axes). MONETcommon keeps its own
+`F_CommandAcceptance`, `F_CommandRejectText`, `E_CommandRejectReason`, `ST_CommandState` and `E_CommandDecision`: they have the
+#72 `init_required` row, which BROTLib 0.17.0 does not.
 
 ## Dependencies
 
