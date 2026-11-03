@@ -146,9 +146,13 @@ restarts the park once), then `power=1`.
 (`bSafetyError`) cuts the drives (STO): the brake lock is the stop. The axes are disabled in every scan (until 0.13.0 only
 for the E-stop), and on the rising edge the hydraulics are switched off at once (the hydraulic brake locks) and every move
 ends (no controlled stop, no MC_Stop). If the telescope is not parked, a park in place is held while the E-stop or the
-safety error is there (the covers may hang on the same circuit; nothing parks and the covers are not commanded meanwhile,
-also not after a `reset=1`) and runs as soon as both are gone: covers closed, hydraulics off, `bIsParked`,
-`bParkedInPlace` (WARN "E-stop / safety error released: park in place"). Not for a safety error alone while the
+safety error is there (nothing parks and the covers are not commanded to open or close meanwhile, also not after a `reset=1`)
+and runs as soon as both are gone: covers closed, hydraulics off, `bIsParked`, `bParkedInPlace` (WARN "E-stop / safety error
+released: park in place"). The covers are not on the E-stop circuit (they keep their supply), and an E-stop means stop: on
+the edge and in every scan while the E-stop or the safety error is there the block calls `fbCovers.Stop()`, so a running
+open or close (a power-on, a park, the pendant in automatic) ends where it is; a power-on or a park waits in its stage and the
+covers close only after the release, by the held park (PR 6 follow-up; `fbCovers` is `REFERENCE TO HalfBROT.FB_CoverControl`
+for that, `MAIN` unchanged). Not for a safety error alone while the
 Wake&Shake window is open (the window survives it, #155). Recovery: release the E-stop and run the safety reset (the
 `MAIN` reset button), wait for the park, `reset=1` clears the roof request, `power=1`. A safety error is still not
 `bError`, does not reject moves and is not part of the READY_STATE -1.0 condition (the E-stop is, as before); online

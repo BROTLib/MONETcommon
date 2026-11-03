@@ -738,6 +738,23 @@ cases go into existing suites where they fit; step 6 frees slots by moving dupli
     error cuts the drives. Risk: a `reset=1` held by an axis error that does not clear (STO may raise axis errors) aborts the park in
     every scan (`F_StageAbort` park row), as for any emergency park today. To run (Tim): `tcbuild.yml` on push, or the library install
     and `tctool MONETcommonTests.sln build run`; on site (design doc, order item 6), E-stop at hand.
+- **Status PR 6 follow-up (2026-11-03): "E-stop stops the covers", written on `fix/estop-stops-covers` (from `develop` @ `52725c8`),
+  not compiled, not run (CI on push). Version not bumped.** Owner: the covers are **not** on the E-stop circuit (they stay powered),
+  and "E-stop means stop". So the reason given above ("the covers may hang on the E-stop circuit") is replaced: on the rising edge of
+  `bSafetyStop` and in every scan while it holds (end of the body, after the stages) M calls `fbCovers.Stop()`; no stage commands
+  `Open()`/`Close()` while it holds (`_PowerOn` `open_covers` waits without the command, keeps `bIsParked` and does not advance;
+  `_ParkTelescope` `prepare` in place and `secure` skip `Close()` and wait, the hydraulics still go off). After the release the held park
+  (`bSafetyPark`) closes the covers as before; a power-on that was opening them is aborted by that park (#87) and does not open them
+  again; a park that was closing them goes on closing. This also covers the case listed above as "not changed": a park requested by
+  someone else or already running at the edge no longer commands the covers during the E-stop. `Stop()` is not in `I_MirrorCovers`, so
+  `fbCovers` of M is now `REFERENCE TO HalfBROT.FB_CoverControl` (as the pendant, step 6); `MAIN` passes `CoverControl` unchanged.
+  Alternatives: add `Stop()` to BROTLib `I_MirrorCovers` (cleaner, but a BROTLib + HalfBROT release first); a second optional input for
+  the stop (needs a `MAIN` change); stop on the E-stop only, not on a safety error alone (the owner's rule is for the E-stop; PR 6 treats
+  both alike, so both stop). Not covered: manual mode (M not called, the pendant keeps its hold-to-run). Tests: `FB_CoversMock` now
+  extends `HalfBROT.FB_CoverControl` (no `SUPER^()`), counts `Stop()` (`nStopCalls`) and has an optional travel model
+  (`FB_MonetRig.SetCoverTravelScans`, the rig calls its body after the telescope); new `MonetErrorPark_Tests.Estop_During_Cover_Opening_Stops_The_Covers`,
+  `.Safety_Error_During_Cover_Opening_Stops_The_Covers`, `.Estop_During_Cover_Closing_Stops_The_Covers`; one assert more in
+  `MonetSafeState_Tests.Estop_During_Slew_...` and `.Safety_Error_While_Tracking_...` (Stop() in the scan of the edge).
 
 Order rationale: 0-1 make the safety net; 2a-2b put the shared types in place before MONETcommon consumes them;
 2c-4 are neutral and unblock tests and the SM plan's 5.2; 4c settles the client question; 5-6 break consumers and
