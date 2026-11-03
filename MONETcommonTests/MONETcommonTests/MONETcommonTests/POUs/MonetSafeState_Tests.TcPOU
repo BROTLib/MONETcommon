@@ -1307,7 +1307,7 @@ END_CASE
 ]]></ST>
       </Implementation>
     </Method>
-    <Method Name="Clock_Invalid_Slew_Takes_The_Stop_Path" Id="{3ae55bea-8d37-4402-9d1c-a6193ab6ddcb}">
+    <Method Name="Clock_Invalid_Slew_Input_Is_Rejected" Id="{3ae55bea-8d37-4402-9d1c-a6193ab6ddcb}">
       <Declaration><![CDATA[// #24 step 5: the rising edge of the slew input while the clock is not valid is rejected with clock_invalid by the input gate
 // (_CommandState, F_CommandAcceptance), like the Slew() method: no request is set, so the clock check of the body (a request while the
 // clock is not valid sets bStopActive, the normal stop path) has nothing to stop and nothing parks. Until 0.14.x the written flag was
