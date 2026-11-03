@@ -27,6 +27,9 @@ That commit introduced the current `_StopTelescope`, i.e. the code on which #96 
 - Az: `bStopAxis` T, `StopCommand.Pending` T, `StopCommand.Execute` F, `Axis_Stop.Busy` T, `MoveCommand.Execute` T.
 - El: `bStopAxis` F, `StopCommand.Execute` T, `Axis_Stop.Busy` T and `Done` T, `MoveCommand.Execute` T.
 - Recovery: `MAIN.TelescopeControl.bStop := FALSE` over ADS, then `power=1` reached 1.0 in about 10 s.
+  **Since #24 step 5 this recovery no longer applies:** the block does not write `bStop` any more and the stop it runs is
+  the read-only output `bStopActive`; writing the input FALSE does nothing (an input falling aborts or clears nothing). A
+  stuck stop is recovered with `reset=1` (#96 D3: resets the stopping axes that stand still and cancels the transaction).
 - The same hang on 0.9.0 after a stop 4 s into a slew (#84 comment of 2026-10-20 14:55). In that case clearing `bStop` over ADS was
   not enough: `park=1` was accepted but nothing moved.
 
@@ -267,6 +270,8 @@ that the values come from one cycle.
 **Step 0 (optional, on 0.9.0 before the update, confirms 2.2).** Run step 1 once with the logger. Expected if the cause is right:
 `StopCommand.Execute` edges repeating every few scans on at least one axis, and `bStopped` never TRUE. Recovery: ADS
 `MAIN.TelescopeControl.bStop := FALSE`, then `power=1`. **Not** `park`: on 0.9.0 the park stays behind `bMoveAbortPending`.
+(Historical, 0.9.0 only. From #24 step 5 on, `bStop` is an edge-triggered input that the block never writes; the request is
+`bStopActive`, and the ADS write of FALSE is no recovery any more: use `reset=1`.)
 
 1. **Stop 3 s into the move home.**
    - Setup: online, slew to az 140 / el 55 and wait for standstill. Then `reset=1`: READY_STATE goes to -2.0 (MarkAborted) and the
