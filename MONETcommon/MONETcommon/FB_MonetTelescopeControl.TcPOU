@@ -175,6 +175,9 @@ VAR
 	// #96: one MC_Stop per axis and stop transaction; the stop is over when every axis that was sent one has
 	// reported StopDone and the telescope has been at rest for 3 scans. Replaces bStopIssuedAz/El/Dr (#84).
 	fbStopTx			: BROTLib.FB_StopTransaction;
+	// #25 step 5.2: which command runs (BROTLib.FB_CommandArbiter); bRequestIdle: no request is set in this scan
+	fbArbiter			: BROTLib.FB_CommandArbiter;
+	bRequestIdle		: BOOL;
 	bStopTxBegun		: BOOL;	// the transaction of the running stop command has been begun
 	StopForcedEvent		: FB_EventLog;
 	StopStuckEvent		: FB_EventLog;
@@ -761,133 +764,85 @@ IF bSafetyParkPending AND NOT bSafetyStop THEN
 	END_IF
 END_IF
 
-// set TCS_command according to state variables ordered by precedence
-// Stop outranks everything, including a running power-on
-IF bStopActive THEN
-	// #80: a stop always aborts a startup, also when bPower is already FALSE (power-on dropped by an error)
-	// and also when Init() has just accepted a request that is not Initializing yet. No-op when online.
+// set TCS_command according to state variables ordered by precedence (#25 step 5.2: BROTLib.FB_CommandArbiter decides, the
+// block applies what it asks for). Order: stop (also a running power-on) > park aborts a running power-on (#87) > power-on >
+// a running abort stop (#84) > park > gohome > goto > slew > track > idle.
+// A command that waits (not ready, busy, behind an abort stop) leaves TCS_command as it was in the last scan; only a scan
+// without any request goes idle, as before the arbiter. The arbiter says "no command" in both cases, so the idle case is
+// derived here from the same inputs.
+fbArbiter.bStop := bStopActive;
+fbArbiter.bPower := bPowerActive;
+fbArbiter.bInitializing := fbStartup.Initializing;
+fbArbiter.bPark := bParkActive;
+fbArbiter.bGoHome := bGoHomeActive;
+fbArbiter.bGoto := bGotoActive;
+fbArbiter.bSlew := bSlewActive;
+fbArbiter.bTrack := bTrackActive;
+fbArbiter.bError := bError;
+fbArbiter.bEmergencyPark := bSafetyPark;
+fbArbiter.bReady := bReady;
+fbArbiter.bBusy := bBusy;
+fbArbiter.bStopped := bStopped;
+fbArbiter.bMoveAbortPending := bMoveAbortPending;
+fbArbiter.bParkWinsOverPowerOn := TRUE;	// #87
+bRequestIdle := NOT (bStopActive OR bPowerActive OR bParkActive OR bGoHomeActive OR bGotoActive OR bSlewActive OR bTrackActive
+	OR (bMoveAbortPending AND NOT bError));
+fbArbiter();
+
+// #80: a stop always aborts a startup, also when bPower is already FALSE; the park that aborts a power-on does too (#87).
+// The flag it looks at is the one of the scan, before the clears below.
+IF fbArbiter.bAbortStartup THEN
 	fbStartup.MarkAbortedIfStarting(Power := bPowerActive);
-	bTrackActive := FALSE;
-	
-	// If the stop is during a power-on or a movement, reset the stage of the movement first
-	IF bPowerActive OR fbStartup.Initializing THEN
-		bPowerActive := FALSE;
-		_PowerOn();
-	END_IF
-	// #84: clear every pending move and reset every stage machine (was IF/ELSIF, and without bInterrupted)
-	bParkActive := FALSE;
-	bGotoActive := FALSE;
-	bSlewActive := FALSE;
-	bGoHomeActive := FALSE;
-	bInterrupted := TRUE;
-	_ParkTelescope();
-	_GotoTelescope();
-	_SlewTelescope();
-	_HomeTelescope();
-	bInterrupted := FALSE;	// #26: one-shot
-	bMoveAbortPending := TRUE;
-	TCS_command := E_TCSCommand.stop;
-	
-ELSIF bParkActive AND (bPowerActive OR fbStartup.Initializing) THEN
-	// #87: park wins over a running power-on. Abort it like the stop branch does (#80), then let the park run.
-	// Homing or the move home may still be running, so stop the axes first (#84 mechanism).
-	fbStartup.MarkAbortedIfStarting(Power := bPowerActive);
+END_IF
+IF fbArbiter.bClearPower THEN
 	bPowerActive := FALSE;
+END_IF
+IF fbArbiter.bClearTrack THEN
+	bTrackActive := FALSE;
+END_IF
+IF fbArbiter.bClearPark THEN
+	bParkActive := FALSE;
+END_IF
+IF fbArbiter.bClearGoto THEN
+	bGotoActive := FALSE;
+END_IF
+IF fbArbiter.bClearSlew THEN
+	bSlewActive := FALSE;
+END_IF
+IF fbArbiter.bClearGoHome THEN
+	bGoHomeActive := FALSE;
+END_IF
+// #26: the interrupted state machines reset their stage in one call with bInterrupted TRUE; bInterrupted is a one-shot
+IF fbArbiter.bInterruptPower OR fbArbiter.bInterruptPark OR fbArbiter.bInterruptGoto OR fbArbiter.bInterruptSlew
+		OR fbArbiter.bInterruptGoHome THEN
 	bInterrupted := TRUE;
-	_PowerOn();				// abort path: bPower FALSE, MarkAborted, stage 0, Move/HomeAxis FALSE
-	bInterrupted := FALSE;	// #26: one-shot
-	IF NOT bError THEN
-		bMoveAbortPending := TRUE;
+	IF fbArbiter.bInterruptPower THEN
+		_PowerOn();		// abort path: bPower FALSE, MarkAborted, stage 0, Move/HomeAxis FALSE
 	END_IF
-	bPowerAbortedByPark := TRUE;
-	TCS_command := E_TCSCommand.stop;
-
-ELSIF bPowerActive THEN
-	TCS_command := E_TCSCommand.poweron;
-
-ELSIF bMoveAbortPending AND NOT bError THEN
-	// #84: the interrupted move is still running; stop it before the next command is dispatched.
-	// Flags of the new command (bGoHome/bGoto/bPark) stay set and run once bStopped.
-	bTrackActive := FALSE;	// a pending track would otherwise start on the moving axes
-	TCS_command := E_TCSCommand.stop;
-
-ELSIF bParkActive THEN
-	bTrackActive := FALSE;
-	// M2: emergency park bypasses the bReady/bBusy gating below entirely, since bReady
-	// requires NOT bError and would otherwise make park unreachable during an error.
-	// #24 step 7 PR 6: the park after an E-stop / safety error too (the axes are disabled, it parks in place)
-	IF bError OR bSafetyPark THEN
-		bInterrupted := FALSE;
-		TCS_command := E_TCSCommand.park;
-	// If lower presedence commands are ongoing, let them know they are interupted
-	ELSIF bGotoActive OR bSlewActive OR bGoHomeActive THEN
-		bGoHomeActive := FALSE;
-		bGotoActive := FALSE;
-		bSlewActive := FALSE;
-		bInterrupted := TRUE;
+	IF fbArbiter.bInterruptPark THEN
+		_ParkTelescope();
+	END_IF
+	IF fbArbiter.bInterruptGoto THEN
+		_GotoTelescope();
+	END_IF
+	IF fbArbiter.bInterruptSlew THEN
+		_SlewTelescope();
+	END_IF
+	IF fbArbiter.bInterruptGoHome THEN
 		_HomeTelescope();
-		_GotoTelescope();
-		_SlewTelescope();
-		bInterrupted := FALSE;	// #26: one-shot, the interrupted state machines have reset their stage
-		bMoveAbortPending := TRUE;	// #84
+	END_IF
+	bInterrupted := FALSE;
+END_IF
+IF fbArbiter.bSetMoveAbortPending THEN
+	bMoveAbortPending := TRUE;	// #84
+END_IF
+IF fbArbiter.bPowerAbortedByPark THEN
+	bPowerAbortedByPark := TRUE;	// #87, logged below
+END_IF
 
-	ELSE
-		// #83/#87: also when not ready (parked, after a reset, after an aborted power-on) but at standstill.
-		// It used to wait for bReady, i.e. until after the next power-on.
-		IF NOT bBusy AND (bReady OR bStopped) THEN
-			bInterrupted := FALSE;
-			TCS_command := E_TCSCommand.park;
-		END_IF
-	END_IF
-	
-ELSIF bGoHomeActive THEN
-	bTrackActive := FALSE;
-	// If lower presedence commands are ongoing, let them know they are interupted
-	IF bGotoActive OR bSlewActive THEN
-		bGotoActive := FALSE;
-		bSlewActive := FALSE;
-		bInterrupted := TRUE;
-		_GotoTelescope();
-		_SlewTelescope();
-		bInterrupted := FALSE;	// #26: one-shot, see the park branch
-		bMoveAbortPending := TRUE;	// #84
-		
-	ELSE
-		IF bReady AND NOT bBusy AND bStopped THEN
-			bInterrupted := FALSE;
-			TCS_command := E_TCSCommand.gohome;
-		END_IF
-	END_IF
-	
-	
-ELSIF bGotoActive THEN
-	bTrackActive := FALSE;
-	// If lower presedence commands are ongoing, let them know they are interupted
-	IF bSlewActive THEN
-		bSlewActive := FALSE;
-		bInterrupted := TRUE;
-		_SlewTelescope();
-		bInterrupted := FALSE;	// #26: one-shot, see the park branch
-		bMoveAbortPending := TRUE;	// #84
-	ELSE
-		IF bReady AND NOT bBusy THEN
-			bInterrupted := FALSE;
-			TCS_command := E_TCSCommand.goto;
-		END_IF
-	END_IF
-		
-ELSIF bSlewActive THEN
-	bTrackActive := FALSE;
-	IF bReady AND NOT bBusy THEN
-		TCS_command := E_TCSCommand.slew;
-	END_IF
-	
-ELSIF bTrackActive THEN
-	IF bReady AND NOT bBusy THEN
-		TCS_command := E_TCSCommand.track;
-	END_IF
-	
-ELSE
+IF fbArbiter.eCommand <> E_TCSCommand.no_command THEN
+	TCS_command := fbArbiter.eCommand;
+ELSIF bRequestIdle THEN
 	TCS_command := E_TCSCommand.no_command;
 	fbElevation.MoveAxis := FALSE;
 	fbAzimuth.MoveAxis := FALSE;
