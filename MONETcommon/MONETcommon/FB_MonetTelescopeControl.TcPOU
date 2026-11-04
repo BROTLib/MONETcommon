@@ -174,7 +174,7 @@ VAR
 	fbTelemetry			: FB_MonetTelescopeTelemetry;
 	// #96: one MC_Stop per axis and stop transaction; the stop is over when every axis that was sent one has
 	// reported StopDone and the telescope has been at rest for 3 scans. Replaces bStopIssuedAz/El/Dr (#84).
-	fbStopTx			: FB_MonetStopTransaction;
+	fbStopTx			: BROTLib.FB_StopTransaction;
 	bStopTxBegun		: BOOL;	// the transaction of the running stop command has been begun
 	StopForcedEvent		: FB_EventLog;
 	StopStuckEvent		: FB_EventLog;
@@ -1556,7 +1556,7 @@ END_CASE]]></ST>
     <Method Name="SuspendAutomatic" Id="{1d8d9ace-21b3-43be-83fa-2fd1c6bdfc0f}">
       <Declaration><![CDATA[// MAIN calls this instead of the cyclic controller while automatic control is disabled.
 // #118: the moves of the automatic mode are not driven any more, so a move that is still running is stopped once (one MC_Stop
-// per moving axis, FB_MonetStopTransaction, the abort stop of #84/#56) and then the axes are released to the pendant. Queued moves
+// per moving axis, BROTLib.FB_StopTransaction, the abort stop of #84/#56) and then the axes are released to the pendant. Queued moves
 // are dropped, tracking ends, bPark is kept (it restarts in automatic). Only this one stop is driven here; a stop that arrives
 // during manual (Stop()) is processed after the return, it must not brake an axis the operator is jogging.
 // #72: the first manual scan also sets bInitRequired: after any manual interval a new Init (power=1) is always required before
