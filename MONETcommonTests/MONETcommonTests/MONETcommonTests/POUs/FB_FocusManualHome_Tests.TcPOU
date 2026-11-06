@@ -37,6 +37,9 @@ Abort_Uncalibrated_Blocks_AutoHome();
 Abort_Calibrated_No_Block();
 Request_Clears_Block();
 ClearBlock();
+Aborted_Rehome_Then_Rehome_Restores_The_First_Target();
+ClearBlock_Drops_The_Kept_Target();
+Calibrated_Abort_Drops_The_Pending_Target();
 ]]></ST>
     </Implementation>
     <Method Name="Accepted_When_Calibrated_Idle_Automatic" Id="{1ff9da75-f12f-4899-bc74-50b4fb651ac8}">
@@ -327,6 +330,7 @@ TEST_FINISHED();
     </Method>
     <Method Name="Request_Clears_Block" Id="{11b585a2-05af-45ef-b08d-f700249ddb87}">
       <Declaration><![CDATA[// An uncalibrated focus is accepted while the automatic homing is blocked, and the request lifts the block.
+// The target of the aborted re-home before it is kept (HalfBROT#152; was: no target to restore).
 METHOD PRIVATE Request_Clears_Block
 VAR
 	fb	: HalfBROT.FB_FocusManualHome;
@@ -342,7 +346,8 @@ eRes := fb.Request(bAutomatic := TRUE, bManualUnlock := FALSE, bError := FALSE, 
 AssertTrue(Condition := eRes = HalfBROT.E_FocusManualHome.Accepted, Message := 'accepted while blocked');
 AssertFalse(Condition := fb.bBlockAutoHome, Message := 'block lifted');
 AssertTrue(Condition := fb.bRunning, Message := 'running');
-AssertFalse(Condition := fb.bRestoreTarget, Message := 'uncalibrated: no target to restore');
+AssertTrue(Condition := fb.bRestoreTarget, Message := 'the target of the aborted re-home is kept (#152)');
+AssertEquals_LREAL(Expected := 36.0, Actual := fb.fRestoreTarget, Delta := 1.0E-9, Message := 'first target, not the junk one');
 TEST_FINISHED();
 ]]></ST>
       </Implementation>
@@ -363,6 +368,90 @@ fb(bHomeActive := FALSE, bHomePending := FALSE, bCalibrated := FALSE, bAbortPuls
 AssertTrue(Condition := fb.bBlockAutoHome, Message := 'block');
 fb.ClearBlock();
 AssertFalse(Condition := fb.bBlockAutoHome, Message := 'cleared');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Aborted_Rehome_Then_Rehome_Restores_The_First_Target" Id="{3c8d1f52-7a40-4b19-9e63-0d52a7c4e8b1}">
+      <Declaration><![CDATA[// HalfBROT#152 (MS-135): a stop in the sweep of a re-home from 35.98 mm, then bManualHome again to the end.
+// The second request is on an uncalibrated focus (fTarget is junk there, 0 in MS-135) and must still restore 35.98.
+// The target is used up by the cycle of bDone; a later request on the uncalibrated focus has none.
+METHOD PRIVATE Aborted_Rehome_Then_Rehome_Restores_The_First_Target
+VAR
+	fb	: HalfBROT.FB_FocusManualHome;
+	eRes	: HalfBROT.E_FocusManualHome;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Aborted_Rehome_Then_Rehome_Restores_The_First_Target');
+eRes := fb.Request(bAutomatic := TRUE, bManualUnlock := FALSE, bError := FALSE, bCalibrated := TRUE, bHoming := FALSE, bMoving := FALSE, fTarget := 35.98);
+fb(bHomeActive := TRUE, bHomePending := FALSE, bCalibrated := FALSE, bAbortPulse := FALSE);
+fb(bHomeActive := TRUE, bHomePending := FALSE, bCalibrated := FALSE, bAbortPulse := TRUE);
+fb(bHomeActive := FALSE, bHomePending := FALSE, bCalibrated := FALSE, bAbortPulse := FALSE);
+AssertTrue(Condition := fb.bAborted, Message := 'first re-home aborted');
+AssertTrue(Condition := fb.bBlockAutoHome, Message := 'blocked, uncalibrated');
+eRes := fb.Request(bAutomatic := TRUE, bManualUnlock := FALSE, bError := FALSE, bCalibrated := FALSE, bHoming := FALSE, bMoving := FALSE, fTarget := 0.0);
+AssertTrue(Condition := eRes = HalfBROT.E_FocusManualHome.Accepted, Message := 'second accepted');
+AssertTrue(Condition := fb.bRestoreTarget, Message := 'restore pending');
+AssertEquals_LREAL(Expected := 35.98, Actual := fb.fRestoreTarget, Delta := 1.0E-9, Message := 'first target kept');
+fb(bHomeActive := FALSE, bHomePending := TRUE, bCalibrated := FALSE, bAbortPulse := FALSE);
+fb(bHomeActive := TRUE, bHomePending := FALSE, bCalibrated := FALSE, bAbortPulse := FALSE);
+fb(bHomeActive := TRUE, bHomePending := FALSE, bCalibrated := TRUE, bAbortPulse := FALSE);
+fb(bHomeActive := FALSE, bHomePending := FALSE, bCalibrated := TRUE, bAbortPulse := FALSE);
+AssertTrue(Condition := fb.bDone, Message := 'second re-home done');
+AssertTrue(Condition := fb.bRestoreTarget, Message := 'target still there in the cycle of bDone');
+AssertEquals_LREAL(Expected := 35.98, Actual := fb.fRestoreTarget, Delta := 1.0E-9, Message := 'restore 35.98');
+fb(bHomeActive := FALSE, bHomePending := FALSE, bCalibrated := TRUE, bAbortPulse := FALSE);
+AssertFalse(Condition := fb.bRestoreTarget, Message := 'used up the cycle after');
+eRes := fb.Request(bAutomatic := TRUE, bManualUnlock := FALSE, bError := FALSE, bCalibrated := FALSE, bHoming := FALSE, bMoving := FALSE, fTarget := 12.0);
+AssertFalse(Condition := fb.bRestoreTarget, Message := 'a later uncalibrated request has none');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ClearBlock_Drops_The_Kept_Target" Id="{b7e24a90-1d6c-4f83-a5b2-9c0e3f71d6a4}">
+      <Declaration><![CDATA[// Another homing request (the power-on homing) lifts the block and ends on the cam without a restore:
+// a target kept from an aborted re-home is stale then (HalfBROT#152).
+METHOD PRIVATE ClearBlock_Drops_The_Kept_Target
+VAR
+	fb	: HalfBROT.FB_FocusManualHome;
+	eRes	: HalfBROT.E_FocusManualHome;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('ClearBlock_Drops_The_Kept_Target');
+eRes := fb.Request(bAutomatic := TRUE, bManualUnlock := FALSE, bError := FALSE, bCalibrated := TRUE, bHoming := FALSE, bMoving := FALSE, fTarget := 35.98);
+fb(bHomeActive := TRUE, bHomePending := FALSE, bCalibrated := FALSE, bAbortPulse := FALSE);
+fb(bHomeActive := FALSE, bHomePending := FALSE, bCalibrated := FALSE, bAbortPulse := FALSE);
+AssertTrue(Condition := fb.bBlockAutoHome, Message := 'blocked');
+fb.ClearBlock();
+eRes := fb.Request(bAutomatic := TRUE, bManualUnlock := FALSE, bError := FALSE, bCalibrated := FALSE, bHoming := FALSE, bMoving := FALSE, fTarget := 0.0);
+AssertTrue(Condition := eRes = HalfBROT.E_FocusManualHome.Accepted, Message := 'accepted');
+AssertFalse(Condition := fb.bRestoreTarget, Message := 'no stale target');
+AssertEquals_LREAL(Expected := 0.0, Actual := fb.fRestoreTarget, Delta := 1.0E-9, Message := 'no junk target kept');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Calibrated_Abort_Drops_The_Pending_Target" Id="{d41a6e08-52f7-4c3b-8e19-6a0b9d2c7f35}">
+      <Declaration><![CDATA[// A stop that leaves the calibration alone ends the re-home for good: nothing stays pending for a later uncalibrated request.
+METHOD PRIVATE Calibrated_Abort_Drops_The_Pending_Target
+VAR
+	fb	: HalfBROT.FB_FocusManualHome;
+	eRes	: HalfBROT.E_FocusManualHome;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Calibrated_Abort_Drops_The_Pending_Target');
+eRes := fb.Request(bAutomatic := TRUE, bManualUnlock := FALSE, bError := FALSE, bCalibrated := TRUE, bHoming := FALSE, bMoving := FALSE, fTarget := 35.98);
+fb(bHomeActive := TRUE, bHomePending := FALSE, bCalibrated := TRUE, bAbortPulse := FALSE);
+fb(bHomeActive := TRUE, bHomePending := FALSE, bCalibrated := TRUE, bAbortPulse := TRUE);
+fb(bHomeActive := FALSE, bHomePending := FALSE, bCalibrated := TRUE, bAbortPulse := FALSE);
+AssertTrue(Condition := fb.bAborted, Message := 'aborted');
+AssertFalse(Condition := fb.bBlockAutoHome, Message := 'calibrated: no block');
+AssertFalse(Condition := fb.bRestoreTarget, Message := 'nothing pending');
+eRes := fb.Request(bAutomatic := TRUE, bManualUnlock := FALSE, bError := FALSE, bCalibrated := FALSE, bHoming := FALSE, bMoving := FALSE, fTarget := 12.0);
+AssertFalse(Condition := fb.bRestoreTarget, Message := 'a later uncalibrated request has none');
 TEST_FINISHED();
 ]]></ST>
       </Implementation>
