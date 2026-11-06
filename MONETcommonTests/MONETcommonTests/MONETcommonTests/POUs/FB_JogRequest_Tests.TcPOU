@@ -1,0 +1,228 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="FB_JogRequest_Tests" Id="{9d00e0ea-a8d3-46ee-8323-0d90d1c86e96}" SpecialFunc="None">
+    <Declaration><![CDATA[// Tests for HalfBROT.FB_JogRequest (HalfBROT 0.12.0, #148): a jog reaches the axis only for a request that rose while the axis
+// could jog. The block bodies cannot run in a test (MC blocks), the wiring is checked by review and the CI compile.
+FUNCTION_BLOCK FB_JogRequest_Tests EXTENDS TcUnit.FB_TestSuite
+VAR
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[Press_While_Ready_Jogs();
+Latched_Before_Ready_No_Jog();
+Release_Then_Press_After_Ready_Jogs();
+Held_Through_Enable_Pendant();
+Ready_Lost_While_Jogging();
+Limit_Clears_Direction_Only();
+Limit_Released_Does_Not_Start();
+Both_Directions_No_Jog();
+Idle_No_Output();
+Regression_Old_Wiring_Would_Jog();
+]]></ST>
+    </Implementation>
+    <Method Name="Press_While_Ready_Jogs" Id="{bab9cd8a-a1ee-452a-b440-ac2dae2e8838}">
+      <Declaration><![CDATA[// Normal jog: the request rises while the axis can jog, it jogs and is not cleared; released, it stops.
+METHOD PRIVATE Press_While_Ready_Jogs
+VAR
+	fb	: HalfBROT.FB_JogRequest;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Press_While_Ready_Jogs');
+fb(bMovePos := FALSE, bMoveNeg := FALSE, bCanJog := TRUE, bAllowPos := TRUE, bAllowNeg := TRUE);
+fb(bMovePos := FALSE, bMoveNeg := TRUE, bCanJog := TRUE, bAllowPos := TRUE, bAllowNeg := TRUE);
+AssertTrue(Condition := fb.bJogNeg, Message := 'jog neg');
+AssertFalse(Condition := fb.bJogPos, Message := 'no jog pos');
+AssertFalse(Condition := fb.bClearNeg, Message := 'not cleared');
+fb(bMovePos := FALSE, bMoveNeg := FALSE, bCanJog := TRUE, bAllowPos := TRUE, bAllowNeg := TRUE);
+AssertFalse(Condition := fb.bJogNeg, Message := 'released');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Latched_Before_Ready_No_Jog" Id="{e4be0c62-243e-4203-b0dc-245a0bc47d63}">
+      <Declaration><![CDATA[// #148 core (MS-95): a request stored while the axis cannot jog is cleared and does not start it when it can.
+METHOD PRIVATE Latched_Before_Ready_No_Jog
+VAR
+	fb	: HalfBROT.FB_JogRequest;
+	n	: INT;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Latched_Before_Ready_No_Jog');
+FOR n := 1 TO 3 DO
+	fb(bMovePos := FALSE, bMoveNeg := TRUE, bCanJog := FALSE, bAllowPos := TRUE, bAllowNeg := TRUE);
+	AssertTrue(Condition := fb.bClearNeg, Message := 'cleared while blocked');
+	AssertFalse(Condition := fb.bJogNeg, Message := 'no jog while blocked');
+END_FOR
+// the axis can jog, the writer keeps the request (it was not released)
+FOR n := 1 TO 10 DO
+	fb(bMovePos := FALSE, bMoveNeg := TRUE, bCanJog := TRUE, bAllowPos := TRUE, bAllowNeg := TRUE);
+	AssertFalse(Condition := fb.bJogNeg, Message := 'no jog at the enable');
+END_FOR
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Release_Then_Press_After_Ready_Jogs" Id="{5ef40be2-d532-45ca-8046-9158b8fb711f}">
+      <Declaration><![CDATA[// After the request was released once while the axis can jog, a new press jogs.
+METHOD PRIVATE Release_Then_Press_After_Ready_Jogs
+VAR
+	fb	: HalfBROT.FB_JogRequest;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Release_Then_Press_After_Ready_Jogs');
+fb(bMovePos := FALSE, bMoveNeg := TRUE, bCanJog := FALSE, bAllowPos := TRUE, bAllowNeg := TRUE);
+fb(bMovePos := FALSE, bMoveNeg := TRUE, bCanJog := TRUE, bAllowPos := TRUE, bAllowNeg := TRUE);
+AssertFalse(Condition := fb.bJogNeg, Message := 'held through the enable');
+fb(bMovePos := FALSE, bMoveNeg := FALSE, bCanJog := TRUE, bAllowPos := TRUE, bAllowNeg := TRUE);
+fb(bMovePos := FALSE, bMoveNeg := TRUE, bCanJog := TRUE, bAllowPos := TRUE, bAllowNeg := TRUE);
+AssertTrue(Condition := fb.bJogNeg, Message := 'pressed again');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Held_Through_Enable_Pendant" Id="{23679fb6-947e-48bd-99a5-0b948d01743a}">
+      <Declaration><![CDATA[// A pendant direction written every cycle across disabled -> enabled does not jog until it was released once.
+METHOD PRIVATE Held_Through_Enable_Pendant
+VAR
+	fb	: HalfBROT.FB_JogRequest;
+	n	: INT;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Held_Through_Enable_Pendant');
+FOR n := 1 TO 3 DO
+	fb(bMovePos := TRUE, bMoveNeg := FALSE, bCanJog := FALSE, bAllowPos := TRUE, bAllowNeg := TRUE);
+END_FOR
+FOR n := 1 TO 5 DO
+	fb(bMovePos := TRUE, bMoveNeg := FALSE, bCanJog := TRUE, bAllowPos := TRUE, bAllowNeg := TRUE);
+	AssertFalse(Condition := fb.bJogPos, Message := 'held through Start');
+END_FOR
+fb(bMovePos := FALSE, bMoveNeg := FALSE, bCanJog := TRUE, bAllowPos := TRUE, bAllowNeg := TRUE);
+fb(bMovePos := TRUE, bMoveNeg := FALSE, bCanJog := TRUE, bAllowPos := TRUE, bAllowNeg := TRUE);
+AssertTrue(Condition := fb.bJogPos, Message := 'released and pressed');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Ready_Lost_While_Jogging" Id="{b77ee716-a3b0-4b97-8e5f-a666acd3532f}">
+      <Declaration><![CDATA[// A jog that loses the ability to jog stops and is cleared; a rewritten request does not restart it.
+METHOD PRIVATE Ready_Lost_While_Jogging
+VAR
+	fb	: HalfBROT.FB_JogRequest;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Ready_Lost_While_Jogging');
+fb(bMovePos := FALSE, bMoveNeg := FALSE, bCanJog := TRUE, bAllowPos := TRUE, bAllowNeg := TRUE);
+fb(bMovePos := TRUE, bMoveNeg := FALSE, bCanJog := TRUE, bAllowPos := TRUE, bAllowNeg := TRUE);
+AssertTrue(Condition := fb.bJogPos, Message := 'jogging');
+fb(bMovePos := TRUE, bMoveNeg := FALSE, bCanJog := FALSE, bAllowPos := TRUE, bAllowNeg := TRUE);
+AssertFalse(Condition := fb.bJogPos, Message := 'stopped');
+AssertTrue(Condition := fb.bClearPos, Message := 'cleared');
+fb(bMovePos := TRUE, bMoveNeg := FALSE, bCanJog := TRUE, bAllowPos := TRUE, bAllowNeg := TRUE);
+AssertFalse(Condition := fb.bJogPos, Message := 'not restarted');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Limit_Clears_Direction_Only" Id="{db75e1ea-b685-440c-9222-eb3a7b903459}">
+      <Declaration><![CDATA[// A limit in one direction clears and blocks that direction only.
+METHOD PRIVATE Limit_Clears_Direction_Only
+VAR
+	fb	: HalfBROT.FB_JogRequest;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Limit_Clears_Direction_Only');
+fb(bMovePos := FALSE, bMoveNeg := FALSE, bCanJog := TRUE, bAllowPos := TRUE, bAllowNeg := FALSE);
+fb(bMovePos := FALSE, bMoveNeg := TRUE, bCanJog := TRUE, bAllowPos := TRUE, bAllowNeg := FALSE);
+AssertTrue(Condition := fb.bClearNeg, Message := 'neg cleared at the limit');
+AssertFalse(Condition := fb.bJogNeg, Message := 'neg blocked');
+fb(bMovePos := TRUE, bMoveNeg := FALSE, bCanJog := TRUE, bAllowPos := TRUE, bAllowNeg := FALSE);
+AssertTrue(Condition := fb.bJogPos, Message := 'pos still jogs');
+AssertFalse(Condition := fb.bClearPos, Message := 'pos not cleared');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Limit_Released_Does_Not_Start" Id="{045479b6-23b4-41f3-bbb5-1afb18a22c1b}">
+      <Declaration><![CDATA[// A request rewritten at the limit does not start the jog when the limit frees.
+METHOD PRIVATE Limit_Released_Does_Not_Start
+VAR
+	fb	: HalfBROT.FB_JogRequest;
+	n	: INT;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Limit_Released_Does_Not_Start');
+FOR n := 1 TO 3 DO
+	fb(bMovePos := FALSE, bMoveNeg := TRUE, bCanJog := TRUE, bAllowPos := TRUE, bAllowNeg := FALSE);
+END_FOR
+FOR n := 1 TO 5 DO
+	fb(bMovePos := FALSE, bMoveNeg := TRUE, bCanJog := TRUE, bAllowPos := TRUE, bAllowNeg := TRUE);
+	AssertFalse(Condition := fb.bJogNeg, Message := 'limit freed');
+END_FOR
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Both_Directions_No_Jog" Id="{3d670e10-382d-4cc7-999b-8ba1fa4e85c2}">
+      <Declaration><![CDATA[// Both directions requested: neither jogs (MC_Jog would get both).
+METHOD PRIVATE Both_Directions_No_Jog
+VAR
+	fb	: HalfBROT.FB_JogRequest;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Both_Directions_No_Jog');
+fb(bMovePos := FALSE, bMoveNeg := FALSE, bCanJog := TRUE, bAllowPos := TRUE, bAllowNeg := TRUE);
+fb(bMovePos := TRUE, bMoveNeg := TRUE, bCanJog := TRUE, bAllowPos := TRUE, bAllowNeg := TRUE);
+AssertFalse(Condition := fb.bJogPos, Message := 'no pos');
+AssertFalse(Condition := fb.bJogNeg, Message := 'no neg');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Idle_No_Output" Id="{1dc526e3-bed4-4041-a88b-926a0c94f4c2}">
+      <Declaration><![CDATA[// No request: no jog and no clear, whatever the other inputs.
+METHOD PRIVATE Idle_No_Output
+VAR
+	fb	: HalfBROT.FB_JogRequest;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Idle_No_Output');
+fb(bMovePos := FALSE, bMoveNeg := FALSE, bCanJog := FALSE, bAllowPos := FALSE, bAllowNeg := FALSE);
+AssertFalse(Condition := fb.bJogPos OR fb.bJogNeg, Message := 'no jog blocked');
+AssertFalse(Condition := fb.bClearPos OR fb.bClearNeg, Message := 'no clear blocked');
+fb(bMovePos := FALSE, bMoveNeg := FALSE, bCanJog := TRUE, bAllowPos := TRUE, bAllowNeg := TRUE);
+AssertFalse(Condition := fb.bJogPos OR fb.bJogNeg, Message := 'no jog');
+AssertFalse(Condition := fb.bClearPos OR fb.bClearNeg, Message := 'no clear');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Regression_Old_Wiring_Would_Jog" Id="{d0bef85f-4fc6-46be-ba6c-2075306e49e4}">
+      <Declaration><![CDATA[// Documents the bug: the old wiring (request AND Ready) is TRUE in the first ready cycle, the block is not.
+METHOD PRIVATE Regression_Old_Wiring_Would_Jog
+VAR
+	fb	: HalfBROT.FB_JogRequest;
+	bOld	: BOOL;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Regression_Old_Wiring_Would_Jog');
+fb(bMovePos := FALSE, bMoveNeg := TRUE, bCanJog := FALSE, bAllowPos := TRUE, bAllowNeg := TRUE);
+fb(bMovePos := FALSE, bMoveNeg := TRUE, bCanJog := TRUE, bAllowPos := TRUE, bAllowNeg := TRUE);
+bOld := TRUE AND TRUE;	// old: Jog_Backwards := bMoveNeg; JogBackwards := Jog_Backwards AND Ready
+AssertTrue(Condition := bOld, Message := 'old wiring jogs');
+AssertFalse(Condition := fb.bJogNeg, Message := 'new wiring does not');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>
