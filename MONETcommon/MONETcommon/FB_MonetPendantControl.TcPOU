@@ -17,7 +17,7 @@ VAR_INPUT
 	// #177: in automatic mode selector 5-8 nudge the pointing offsets of the telescope (never Enable/Move* of an axis).
 	iTelescope			: BROTLib.I_AltAzTelescope;	// offsets (read+write) and ReadyState; 0 = no nudges
 	stMotion			: BROTLib.ST_MotionConfig;	// goto elevation window for the elevation nudge
-	tCycle				: TIME := T#0S;				// 0 = PLC task cycle time; tests set it
+	tCycle				: TIME := T#10MS;			// PLC task cycle time (PlcTask of MONETS and MONETN: 10 ms); _TaskInfo is not visible in a library
 	// nudge values (degrees, mm); suggestions to confirm on site (plan 2026-11-06-pendant-offsets-automatic-177, 3.4)
 	fElAzStep			: LREAL := 5.0/3600.0;		// tap
 	fElAzRateSlow		: LREAL := 10.0/3600.0;		// per second, held fSlowAfter..fFastAfter
@@ -327,13 +327,8 @@ IF NOT (bNudgeOk AND bNudgeArmed AND nDir <> 0) THEN
 	RETURN;
 END_IF
 
-// dt in seconds: the task cycle time unless a test sets tCycle
-IF tCycle > T#0S THEN
-	fDt := TIME_TO_LREAL(tCycle) * 0.001;
-ELSE
-	fDt := UDINT_TO_LREAL(_TaskInfo[GETCURTASKINDEXEX()].CycleTime) * 1.0E-7;
-END_IF
-fDt := MAX(fDt, 1.0E-6);
+// dt in seconds from the task cycle time input
+fDt := MAX(TIME_TO_LREAL(tCycle) * 0.001, 1.0E-6);
 
 // how far this scan: a tap is one step, then slow and fast rates (focus: one step every fFocusRepeatEvery after fFocusRepeatAfter)
 fDelta := 0.0;

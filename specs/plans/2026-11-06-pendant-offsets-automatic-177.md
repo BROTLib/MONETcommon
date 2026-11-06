@@ -88,7 +88,7 @@ New VAR_INPUTs:
 ```
 iTelescope	: BROTLib.I_AltAzTelescope;		// #177: offsets (read+write) and ReadyState; 0 = no nudges
 stMotion	: BROTLib.ST_MotionConfig;		// #177: goto elevation window for the elevation nudge (defaults = library defaults)
-tCycle		: TIME := T#0S;					// #177: 0 = PLC task cycle time; tests set it
+tCycle		: TIME := T#10MS;				// #177: PLC task cycle time (`_TaskInfo` is not visible in a library, CI build 2026-11-06)
 ```
 
 Why `I_AltAzTelescope` and not a new interface: it already carries get/set of the three offsets plus `ReadyState`
@@ -128,7 +128,7 @@ until released (3.8).
 Per scan (dt in seconds, cycle-time independent):
 
 ```
-fDt := SEL(tCycle > T#0S, UDINT_TO_LREAL(_TaskInfo[GETCURTASKINDEXEX()].CycleTime) * 1.0E-7, TIME_TO_LREAL(tCycle) * 1.0E-3);
+fDt := MAX(TIME_TO_LREAL(tCycle) * 1.0E-3, 1.0E-6);
 IF bNudgeArmed AND nDir <> 0 THEN
 	IF tHeld = 0 THEN fDelta := nDir * fStep;                         // rising edge: one step (a tap)
 	ELSIF tHeld >= tSlowAfter AND tHeld < tFastAfter THEN fDelta := nDir * fRateSlow * fDt;

@@ -71,7 +71,7 @@ Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey :=
 Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := FALSE, nSel := 7, bUp := TRUE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tRelease := T#2S);
 AssertTrue(Condition := fbEl.Enable, Message := 'automatic: Enable stays as the telescope set it');
 AssertFalse(Condition := fbEl.MovePos, Message := 'automatic: no jog');
-AssertEquals(Expected := 0.0, Actual := fbTel.AltitudeOffset, Delta := 1.0E-12, Message := 'no enable button: no nudge');
+AssertEquals_LREAL(Expected := 0.0, Actual := fbTel.AltitudeOffset, Delta := 1.0E-12, Message := 'no enable button: no nudge');
 TEST_FINISHED();
 ]]></ST>
       </Implementation>
@@ -102,11 +102,11 @@ fbP.tCycle := T#10MS;
 fbEl.Enable := TRUE;
 Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 7, bUp := FALSE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tRelease := T#2S);
 Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 7, bUp := TRUE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tRelease := T#2S);
-AssertEquals(Expected := 5.0/3600.0, Actual := fbTel.AltitudeOffset, Delta := 1.0E-9, Message := 'one tap, one step');
+AssertEquals_LREAL(Expected := 5.0/3600.0, Actual := fbTel.AltitudeOffset, Delta := 1.0E-9, Message := 'one tap, one step');
 AssertTrue(Condition := fbEl.Enable, Message := 'Enable untouched');
 AssertFalse(Condition := fbEl.MovePos, Message := 'no Move*');
 Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 7, bUp := FALSE, bDown := TRUE, bLeft := FALSE, bRight := FALSE, tRelease := T#2S);
-AssertEquals(Expected := 0.0, Actual := fbTel.AltitudeOffset, Delta := 1.0E-9, Message := 'down is the opposite step');
+AssertEquals_LREAL(Expected := 0.0, Actual := fbTel.AltitudeOffset, Delta := 1.0E-9, Message := 'down is the opposite step');
 TEST_FINISHED();
 ]]></ST>
       </Implementation>
@@ -136,7 +136,7 @@ fbP.eMode := E_TelescopeMode.automatic;
 fbP.tCycle := T#10MS;
 Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 8, bUp := FALSE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tRelease := T#2S);
 Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 8, bUp := FALSE, bDown := FALSE, bLeft := FALSE, bRight := TRUE, tRelease := T#2S);
-AssertEquals(Expected := 5.0/3600.0, Actual := fbTel.AzimuthOffset, Delta := 1.0E-9, Message := 'right: +step');
+AssertEquals_LREAL(Expected := 5.0/3600.0, Actual := fbTel.AzimuthOffset, Delta := 1.0E-9, Message := 'right: +step');
 TEST_FINISHED();
 ]]></ST>
       </Implementation>
@@ -166,10 +166,10 @@ fbP.eMode := E_TelescopeMode.automatic;
 fbP.tCycle := T#10MS;
 Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := FALSE, nSel := 7, bUp := TRUE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tRelease := T#2S);
 Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 7, bUp := TRUE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tRelease := T#2S);
-AssertEquals(Expected := 0.0, Actual := fbTel.AltitudeOffset, Delta := 1.0E-12, Message := 'held through the press: no nudge');
+AssertEquals_LREAL(Expected := 0.0, Actual := fbTel.AltitudeOffset, Delta := 1.0E-12, Message := 'held through the press: no nudge');
 Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 7, bUp := FALSE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tRelease := T#2S);
 Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 7, bUp := TRUE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tRelease := T#2S);
-AssertEquals(Expected := 5.0/3600.0, Actual := fbTel.AltitudeOffset, Delta := 1.0E-9, Message := 'after a release: nudges');
+AssertEquals_LREAL(Expected := 5.0/3600.0, Actual := fbTel.AltitudeOffset, Delta := 1.0E-9, Message := 'after a release: nudges');
 TEST_FINISHED();
 ]]></ST>
       </Implementation>
@@ -199,7 +199,7 @@ fbP.eMode := E_TelescopeMode.automatic;
 fbP.tCycle := T#10MS;
 Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 7, bUp := FALSE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tRelease := T#2S);
 Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := FALSE, nSel := 7, bUp := TRUE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tRelease := T#2S);
-AssertEquals(Expected := 0.0, Actual := fbTel.AltitudeOffset, Delta := 1.0E-12, Message := 'button released: no nudge');
+AssertEquals_LREAL(Expected := 0.0, Actual := fbTel.AltitudeOffset, Delta := 1.0E-12, Message := 'button released: no nudge');
 TEST_FINISHED();
 ]]></ST>
       </Implementation>
@@ -230,11 +230,11 @@ fbP.tCycle := T#10MS;
 fbTel.SetReady(0.7);
 Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 7, bUp := FALSE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tRelease := T#2S);
 Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 7, bUp := TRUE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tRelease := T#2S);
-AssertEquals(Expected := 0.0, Actual := fbTel.AltitudeOffset, Delta := 1.0E-12, Message := 'not online: no nudge');
+AssertEquals_LREAL(Expected := 0.0, Actual := fbTel.AltitudeOffset, Delta := 1.0E-12, Message := 'not online: no nudge');
 fbTel.SetReady(-1.0);
 Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 7, bUp := FALSE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tRelease := T#2S);
 Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 7, bUp := TRUE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tRelease := T#2S);
-AssertEquals(Expected := 0.0, Actual := fbTel.AltitudeOffset, Delta := 1.0E-12, Message := 'error: no nudge');
+AssertEquals_LREAL(Expected := 0.0, Actual := fbTel.AltitudeOffset, Delta := 1.0E-12, Message := 'error: no nudge');
 TEST_FINISHED();
 ]]></ST>
       </Implementation>
@@ -265,17 +265,17 @@ fbP.tCycle := T#10MS;
 fbTel.AltitudeOffset := 600.0/3600.0;
 Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 7, bUp := FALSE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tRelease := T#2S);
 Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 7, bUp := TRUE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tRelease := T#2S);
-AssertEquals(Expected := 600.0/3600.0, Actual := fbTel.AltitudeOffset, Delta := 1.0E-9, Message := 'at the limit: up refused');
+AssertEquals_LREAL(Expected := 600.0/3600.0, Actual := fbTel.AltitudeOffset, Delta := 1.0E-9, Message := 'at the limit: up refused');
 Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 7, bUp := FALSE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tRelease := T#2S);
 Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 7, bUp := FALSE, bDown := TRUE, bLeft := FALSE, bRight := FALSE, tRelease := T#2S);
-AssertEquals(Expected := 600.0/3600.0 - 5.0/3600.0, Actual := fbTel.AltitudeOffset, Delta := 1.0E-9, Message := 'down reduces');
+AssertEquals_LREAL(Expected := 600.0/3600.0 - 5.0/3600.0, Actual := fbTel.AltitudeOffset, Delta := 1.0E-9, Message := 'down reduces');
 fbTel.AltitudeOffset := 2.0;
 Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 7, bUp := FALSE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tRelease := T#2S);
 Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 7, bUp := TRUE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tRelease := T#2S);
-AssertEquals(Expected := 2.0, Actual := fbTel.AltitudeOffset, Delta := 1.0E-9, Message := 'beyond the limit: up refused');
+AssertEquals_LREAL(Expected := 2.0, Actual := fbTel.AltitudeOffset, Delta := 1.0E-9, Message := 'beyond the limit: up refused');
 Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 7, bUp := FALSE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tRelease := T#2S);
 Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 7, bUp := FALSE, bDown := TRUE, bLeft := FALSE, bRight := FALSE, tRelease := T#2S);
-AssertEquals(Expected := 2.0 - 5.0/3600.0, Actual := fbTel.AltitudeOffset, Delta := 1.0E-9, Message := 'beyond the limit: down reduces');
+AssertEquals_LREAL(Expected := 2.0 - 5.0/3600.0, Actual := fbTel.AltitudeOffset, Delta := 1.0E-9, Message := 'beyond the limit: down reduces');
 TEST_FINISHED();
 ]]></ST>
       </Implementation>
@@ -306,10 +306,10 @@ fbP.tCycle := T#10MS;
 fbEl.Position := 89.5;
 Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 7, bUp := FALSE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tRelease := T#2S);
 Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 7, bUp := TRUE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tRelease := T#2S);
-AssertEquals(Expected := 0.0, Actual := fbTel.AltitudeOffset, Delta := 1.0E-12, Message := 'at the window edge: up refused');
+AssertEquals_LREAL(Expected := 0.0, Actual := fbTel.AltitudeOffset, Delta := 1.0E-12, Message := 'at the window edge: up refused');
 Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 7, bUp := FALSE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tRelease := T#2S);
 Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 7, bUp := FALSE, bDown := TRUE, bLeft := FALSE, bRight := FALSE, tRelease := T#2S);
-AssertEquals(Expected := -5.0/3600.0, Actual := fbTel.AltitudeOffset, Delta := 1.0E-9, Message := 'down is inside the window');
+AssertEquals_LREAL(Expected := -5.0/3600.0, Actual := fbTel.AltitudeOffset, Delta := 1.0E-9, Message := 'down is inside the window');
 TEST_FINISHED();
 ]]></ST>
       </Implementation>
@@ -340,7 +340,7 @@ fbP.tCycle := T#10MS;
 fbTel.SetAltitudeOffset(0.05);
 Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 7, bUp := FALSE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tRelease := T#2S);
 Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 7, bUp := TRUE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tRelease := T#2S);
-AssertEquals(Expected := 0.05 + 5.0/3600.0, Actual := fbTel.AltitudeOffset, Delta := 1.0E-9, Message := 'added to the MQTT value');
+AssertEquals_LREAL(Expected := 0.05 + 5.0/3600.0, Actual := fbTel.AltitudeOffset, Delta := 1.0E-9, Message := 'added to the MQTT value');
 TEST_FINISHED();
 ]]></ST>
       </Implementation>
@@ -372,7 +372,7 @@ fbDr.fMinPosition := -90.0;
 fbDr.fMaxPosition := 360.0;
 Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 6, bUp := FALSE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tRelease := T#2S);
 Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 6, bUp := FALSE, bDown := FALSE, bLeft := FALSE, bRight := TRUE, tRelease := T#2S);
-AssertEquals(Expected := 0.02, Actual := fbTel.DerotatorOffset, Delta := 1.0E-9, Message := 'right: +0.02 deg');
+AssertEquals_LREAL(Expected := 0.02, Actual := fbTel.DerotatorOffset, Delta := 1.0E-9, Message := 'right: +0.02 deg');
 AssertFalse(Condition := fbDr.MovePos, Message := 'no Move*');
 TEST_FINISHED();
 ]]></ST>
@@ -407,7 +407,7 @@ Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey :=
 FOR nI := 1 TO 98 DO
 	Scan(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 7, bUp := TRUE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tRelease := T#2S);
 END_FOR
-AssertEquals(Expected := 5.0/3600.0, Actual := fbTel.AltitudeOffset, Delta := 1.0E-9, Message := 'before 0.5 s only the tap');
+AssertEquals_LREAL(Expected := 5.0/3600.0, Actual := fbTel.AltitudeOffset, Delta := 1.0E-9, Message := 'before 0.5 s only the tap');
 FOR nI := 1 TO 100 DO
 	Scan(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 7, bUp := TRUE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tRelease := T#2S);
 END_FOR
@@ -475,7 +475,7 @@ Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey :=
 Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 7, bUp := TRUE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tRelease := T#2S);
 AssertFalse(Condition := fbEl.Enable, Message := 'off: Enable not written');
 AssertFalse(Condition := fbEl.MovePos, Message := 'off: no jog');
-AssertEquals(Expected := 0.0, Actual := fbTel.AltitudeOffset, Delta := 1.0E-12, Message := 'off: no nudge');
+AssertEquals_LREAL(Expected := 0.0, Actual := fbTel.AltitudeOffset, Delta := 1.0E-12, Message := 'off: no nudge');
 TEST_FINISHED();
 ]]></ST>
       </Implementation>
@@ -536,12 +536,12 @@ fbTel.SetAltitudeOffset(0.01);
 fbTel.SetAzimuthOffset(0.02);
 fbTel.SetDerotatorOffset(0.5);
 fbTel.Track(fRightAscension := 10.0, fDeclination := 20.0);
-AssertEquals(Expected := 0.0, Actual := fbTel.AltitudeOffset, Delta := 1.0E-12, Message := 'new target: elevation offset cleared');
-AssertEquals(Expected := 0.0, Actual := fbTel.AzimuthOffset, Delta := 1.0E-12, Message := 'new target: azimuth offset cleared');
-AssertEquals(Expected := 0.0, Actual := fbTel.DerotatorOffset, Delta := 1.0E-12, Message := 'new target: derotator offset cleared');
+AssertEquals_LREAL(Expected := 0.0, Actual := fbTel.AltitudeOffset, Delta := 1.0E-12, Message := 'new target: elevation offset cleared');
+AssertEquals_LREAL(Expected := 0.0, Actual := fbTel.AzimuthOffset, Delta := 1.0E-12, Message := 'new target: azimuth offset cleared');
+AssertEquals_LREAL(Expected := 0.0, Actual := fbTel.DerotatorOffset, Delta := 1.0E-12, Message := 'new target: derotator offset cleared');
 fbTel.SetAltitudeOffset(0.01);
 fbTel.Track(fRightAscension := 10.0, fDeclination := 20.0);
-AssertEquals(Expected := 0.01, Actual := fbTel.AltitudeOffset, Delta := 1.0E-12, Message := 'same target again: offset kept');
+AssertEquals_LREAL(Expected := 0.01, Actual := fbTel.AltitudeOffset, Delta := 1.0E-12, Message := 'same target again: offset kept');
 TEST_FINISHED();
 ]]></ST>
       </Implementation>
