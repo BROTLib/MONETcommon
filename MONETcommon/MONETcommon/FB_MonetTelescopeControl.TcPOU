@@ -2900,6 +2900,10 @@ Slew := TRUE;]]></ST>
 ]]></Declaration>
       <Implementation>
         <ST><![CDATA[bStopChecked := TRUE;	// #24 step 5: a rising bStop in the same scan is this stop, not a second (repeated) one
+// #213: a stop ends a park that is queued behind a running stop (timeout or error park, park=1 during a stop). Only the stop
+// release started it; without this it started once the ramp stop settled and the stop was ignored (MS-137, 3 of 8 runs).
+// A Park() later in the same scan queues again.
+bParkAfterStop := FALSE;
 // #96 (D2): a repeated stop while a stop is running re-sends a stop only to axes that are moving again
 IF bStopActive THEN
 	fbStopTx.Restart();
