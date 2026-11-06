@@ -67,6 +67,9 @@
     <Compile Include="POUs\F_FocusTrackStoredPosition_Tests.TcPOU">
       <SubType>Code</SubType>
     </Compile>
+    <Compile Include="POUs\FB_JogRequest_Tests.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
     <Compile Include="POUs\FB_FocusJogLatch_Tests.TcPOU">
       <SubType>Code</SubType>
     </Compile>
