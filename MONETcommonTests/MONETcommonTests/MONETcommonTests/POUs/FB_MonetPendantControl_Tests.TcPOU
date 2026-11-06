@@ -105,6 +105,7 @@ Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey :=
 AssertEquals_LREAL(Expected := 5.0/3600.0, Actual := fbTel.AltitudeOffset, Delta := 1.0E-9, Message := 'one tap, one step');
 AssertTrue(Condition := fbEl.Enable, Message := 'Enable untouched');
 AssertFalse(Condition := fbEl.MovePos, Message := 'no Move*');
+Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 7, bUp := FALSE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tRelease := T#2S);
 Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 7, bUp := FALSE, bDown := TRUE, bLeft := FALSE, bRight := FALSE, tRelease := T#2S);
 AssertEquals_LREAL(Expected := 0.0, Actual := fbTel.AltitudeOffset, Delta := 1.0E-9, Message := 'down is the opposite step');
 TEST_FINISHED();
