@@ -40,6 +40,7 @@ Slew_Input_Falling_Does_Not_Abort_The_Slew();
 Slew_Method_And_Input_Edge_In_One_Scan_Count_Once();
 Repeated_Track_Retargets_And_Second_Stop_Works();
 Goto_Window_From_stMotion_Refuses_The_Pole();
+Slew_Window_Refuses_Low_And_High_Elevation();
 ]]></ST>
     </Implementation>
     <Method Name="Mock_Axis_Move_Reports_MoveDone" Id="{4aeb9af3-2d82-44f2-87fd-050f1d95d90d}">
@@ -824,6 +825,95 @@ CASE nStep OF
 	END_IF
 END_CASE
 
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Slew_Window_Refuses_Low_And_High_Elevation" Id="{6f1c0a52-3b8e-4d7a-9c21-5e0d8a4b7f13}">
+      <Declaration><![CDATA[// #212, on the mock rig: a slew is held to the goto window (F_GotoTargetCheck, defaults 2.0..89.5 deg). elevation -5 and 95 are refused:
+// the elevation axis is never started, no software error is latched and bSlewActive drops. elevation 2.5 is still carried out.
+// Multi-cycle (VAR_INST rig, one Scan() per PLC cycle). Failed checks are also noted in GVL_Diag.sFailures.
+METHOD PRIVATE Slew_Window_Refuses_Low_And_High_Elevation
+VAR_INST
+	rig			: FB_MonetRig;
+	nStep		: INT;
+	nCycles		: UINT;
+	bMoved		: BOOL;
+	sTest		: STRING(80);
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Slew_Window_Refuses_Low_And_High_Elevation');
+sTest := 'Slew_Window_Refuses_Low_And_High_Elevation: ';
+IF nStep >= 90 THEN
+	RETURN;
+END_IF
+rig.Scan();
+nCycles := nCycles + 1;
+IF rig.fbElev.MoveAxis THEN
+	bMoved := TRUE;
+END_IF
+CASE nStep OF
+0:
+	IF rig.ClockValid THEN
+		rig.fbTel.Init();
+		nStep := 10;
+		nCycles := 0;
+	ELSIF nCycles > 2000 THEN
+		AssertTrue(Condition := FALSE, Message := 'the astronomical clock never became valid');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the astronomical clock never became valid'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+10:
+	IF rig.Online THEN
+		rig.fbTel.Slew(fAzimuth := 175.0, fAltitude := -5.0);
+		nStep := 20;
+		nCycles := 0;
+	ELSIF nCycles > 1500 THEN
+		AssertTrue(Condition := FALSE, Message := 'the mock telescope did not reach READY_STATE 1.0');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the mock telescope did not reach READY_STATE 1.0'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+20:	// elevation -5: dropped, no move, no error
+	IF NOT rig.fbTel.bSlewActive THEN
+		AssertFalse(Condition := bMoved OR rig.fbTel.bError, Message := 'elevation -5: no move and no error');
+		F_Note(bFailed := bMoved OR rig.fbTel.bError, sText := CONCAT(sTest, 'elevation -5: no move and no error'));
+		rig.fbTel.Slew(fAzimuth := 175.0, fAltitude := 95.0);
+		nStep := 30;
+		nCycles := 0;
+	ELSIF nCycles > 300 THEN
+		AssertTrue(Condition := FALSE, Message := 'elevation -5: the slew was not dropped');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'elevation -5: the slew was not dropped'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+30:	// elevation 95: dropped, no move, no error
+	IF NOT rig.fbTel.bSlewActive THEN
+		AssertFalse(Condition := bMoved OR rig.fbTel.bError, Message := 'elevation 95: no move and no error');
+		F_Note(bFailed := bMoved OR rig.fbTel.bError, sText := CONCAT(sTest, 'elevation 95: no move and no error'));
+		rig.fbTel.Slew(fAzimuth := 175.0, fAltitude := 2.5);
+		nStep := 40;
+		nCycles := 0;
+	ELSIF nCycles > 300 THEN
+		AssertTrue(Condition := FALSE, Message := 'elevation 95: the slew was not dropped');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'elevation 95: the slew was not dropped'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+40:	// elevation 2.5: carried out
+	IF bMoved THEN
+		AssertFalse(Condition := rig.fbTel.bError, Message := 'elevation 2.5: the slew is carried out');
+		F_Note(bFailed := rig.fbTel.bError, sText := CONCAT(sTest, 'elevation 2.5: the slew is carried out'));
+		nStep := 99;
+		TEST_FINISHED();
+	ELSIF nCycles > 300 THEN
+		AssertTrue(Condition := FALSE, Message := 'elevation 2.5: the slew did not start');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'elevation 2.5: the slew did not start'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+END_CASE
 ]]></ST>
       </Implementation>
     </Method>
