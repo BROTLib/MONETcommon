@@ -13,6 +13,7 @@ Idle_Telescope_Parks_After_12_Hours();
 Suspend_Stuck_Stop_Hands_Over_And_Keeps_The_Abort();
 Command_Timeout_From_stMotion_Fires_At_1_Minute();
 Slew_Timeout_Ramps_Parks_And_Recovers_With_Reset();
+Stop_During_The_Timeout_Ramp_Cancels_The_Park();
 ]]></ST>
     </Implementation>
     <Method Name="Slew_Times_Out_After_600_Seconds" Id="{0f1dac27-94df-4228-bf7c-9724d9d1204a}">
@@ -418,6 +419,99 @@ CASE nStep OF
 	ELSIF nCycles > 1500 THEN
 		AssertTrue(Condition := FALSE, Message := 'not online again after reset=1 and power=1');
 		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'not online again after reset=1 and power=1'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+END_CASE
+
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Stop_During_The_Timeout_Ramp_Cancels_The_Park" Id="{c6bfd24c-6396-44d8-a01c-98be91362720}">
+      <Declaration><![CDATA[// MONETcommon#213 (6a, offline): a stop=1 that arrives while the state-machine timeout is still ramping the axes (bStop set, the park queued
+// in bParkAfterStop) must end the park for good. The slew timeout (16#40, time seam 1000) raises the timeout and queues the park behind the ramp; stop=1
+// in the next scan restarts the stop transaction. Expected: when the stop has settled no park starts (bParkActive and bParkAfterStop FALSE, not parked,
+// axes not driven to the park position), the error stays latched. Code reading 2026-11-06: nothing but the stop release clears bParkAfterStop, so this
+// is expected to FAIL until #213 is fixed.
+METHOD PRIVATE Stop_During_The_Timeout_Ramp_Cancels_The_Park
+VAR_INST
+	rig			: FB_MonetRig;
+	nStep		: INT;
+	nCycles		: UINT;
+	sTest		: STRING(80);
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Stop_During_The_Timeout_Ramp_Cancels_The_Park');
+sTest := 'Stop_During_The_Timeout_Ramp_Cancels_The_Park: ';
+IF nStep >= 90 THEN
+	RETURN;
+END_IF
+rig.Scan();
+nCycles := nCycles + 1;
+CASE nStep OF
+0:	// wait for the clock, then power on
+	IF rig.ClockValid THEN
+		rig.fbTel.Init();
+		nStep := 10;
+		nCycles := 0;
+	ELSIF nCycles > 2000 THEN
+		AssertTrue(Condition := FALSE, Message := 'the astronomical clock never became valid');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the astronomical clock never became valid'));
+		rig.SetTimeDivisor(nValue := 1);
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+10:	// online: slow axes, short timeouts, slew
+	IF rig.Online THEN
+		rig.SetMoveScans(nScans := 60000);
+		rig.SetTimeDivisor(nValue := 1000);
+		rig.fbTel.Slew(fAzimuth := 180.0, fAltitude := 45.0);
+		nStep := 20;
+		nCycles := 0;
+	ELSIF nCycles > 1500 THEN
+		AssertTrue(Condition := FALSE, Message := 'the mock telescope did not reach READY_STATE 1.0');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the mock telescope did not reach READY_STATE 1.0'));
+		rig.SetTimeDivisor(nValue := 1);
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+20:	// the slew times out (16#40)
+	IF rig.fbTel.bError THEN
+		rig.SetTimeDivisor(nValue := 1);
+		nStep := 30;
+		nCycles := 0;
+	ELSIF nCycles > 3000 THEN
+		AssertTrue(Condition := FALSE, Message := 'the slew never timed out');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the slew never timed out'));
+		rig.SetTimeDivisor(nValue := 1);
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+30:	// the scan after the timeout: the ramp runs and the park is queued behind it; stop=1 now
+	AssertTrue(Condition := rig.fbTel.bStopActive AND rig.fbTel.bParkAfterStop, Message := 'precondition: the timeout ramps and the park is queued (bParkAfterStop)');
+	F_Note(bFailed := NOT (rig.fbTel.bStopActive AND rig.fbTel.bParkAfterStop), sText := CONCAT(sTest, 'precondition: the timeout ramps and the park is queued (bParkAfterStop)'));
+	rig.fbTel.Stop();
+	nStep := 40;
+	nCycles := 0;
+40:	// wait until the stop has settled
+	IF NOT rig.fbTel.bStopActive AND nCycles > 5 THEN
+		nStep := 50;
+		nCycles := 0;
+	ELSIF nCycles > 1500 THEN
+		AssertTrue(Condition := FALSE, Message := 'the stop did not settle');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the stop did not settle'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+50:	// the park must not start now or later
+	IF nCycles >= 60 THEN
+		AssertFalse(Condition := rig.fbTel.bParkActive OR rig.fbTel.bParkAfterStop, Message := 'no park is running or queued after the stop');
+		F_Note(bFailed := rig.fbTel.bParkActive OR rig.fbTel.bParkAfterStop, sText := CONCAT(sTest, 'no park is running or queued after the stop'));
+		AssertFalse(Condition := rig.fbTel.bIsParked OR ABS(rig.fbElev.fActualPosition - 60.0) < 0.001, Message := 'the telescope was not parked after the stop');
+		F_Note(bFailed := rig.fbTel.bIsParked OR ABS(rig.fbElev.fActualPosition - 60.0) < 0.001, sText := CONCAT(sTest, 'the telescope was not parked after the stop'));
+		AssertTrue(Condition := rig.fbTel.bError AND rig.fbTel.nErrorID = 16#40, Message := 'the error 16#40 stays latched');
+		F_Note(bFailed := NOT (rig.fbTel.bError AND rig.fbTel.nErrorID = 16#40), sText := CONCAT(sTest, 'the error 16#40 stays latched'));
 		nStep := 99;
 		TEST_FINISHED();
 	END_IF
