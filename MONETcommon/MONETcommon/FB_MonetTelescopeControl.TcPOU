@@ -126,6 +126,9 @@ VAR
 	// #2: a slew target outside the axis limits was refused (one-scan flag, set by _SlewTelescope).
 	bSlewOutOfLimits	: BOOL;
 	SlewOutOfLimitsEvent: FB_EventLog;
+	// #212: a slew target outside the elevation window (stMotionUsed.fGotoMinElevation..fGotoMaxElevation, as goto) was refused (one-scan flag, set by _SlewTelescope).
+	bSlewOutsideWindow	: BOOL;
+	SlewOutsideWindowEvent: FB_EventLog;
 
 	// #34: home or park position at or below fHorizon + stMotionUsed.fHorizonMargin. The horizon guard
 	// would send the telescope home, find it still below the horizon, and home it again forever.
@@ -1516,7 +1519,15 @@ END_CASE]]></ST>
 // during manual (Stop()) is processed after the return, it must not brake an axis the operator is jogging.
 // #72: the first manual scan also sets bInitRequired: after any manual interval a new Init (power=1) is always required before
 // a move is accepted, a startup is never resumed and nothing queued replays. Stop, park, reset and Init stay accepted.
+// #168 (small alternative): the three optional inputs carry the live safety state of MAIN into the READY_STATE heartbeat of the
+// manual mode. They are telemetry only: they are used in the fbStartup.Suspend(Error := ...) call and nowhere else, never for an
+// axis, brake, hydraulics or cover write. The defaults give the heartbeat of before (no E-stop, no safety error, power present).
 METHOD SuspendAutomatic
+VAR_INPUT
+	bEstopIn		: BOOL := FALSE;	// MAIN: SafetyHandling.estop
+	bSafetyErrorIn	: BOOL := FALSE;	// MAIN: SafetyHandling.error
+	bMainReadyIn	: BOOL := TRUE;		// MAIN: the power monitoring (MONETS ready, MONETN mainReady)
+END_VAR
 ]]></Declaration>
       <Implementation><ST><![CDATA[// #156: the axis references are assigned only by the telescope body. After a start in manual (key on Local) they are still
 // unassigned, so the axis part is skipped until the first automatic scan. The rest (events, READY_STATE) does not use them.
@@ -1632,7 +1643,9 @@ IF NOT bSuspendStop THEN
     tonCommandTimeout(IN := FALSE);
     eTimeoutCommand := TCS_command;
 END_IF
-fReadyState := fbStartup.Suspend(Error := bError OR bSoftwareError OR bPowerFailure OR bEstopTriggered, Parked := bIsParked);
+// #168: bError and bPowerFailure are the values of the last automatic scan (bSoftwareError is part of bError); the live safety
+// state comes in through the inputs. In manual Error only selects the published value (the startup is aborted anyway).
+fReadyState := fbStartup.Suspend(Error := bError OR bPowerFailure OR bEstopIn OR bSafetyErrorIn OR NOT bMainReadyIn, Parked := bIsParked);
 // Continue the existing readiness heartbeat without replaying a frozen ONLINE value.
 tonMQTTTimer(IN := TRUE, PT := T#1S);
 IF fbStartup.PublishDue(CommValid := fbComm <> 0, Heartbeat := tonMQTTTimer.Q) THEN
@@ -1770,6 +1783,13 @@ CASE eSlewStage OF
 		// #2: the axes would clamp a position outside their limits to another one, so refuse it before any move
 		fSlewAzimuth := fAzimuth + fAzimuthPointingOffset + F_AzimuthOffsetOnAxis(fAzimuthOffset, fElevation);
 		fSlewDerotator := fElevation + fDerotatorOffset;
+		// #212: the same elevation window as goto (F_GotoTargetCheck, #109), on the elevation the axis would get. A warning, nothing latched, no move.
+		IF BROTLib.F_GotoTargetCheck(fElevation + fElevationPointingOffset + fElevationOffset, stMotionUsed.fGotoMinElevation, stMotionUsed.fGotoMaxElevation) <> 0 THEN
+			bSlewOutsideWindow := TRUE;
+			bSlewActive := FALSE;
+			eSlewStage := E_SlewStage.idle;
+			RETURN;
+		END_IF
 		IF fSlewAzimuth < fbAzimuth.fMinPosition - 1.0E-6 OR fSlewAzimuth > fbAzimuth.fMaxPosition + 1.0E-6
 			OR fSlewDerotator < fbDerotator.fMinPosition - 1.0E-6 OR fSlewDerotator > fbDerotator.fMaxPosition + 1.0E-6 THEN
 			bSlewOutOfLimits := TRUE;
@@ -1885,6 +1905,13 @@ SlewOutOfLimitsEvent(	Trigger := bSlewOutOfLimits,
 				OffMEssage := '',
 				Comm := fbComm);
 bSlewOutOfLimits := FALSE;
+SlewOutsideWindowEvent(	Trigger := bSlewOutsideWindow,
+				Level := ADSLOG_MSGTYPE_WARN,
+				FormatString := '%s',
+				OnMessage := 'Slew target outside the elevation window, slew refused',
+				OffMEssage := '',
+				Comm := fbComm);
+bSlewOutsideWindow := FALSE;
 TCSreadyEvent(	Trigger := bPowerActive AND bReady, 
 				Level := ADSLOG_MSGTYPE_HINT,
 				FormatString := '%s',
