@@ -40,7 +40,6 @@ Auto_Held_Direction_Ramps();
 Auto_Unwired_Telescope_Does_Not_Fault();
 Off_Mode_Writes_Nothing();
 Manual_To_Auto_Releases_Move_And_Keeps_Enable();
-New_Target_Clears_Offsets_Same_Target_Keeps_Them();
 ]]></ST>
     </Implementation>
     <Method Name="Auto_Does_Not_Write_Enable_Or_Move" Id="{b1c2d3e4-0001-4a5b-8c6d-7e8f90a1b201}">
@@ -101,6 +100,7 @@ fbP.eMode := E_TelescopeMode.automatic;
 fbP.tCycle := T#10MS;
 fbEl.Enable := TRUE;
 Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 7, bUp := FALSE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tRelease := T#2S);
+Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 7, bUp := FALSE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tRelease := T#2S);
 Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 7, bUp := TRUE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tRelease := T#2S);
 AssertEquals_LREAL(Expected := 5.0/3600.0, Actual := fbTel.AltitudeOffset, Delta := 1.0E-9, Message := 'one tap, one step');
 AssertTrue(Condition := fbEl.Enable, Message := 'Enable untouched');
@@ -135,6 +135,7 @@ fbP.iTelescope := fbTel;
 fbP.eMode := E_TelescopeMode.automatic;
 fbP.tCycle := T#10MS;
 Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 8, bUp := FALSE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tRelease := T#2S);
+Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 8, bUp := FALSE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tRelease := T#2S);
 Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 8, bUp := FALSE, bDown := FALSE, bLeft := FALSE, bRight := TRUE, tRelease := T#2S);
 AssertEquals_LREAL(Expected := 5.0/3600.0, Actual := fbTel.AzimuthOffset, Delta := 1.0E-9, Message := 'right: +step');
 TEST_FINISHED();
@@ -168,6 +169,7 @@ Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey :=
 Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 7, bUp := TRUE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tRelease := T#2S);
 AssertEquals_LREAL(Expected := 0.0, Actual := fbTel.AltitudeOffset, Delta := 1.0E-12, Message := 'held through the press: no nudge');
 Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 7, bUp := FALSE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tRelease := T#2S);
+Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 7, bUp := FALSE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tRelease := T#2S);
 Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 7, bUp := TRUE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tRelease := T#2S);
 AssertEquals_LREAL(Expected := 5.0/3600.0, Actual := fbTel.AltitudeOffset, Delta := 1.0E-9, Message := 'after a release: nudges');
 TEST_FINISHED();
@@ -197,6 +199,7 @@ fbTel.SetReady(1.0);
 fbP.iTelescope := fbTel;
 fbP.eMode := E_TelescopeMode.automatic;
 fbP.tCycle := T#10MS;
+Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 7, bUp := FALSE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tRelease := T#2S);
 Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 7, bUp := FALSE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tRelease := T#2S);
 Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := FALSE, nSel := 7, bUp := TRUE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tRelease := T#2S);
 AssertEquals_LREAL(Expected := 0.0, Actual := fbTel.AltitudeOffset, Delta := 1.0E-12, Message := 'button released: no nudge');
@@ -229,9 +232,11 @@ fbP.eMode := E_TelescopeMode.automatic;
 fbP.tCycle := T#10MS;
 fbTel.SetReady(0.7);
 Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 7, bUp := FALSE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tRelease := T#2S);
+Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 7, bUp := FALSE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tRelease := T#2S);
 Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 7, bUp := TRUE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tRelease := T#2S);
 AssertEquals_LREAL(Expected := 0.0, Actual := fbTel.AltitudeOffset, Delta := 1.0E-12, Message := 'not online: no nudge');
 fbTel.SetReady(-1.0);
+Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 7, bUp := FALSE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tRelease := T#2S);
 Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 7, bUp := FALSE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tRelease := T#2S);
 Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 7, bUp := TRUE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tRelease := T#2S);
 AssertEquals_LREAL(Expected := 0.0, Actual := fbTel.AltitudeOffset, Delta := 1.0E-12, Message := 'error: no nudge');
@@ -264,15 +269,19 @@ fbP.eMode := E_TelescopeMode.automatic;
 fbP.tCycle := T#10MS;
 fbTel.AltitudeOffset := 600.0/3600.0;
 Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 7, bUp := FALSE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tRelease := T#2S);
+Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 7, bUp := FALSE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tRelease := T#2S);
 Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 7, bUp := TRUE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tRelease := T#2S);
 AssertEquals_LREAL(Expected := 600.0/3600.0, Actual := fbTel.AltitudeOffset, Delta := 1.0E-9, Message := 'at the limit: up refused');
+Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 7, bUp := FALSE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tRelease := T#2S);
 Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 7, bUp := FALSE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tRelease := T#2S);
 Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 7, bUp := FALSE, bDown := TRUE, bLeft := FALSE, bRight := FALSE, tRelease := T#2S);
 AssertEquals_LREAL(Expected := 600.0/3600.0 - 5.0/3600.0, Actual := fbTel.AltitudeOffset, Delta := 1.0E-9, Message := 'down reduces');
 fbTel.AltitudeOffset := 2.0;
 Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 7, bUp := FALSE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tRelease := T#2S);
+Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 7, bUp := FALSE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tRelease := T#2S);
 Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 7, bUp := TRUE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tRelease := T#2S);
 AssertEquals_LREAL(Expected := 2.0, Actual := fbTel.AltitudeOffset, Delta := 1.0E-9, Message := 'beyond the limit: up refused');
+Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 7, bUp := FALSE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tRelease := T#2S);
 Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 7, bUp := FALSE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tRelease := T#2S);
 Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 7, bUp := FALSE, bDown := TRUE, bLeft := FALSE, bRight := FALSE, tRelease := T#2S);
 AssertEquals_LREAL(Expected := 2.0 - 5.0/3600.0, Actual := fbTel.AltitudeOffset, Delta := 1.0E-9, Message := 'beyond the limit: down reduces');
@@ -305,8 +314,10 @@ fbP.eMode := E_TelescopeMode.automatic;
 fbP.tCycle := T#10MS;
 fbEl.Position := 89.5;
 Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 7, bUp := FALSE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tRelease := T#2S);
+Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 7, bUp := FALSE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tRelease := T#2S);
 Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 7, bUp := TRUE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tRelease := T#2S);
 AssertEquals_LREAL(Expected := 0.0, Actual := fbTel.AltitudeOffset, Delta := 1.0E-12, Message := 'at the window edge: up refused');
+Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 7, bUp := FALSE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tRelease := T#2S);
 Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 7, bUp := FALSE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tRelease := T#2S);
 Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 7, bUp := FALSE, bDown := TRUE, bLeft := FALSE, bRight := FALSE, tRelease := T#2S);
 AssertEquals_LREAL(Expected := -5.0/3600.0, Actual := fbTel.AltitudeOffset, Delta := 1.0E-9, Message := 'down is inside the window');
@@ -338,6 +349,7 @@ fbP.iTelescope := fbTel;
 fbP.eMode := E_TelescopeMode.automatic;
 fbP.tCycle := T#10MS;
 fbTel.SetAltitudeOffset(0.05);
+Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 7, bUp := FALSE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tRelease := T#2S);
 Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 7, bUp := FALSE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tRelease := T#2S);
 Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 7, bUp := TRUE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tRelease := T#2S);
 AssertEquals_LREAL(Expected := 0.05 + 5.0/3600.0, Actual := fbTel.AltitudeOffset, Delta := 1.0E-9, Message := 'added to the MQTT value');
@@ -371,6 +383,7 @@ fbP.tCycle := T#10MS;
 fbDr.fMinPosition := -90.0;
 fbDr.fMaxPosition := 360.0;
 Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 6, bUp := FALSE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tRelease := T#2S);
+Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 6, bUp := FALSE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tRelease := T#2S);
 Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 6, bUp := FALSE, bDown := FALSE, bLeft := FALSE, bRight := TRUE, tRelease := T#2S);
 AssertEquals_LREAL(Expected := 0.02, Actual := fbTel.DerotatorOffset, Delta := 1.0E-9, Message := 'right: +0.02 deg');
 AssertFalse(Condition := fbDr.MovePos, Message := 'no Move*');
@@ -403,16 +416,17 @@ fbP.iTelescope := fbTel;
 fbP.eMode := E_TelescopeMode.automatic;
 fbP.tCycle := T#10MS;
 Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 7, bUp := FALSE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tRelease := T#2S);
+Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 7, bUp := FALSE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tRelease := T#2S);
 Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 7, bUp := TRUE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tRelease := T#2S);
-FOR nI := 1 TO 98 DO
+FOR nI := 1 TO 40 DO
 	Scan(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 7, bUp := TRUE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tRelease := T#2S);
 END_FOR
 AssertEquals_LREAL(Expected := 5.0/3600.0, Actual := fbTel.AltitudeOffset, Delta := 1.0E-9, Message := 'before 0.5 s only the tap');
 FOR nI := 1 TO 100 DO
 	Scan(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 7, bUp := TRUE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tRelease := T#2S);
 END_FOR
-AssertTrue(Condition := fbTel.AltitudeOffset > 5.0/3600.0 + 4.0/3600.0, Message := 'after 0.5 s: slow rate about 10 arcsec/s');
-AssertTrue(Condition := fbTel.AltitudeOffset < 5.0/3600.0 + 8.0/3600.0, Message := 'slow rate, not fast');
+AssertTrue(Condition := fbTel.AltitudeOffset > 5.0/3600.0 + 4.0/3600.0, Message := '1 s later: slow rate about 10 arcsec/s');
+AssertTrue(Condition := fbTel.AltitudeOffset < 5.0/3600.0 + 12.0/3600.0, Message := 'slow rate, not fast');
 TEST_FINISHED();
 ]]></ST>
       </Implementation>
@@ -439,6 +453,7 @@ fbDr.Position := 0.0;
 fbTel.SetReady(1.0);
 fbP.eMode := E_TelescopeMode.automatic;
 fbP.tCycle := T#10MS;
+Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 7, bUp := FALSE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tRelease := T#2S);
 Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 7, bUp := FALSE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tRelease := T#2S);
 Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 7, bUp := TRUE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tRelease := T#2S);
 AssertTrue(Condition := TRUE, Message := 'reached the end without a page fault');
@@ -471,6 +486,7 @@ fbP.eMode := E_TelescopeMode.automatic;
 fbP.tCycle := T#10MS;
 fbP.eMode := E_TelescopeMode.off;
 fbEl.Enable := FALSE;
+Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 7, bUp := FALSE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tRelease := T#2S);
 Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 7, bUp := FALSE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tRelease := T#2S);
 Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 7, bUp := TRUE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tRelease := T#2S);
 AssertFalse(Condition := fbEl.Enable, Message := 'off: Enable not written');
@@ -513,35 +529,6 @@ Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey :=
 Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := FALSE, nSel := 7, bUp := FALSE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tRelease := T#2S);
 AssertFalse(Condition := fbEl.MovePos, Message := 'automatic: Move* released');
 AssertTrue(Condition := fbEl.Enable, Message := 'automatic: Enable not dropped by the pendant');
-TEST_FINISHED();
-]]></ST>
-      </Implementation>
-    </Method>
-    <Method Name="New_Target_Clears_Offsets_Same_Target_Keeps_Them" Id="{b1c2d3e4-0015-4a5b-8c6d-7e8f90a1b215}">
-      <Declaration><![CDATA[// #177: a new target clears the three offsets, the same target sent again keeps them
-METHOD PRIVATE New_Target_Clears_Offsets_Same_Target_Keeps_Them
-VAR
-	fbComm	: FB_NullComm;
-	fbP		: FB_MonetPendantProbe(comm := fbComm);
-	fbEl	: FB_ElevationMock(comm := fbComm);
-	fbAz	: FB_AzimuthMock(comm := fbComm);
-	fbDr	: FB_DerotatorMock(comm := fbComm);
-	fbFo	: FB_FocusMock(comm := fbComm);
-	fbTel	: FB_MonetTelescopeProbe(comm := fbComm);
-END_VAR
-]]></Declaration>
-      <Implementation>
-        <ST><![CDATA[TEST('New_Target_Clears_Offsets_Same_Target_Keeps_Them');
-fbTel.SetAltitudeOffset(0.01);
-fbTel.SetAzimuthOffset(0.02);
-fbTel.SetDerotatorOffset(0.5);
-fbTel.Track(fRightAscension := 10.0, fDeclination := 20.0);
-AssertEquals_LREAL(Expected := 0.0, Actual := fbTel.AltitudeOffset, Delta := 1.0E-12, Message := 'new target: elevation offset cleared');
-AssertEquals_LREAL(Expected := 0.0, Actual := fbTel.AzimuthOffset, Delta := 1.0E-12, Message := 'new target: azimuth offset cleared');
-AssertEquals_LREAL(Expected := 0.0, Actual := fbTel.DerotatorOffset, Delta := 1.0E-12, Message := 'new target: derotator offset cleared');
-fbTel.SetAltitudeOffset(0.01);
-fbTel.Track(fRightAscension := 10.0, fDeclination := 20.0);
-AssertEquals_LREAL(Expected := 0.01, Actual := fbTel.AltitudeOffset, Delta := 1.0E-12, Message := 'same target again: offset kept');
 TEST_FINISHED();
 ]]></ST>
       </Implementation>

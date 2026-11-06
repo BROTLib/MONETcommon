@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
   <POU Name="FB_MonetRig_Tests" Id="{3ed949b3-7d66-48e5-bdad-edf8be04d763}" SpecialFunc="None">
     <Declaration><![CDATA[// Smoke test of the mock rig (spike S0 of the telescope state machine plan (BROTLib specs/plans/2026-10-21-telescope-state-machine-unification.md, step 0.2):
@@ -253,6 +253,7 @@ stSnap.fAzimuthPosition := 170.0;
 stSnap.fAzimuthVelocity := 10.0;
 stSnap.fAzimuthCurrent := 175.0;
 stSnap.fAzimuthOffset := 0.5;
+stSnap.fDerotatorOffset := 0.25;
 stSnap.fElevationCurrentSky := 59.875;
 stSnap.fAzimuthCurrentSky := 175.25;
 stSnap.fRightAscensionCurrent := 150.5;
@@ -307,9 +308,10 @@ _Expect(rec := rec, sMismatch := sMismatch, nIndex := 41, sMethod := 'PublishLRE
 _Expect(rec := rec, sMismatch := sMismatch, nIndex := 42, sMethod := 'PublishLREAL', sTopic := 'POSITION.EQUATORIAL.RA_ICRS', fValue := 150.5, nValue := 0, sValue := '');
 _Expect(rec := rec, sMismatch := sMismatch, nIndex := 43, sMethod := 'PublishLREAL', sTopic := 'POSITION.EQUATORIAL.HA_ICRS', fValue := 30.25, nValue := 0, sValue := '');
 _Expect(rec := rec, sMismatch := sMismatch, nIndex := 44, sMethod := 'PublishLREAL', sTopic := 'POSITION.EQUATORIAL.DEC_ICRS', fValue := -20.75, nValue := 0, sValue := '');
+_Expect(rec := rec, sMismatch := sMismatch, nIndex := 45, sMethod := 'PublishLREAL', sTopic := 'POSITION.INSTRUMENTAL.DEROT.OFFSET', fValue := 0.25, nValue := 0, sValue := '');
 
-AssertEquals_INT(Expected := 44, Actual := rec.nCount, Message := 'one record is 44 publishes');
-F_Note(bFailed := rec.nCount <> 44, sText := CONCAT(sTest, CONCAT('publishes: ', INT_TO_STRING(rec.nCount))));
+AssertEquals_INT(Expected := 45, Actual := rec.nCount, Message := 'one record is 44 publishes + the derotator offset (#177)');
+F_Note(bFailed := rec.nCount <> 45, sText := CONCAT(sTest, CONCAT('publishes: ', INT_TO_STRING(rec.nCount))));
 AssertEquals_INT(Expected := 0, Actual := rec.nOtherAddress, Message := 'every publish goes to telescope/dome');
 F_Note(bFailed := rec.nOtherAddress <> 0, sText := CONCAT(sTest, 'a publish not to telescope/dome'));
 AssertEquals_STRING(Expected := '', Actual := sMismatch, Message := 'method, topic and value of every publish as in 0.12.0 (first mismatch)');
@@ -371,8 +373,8 @@ _Expect(rec := rec, sMismatch := sMismatch, nIndex := 31, sMethod := 'PublishLRE
 _Expect(rec := rec, sMismatch := sMismatch, nIndex := 32, sMethod := 'PublishINT', sTopic := 'POSITION.INSTRUMENTAL.AZ.ERROR_STATE', nValue := 16#4FFF, fValue := 0.0, sValue := '');
 _Expect(rec := rec, sMismatch := sMismatch, nIndex := 33, sMethod := 'PublishINT', sTopic := 'POSITION.INSTRUMENTAL.AZ.MOTION_STATE', nValue := 8, fValue := 0.0, sValue := '');
 
-AssertEquals_INT(Expected := 44, Actual := rec.nCount, Message := 'every branch publishes, the count stays 44');
-F_Note(bFailed := rec.nCount <> 44, sText := CONCAT(sTest, CONCAT('publishes: ', INT_TO_STRING(rec.nCount))));
+AssertEquals_INT(Expected := 45, Actual := rec.nCount, Message := 'every branch publishes, the count stays 45');
+F_Note(bFailed := rec.nCount <> 45, sText := CONCAT(sTest, CONCAT('publishes: ', INT_TO_STRING(rec.nCount))));
 AssertEquals_STRING(Expected := '', Actual := sMismatch, Message := 'the other branch of every condition (first mismatch)');
 F_Note(bFailed := sMismatch <> '', sText := CONCAT(sTest, CONCAT('first mismatch: ', sMismatch)));
 bDone := TRUE;
@@ -708,8 +710,13 @@ CASE nStep OF
 		nTracking := 0;
 	END_IF
 	IF nTracking >= 5 THEN
+		rig.fbTel.SetAltitudeOffset(0.01);
+		rig.fbTel.SetAzimuthOffset(0.02);
+		rig.fbTel.SetDerotatorOffset(0.5);
 		nRejects0 := rig.fbTel.nCommandRejectCount;
 		bAccepted := rig.fbTel.Track(fRightAscension := 180.0, fDeclination := -80.0);
+		AssertTrue(Condition := rig.fbTel.AltitudeOffset = 0.0 AND rig.fbTel.AzimuthOffset = 0.0 AND rig.fbTel.DerotatorOffset = 0.0, Message := 'a new target clears the three offsets (#177)');
+		F_Note(bFailed := NOT (rig.fbTel.AltitudeOffset = 0.0 AND rig.fbTel.AzimuthOffset = 0.0 AND rig.fbTel.DerotatorOffset = 0.0), sText := CONCAT(sTest, 'a new target did not clear the offsets'));
 		AssertTrue(Condition := bAccepted AND rig.fbTel.bGotoActive AND rig.fbTel.fRightAscension = 180.0 AND rig.fbTel.fDeclination = -80.0, Message := 'Track() while tracking is accepted and takes the new target');
 		F_Note(bFailed := NOT (bAccepted AND rig.fbTel.bGotoActive AND rig.fbTel.fRightAscension = 180.0 AND rig.fbTel.fDeclination = -80.0), sText := CONCAT(sTest, 'Track() while tracking is accepted and takes the new target'));
 		nStep := 30;

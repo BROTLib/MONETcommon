@@ -140,7 +140,6 @@ comm.PublishLREAL('telescope', 'dome', 'POSITION.INSTRUMENTAL.AZ.TARGETPOS', stT
 comm.PublishLREAL('telescope', 'dome', 'POSITION.INSTRUMENTAL.AZ.CURRSPEED', stTelemetry.fAzimuthVelocity);
 comm.PublishLREAL('telescope', 'dome', 'POSITION.INSTRUMENTAL.AZ.TARGETDISTANCE', ABS(stTelemetry.fAzimuthCurrent-stTelemetry.fAzimuthPosition));
 comm.PublishLREAL('telescope', 'dome', 'POSITION.INSTRUMENTAL.AZ.OFFSET', stTelemetry.fAzimuthOffset);
-comm.PublishLREAL('telescope', 'dome', 'POSITION.INSTRUMENTAL.DEROT.OFFSET', stTelemetry.fDerotatorOffset);	// #177
 
 
 (*HORIZONTAL*)
@@ -152,6 +151,9 @@ comm.PublishLREAL('telescope', 'dome', 'POSITION.HORIZONTAL.AZ', stTelemetry.fAz
 comm.PublishLREAL('telescope', 'dome', 'POSITION.EQUATORIAL.RA_ICRS', stTelemetry.fRightAscensionCurrent);	// degrees (BROTLib#37)
 comm.PublishLREAL('telescope', 'dome', 'POSITION.EQUATORIAL.HA_ICRS', stTelemetry.fHourAngleCurrent);
 comm.PublishLREAL('telescope', 'dome', 'POSITION.EQUATORIAL.DEC_ICRS', stTelemetry.fDeclinationCurrent);
+
+(*#177: after the 44 fields of 0.12.0*)
+comm.PublishLREAL('telescope', 'dome', 'POSITION.INSTRUMENTAL.DEROT.OFFSET', stTelemetry.fDerotatorOffset);	// #177
 ]]></ST>
     </Implementation>
   </POU>
