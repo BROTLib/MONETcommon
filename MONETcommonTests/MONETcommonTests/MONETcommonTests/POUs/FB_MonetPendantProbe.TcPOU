@@ -12,10 +12,12 @@ VAR_INPUT
 	bDown		: BOOL;
 	bLeft		: BOOL;
 	bRight		: BOOL;
+	eMode		: E_TelescopeMode := E_TelescopeMode.manual;	// #177: the #3 cases ran without a mode; they are manual-mode cases
 END_VAR
 ]]></Declaration>
     <Implementation>
-      <ST><![CDATA[IbEnableKey := bKey;
+      <ST><![CDATA[eTelescopeMode := eMode;
+IbEnableKey := bKey;
 IbEnableButton := bButton;
 IbBCD0 := (nSel AND 1) <> 0;
 IbBCD2 := (nSel AND 2) <> 0;

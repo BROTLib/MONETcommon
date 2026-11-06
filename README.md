@@ -230,6 +230,15 @@ with the cover command of a power-on and is FALSE after a normal park and after 
   axis or focus are set FALSE once, and its `Enable` after `tEnableRelease` (2 s) if the pendant had set it (#3). It writes
   nothing for a function it does not own, so a jog from the Visu keeps working with the pendant key off. The selector must read
   the same for `tSelectionDebounce` (100 ms) before the pendant drives that function.
+  **Modes (#177).** The pendant needs `eTelescopeMode := eTelescopeMode` in `MAIN`; unwired it is `off` and the pendant is dead.
+  Manual: selector 5-8 jog as above. Automatic: the pendant never writes `Enable`/`Move*` of an axis or the focus; selector 7
+  (elevation, up/down), 8 (azimuth, left/right, sky frame), 6 (derotator, left/right) nudge the telescope's pointing offsets and
+  5 steps the focus target, only with the enable button held, the key on, the selector stable and the telescope online
+  (READY_STATE 1). A tap is one step, a held button ramps (values as `VAR_INPUT`, defaults in the plan), offsets are clamped, the
+  elevation stays inside the goto window. A direction held while the enable button goes down needs a release first. The
+  pendant gets the telescope as `iTelescope := TelescopeControl` (and `stMotion`). A new target clears the three offsets.
+  Off (key Local, hydraulics off): selector 5-8 do nothing; the covers (1-3) work in every mode.
+  Plan: [specs/plans/2026-11-06-pendant-offsets-automatic-177.md](specs/plans/2026-11-06-pendant-offsets-automatic-177.md).
   Inputs since #24 step 6 (breaking): `fbCovers` (`REFERENCE TO HalfBROT.FB_CoverControl`), `fbFocus : BROTLib.I_Focus`,
   `fbElevation`/`fbAzimuth`/`fbDerotator` (`REFERENCE TO` the HalfBROT axis blocks); `fbBrake` and `fbHydraulics` are gone (never
   read), so the site `MAIN` drops those two lines of the `PendantControl(...)` call. The focus takes the interface because the

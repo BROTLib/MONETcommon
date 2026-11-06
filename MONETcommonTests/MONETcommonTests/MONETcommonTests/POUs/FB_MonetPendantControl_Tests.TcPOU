@@ -26,8 +26,526 @@ Release_Is_Once();
 Reselect_Cancels_Enable_Drop();
 Selector_Bounce_Does_Not_Drive_Intermediate_Function();
 Unassigned_References_Do_Not_Fault();
+Auto_Does_Not_Write_Enable_Or_Move();
+Auto_Elevation_Tap_Adds_One_Step();
+Auto_Azimuth_Right_Is_Positive_Sky_Offset();
+Auto_Direction_Held_Before_Enable_Needs_Release();
+Auto_Needs_Enable_Button();
+Auto_Needs_Online_Telescope();
+Auto_Offset_Beyond_Limit_Can_Only_Be_Reduced();
+Auto_Elevation_Nudge_Refused_Outside_Goto_Window();
+Auto_Nudge_Adds_To_Offset_Set_Elsewhere();
+Auto_Derotator_Nudge_Adds_To_Derotator_Offset();
+Auto_Held_Direction_Ramps();
+Auto_Unwired_Telescope_Does_Not_Fault();
+Off_Mode_Writes_Nothing();
+Manual_To_Auto_Releases_Move_And_Keeps_Enable();
+New_Target_Clears_Offsets_Same_Target_Keeps_Them();
 ]]></ST>
     </Implementation>
+    <Method Name="Auto_Does_Not_Write_Enable_Or_Move" Id="{b1c2d3e4-0001-4a5b-8c6d-7e8f90a1b201}">
+      <Declaration><![CDATA[// #177: automatic mode, selector 7, enable button released: the pendant must not write Enable/Move* (the bug of the issue)
+METHOD PRIVATE Auto_Does_Not_Write_Enable_Or_Move
+VAR
+	fbComm	: FB_NullComm;
+	fbP		: FB_MonetPendantProbe(comm := fbComm);
+	fbEl	: FB_ElevationMock(comm := fbComm);
+	fbAz	: FB_AzimuthMock(comm := fbComm);
+	fbDr	: FB_DerotatorMock(comm := fbComm);
+	fbFo	: FB_FocusMock(comm := fbComm);
+	fbTel	: FB_MonetTelescopeProbe(comm := fbComm);
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Auto_Does_Not_Write_Enable_Or_Move');
+fbEl.SetDigitalInputs(16#3);
+fbAz.SetDigitalInputs(16#3);
+fbEl.Position := 45.0;
+fbDr.Position := 0.0;
+fbTel.SetReady(1.0);
+fbP.iTelescope := fbTel;
+fbP.eMode := E_TelescopeMode.automatic;
+fbP.tCycle := T#10MS;
+fbEl.Enable := TRUE;
+Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := FALSE, nSel := 7, bUp := FALSE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tRelease := T#2S);
+Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := FALSE, nSel := 7, bUp := TRUE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tRelease := T#2S);
+AssertTrue(Condition := fbEl.Enable, Message := 'automatic: Enable stays as the telescope set it');
+AssertFalse(Condition := fbEl.MovePos, Message := 'automatic: no jog');
+AssertEquals(Expected := 0.0, Actual := fbTel.AltitudeOffset, Delta := 1.0E-12, Message := 'no enable button: no nudge');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Auto_Elevation_Tap_Adds_One_Step" Id="{b1c2d3e4-0002-4a5b-8c6d-7e8f90a1b202}">
+      <Declaration><![CDATA[// #177: automatic, selector 7, enable held, up pressed after a release: one tap = fElAzStep on the elevation offset, Enable untouched
+METHOD PRIVATE Auto_Elevation_Tap_Adds_One_Step
+VAR
+	fbComm	: FB_NullComm;
+	fbP		: FB_MonetPendantProbe(comm := fbComm);
+	fbEl	: FB_ElevationMock(comm := fbComm);
+	fbAz	: FB_AzimuthMock(comm := fbComm);
+	fbDr	: FB_DerotatorMock(comm := fbComm);
+	fbFo	: FB_FocusMock(comm := fbComm);
+	fbTel	: FB_MonetTelescopeProbe(comm := fbComm);
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Auto_Elevation_Tap_Adds_One_Step');
+fbEl.SetDigitalInputs(16#3);
+fbAz.SetDigitalInputs(16#3);
+fbEl.Position := 45.0;
+fbDr.Position := 0.0;
+fbTel.SetReady(1.0);
+fbP.iTelescope := fbTel;
+fbP.eMode := E_TelescopeMode.automatic;
+fbP.tCycle := T#10MS;
+fbEl.Enable := TRUE;
+Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 7, bUp := FALSE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tRelease := T#2S);
+Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 7, bUp := TRUE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tRelease := T#2S);
+AssertEquals(Expected := 5.0/3600.0, Actual := fbTel.AltitudeOffset, Delta := 1.0E-9, Message := 'one tap, one step');
+AssertTrue(Condition := fbEl.Enable, Message := 'Enable untouched');
+AssertFalse(Condition := fbEl.MovePos, Message := 'no Move*');
+Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 7, bUp := FALSE, bDown := TRUE, bLeft := FALSE, bRight := FALSE, tRelease := T#2S);
+AssertEquals(Expected := 0.0, Actual := fbTel.AltitudeOffset, Delta := 1.0E-9, Message := 'down is the opposite step');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Auto_Azimuth_Right_Is_Positive_Sky_Offset" Id="{b1c2d3e4-0003-4a5b-8c6d-7e8f90a1b203}">
+      <Declaration><![CDATA[// #177: selector 8, right = + on the sky-frame azimuth offset (the cos(el) division stays in FB_MonetTelescopeControl)
+METHOD PRIVATE Auto_Azimuth_Right_Is_Positive_Sky_Offset
+VAR
+	fbComm	: FB_NullComm;
+	fbP		: FB_MonetPendantProbe(comm := fbComm);
+	fbEl	: FB_ElevationMock(comm := fbComm);
+	fbAz	: FB_AzimuthMock(comm := fbComm);
+	fbDr	: FB_DerotatorMock(comm := fbComm);
+	fbFo	: FB_FocusMock(comm := fbComm);
+	fbTel	: FB_MonetTelescopeProbe(comm := fbComm);
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Auto_Azimuth_Right_Is_Positive_Sky_Offset');
+fbEl.SetDigitalInputs(16#3);
+fbAz.SetDigitalInputs(16#3);
+fbEl.Position := 45.0;
+fbDr.Position := 0.0;
+fbTel.SetReady(1.0);
+fbP.iTelescope := fbTel;
+fbP.eMode := E_TelescopeMode.automatic;
+fbP.tCycle := T#10MS;
+Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 8, bUp := FALSE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tRelease := T#2S);
+Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 8, bUp := FALSE, bDown := FALSE, bLeft := FALSE, bRight := TRUE, tRelease := T#2S);
+AssertEquals(Expected := 5.0/3600.0, Actual := fbTel.AzimuthOffset, Delta := 1.0E-9, Message := 'right: +step');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Auto_Direction_Held_Before_Enable_Needs_Release" Id="{b1c2d3e4-0004-4a5b-8c6d-7e8f90a1b204}">
+      <Declaration><![CDATA[// #177: a direction held while the enable button goes down does nothing until it is released once (arming)
+METHOD PRIVATE Auto_Direction_Held_Before_Enable_Needs_Release
+VAR
+	fbComm	: FB_NullComm;
+	fbP		: FB_MonetPendantProbe(comm := fbComm);
+	fbEl	: FB_ElevationMock(comm := fbComm);
+	fbAz	: FB_AzimuthMock(comm := fbComm);
+	fbDr	: FB_DerotatorMock(comm := fbComm);
+	fbFo	: FB_FocusMock(comm := fbComm);
+	fbTel	: FB_MonetTelescopeProbe(comm := fbComm);
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Auto_Direction_Held_Before_Enable_Needs_Release');
+fbEl.SetDigitalInputs(16#3);
+fbAz.SetDigitalInputs(16#3);
+fbEl.Position := 45.0;
+fbDr.Position := 0.0;
+fbTel.SetReady(1.0);
+fbP.iTelescope := fbTel;
+fbP.eMode := E_TelescopeMode.automatic;
+fbP.tCycle := T#10MS;
+Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := FALSE, nSel := 7, bUp := TRUE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tRelease := T#2S);
+Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 7, bUp := TRUE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tRelease := T#2S);
+AssertEquals(Expected := 0.0, Actual := fbTel.AltitudeOffset, Delta := 1.0E-12, Message := 'held through the press: no nudge');
+Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 7, bUp := FALSE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tRelease := T#2S);
+Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 7, bUp := TRUE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tRelease := T#2S);
+AssertEquals(Expected := 5.0/3600.0, Actual := fbTel.AltitudeOffset, Delta := 1.0E-9, Message := 'after a release: nudges');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Auto_Needs_Enable_Button" Id="{b1c2d3e4-0005-4a5b-8c6d-7e8f90a1b205}">
+      <Declaration><![CDATA[// #177: no nudge without the enable button held (decision 1)
+METHOD PRIVATE Auto_Needs_Enable_Button
+VAR
+	fbComm	: FB_NullComm;
+	fbP		: FB_MonetPendantProbe(comm := fbComm);
+	fbEl	: FB_ElevationMock(comm := fbComm);
+	fbAz	: FB_AzimuthMock(comm := fbComm);
+	fbDr	: FB_DerotatorMock(comm := fbComm);
+	fbFo	: FB_FocusMock(comm := fbComm);
+	fbTel	: FB_MonetTelescopeProbe(comm := fbComm);
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Auto_Needs_Enable_Button');
+fbEl.SetDigitalInputs(16#3);
+fbAz.SetDigitalInputs(16#3);
+fbEl.Position := 45.0;
+fbDr.Position := 0.0;
+fbTel.SetReady(1.0);
+fbP.iTelescope := fbTel;
+fbP.eMode := E_TelescopeMode.automatic;
+fbP.tCycle := T#10MS;
+Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 7, bUp := FALSE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tRelease := T#2S);
+Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := FALSE, nSel := 7, bUp := TRUE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tRelease := T#2S);
+AssertEquals(Expected := 0.0, Actual := fbTel.AltitudeOffset, Delta := 1.0E-12, Message := 'button released: no nudge');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Auto_Needs_Online_Telescope" Id="{b1c2d3e4-0006-4a5b-8c6d-7e8f90a1b206}">
+      <Declaration><![CDATA[// #177: nudges only at READY_STATE 1 (D4): 0.7 (initializing) and -1 (error) do nothing
+METHOD PRIVATE Auto_Needs_Online_Telescope
+VAR
+	fbComm	: FB_NullComm;
+	fbP		: FB_MonetPendantProbe(comm := fbComm);
+	fbEl	: FB_ElevationMock(comm := fbComm);
+	fbAz	: FB_AzimuthMock(comm := fbComm);
+	fbDr	: FB_DerotatorMock(comm := fbComm);
+	fbFo	: FB_FocusMock(comm := fbComm);
+	fbTel	: FB_MonetTelescopeProbe(comm := fbComm);
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Auto_Needs_Online_Telescope');
+fbEl.SetDigitalInputs(16#3);
+fbAz.SetDigitalInputs(16#3);
+fbEl.Position := 45.0;
+fbDr.Position := 0.0;
+fbTel.SetReady(1.0);
+fbP.iTelescope := fbTel;
+fbP.eMode := E_TelescopeMode.automatic;
+fbP.tCycle := T#10MS;
+fbTel.SetReady(0.7);
+Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 7, bUp := FALSE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tRelease := T#2S);
+Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 7, bUp := TRUE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tRelease := T#2S);
+AssertEquals(Expected := 0.0, Actual := fbTel.AltitudeOffset, Delta := 1.0E-12, Message := 'not online: no nudge');
+fbTel.SetReady(-1.0);
+Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 7, bUp := FALSE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tRelease := T#2S);
+Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 7, bUp := TRUE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tRelease := T#2S);
+AssertEquals(Expected := 0.0, Actual := fbTel.AltitudeOffset, Delta := 1.0E-12, Message := 'error: no nudge');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Auto_Offset_Beyond_Limit_Can_Only_Be_Reduced" Id="{b1c2d3e4-0007-4a5b-8c6d-7e8f90a1b207}">
+      <Declaration><![CDATA[// #177: an offset at the pendant maximum (600 arcsec) cannot grow, but can be reduced; one set beyond it by MQTT can be reduced
+METHOD PRIVATE Auto_Offset_Beyond_Limit_Can_Only_Be_Reduced
+VAR
+	fbComm	: FB_NullComm;
+	fbP		: FB_MonetPendantProbe(comm := fbComm);
+	fbEl	: FB_ElevationMock(comm := fbComm);
+	fbAz	: FB_AzimuthMock(comm := fbComm);
+	fbDr	: FB_DerotatorMock(comm := fbComm);
+	fbFo	: FB_FocusMock(comm := fbComm);
+	fbTel	: FB_MonetTelescopeProbe(comm := fbComm);
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Auto_Offset_Beyond_Limit_Can_Only_Be_Reduced');
+fbEl.SetDigitalInputs(16#3);
+fbAz.SetDigitalInputs(16#3);
+fbEl.Position := 45.0;
+fbDr.Position := 0.0;
+fbTel.SetReady(1.0);
+fbP.iTelescope := fbTel;
+fbP.eMode := E_TelescopeMode.automatic;
+fbP.tCycle := T#10MS;
+fbTel.AltitudeOffset := 600.0/3600.0;
+Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 7, bUp := FALSE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tRelease := T#2S);
+Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 7, bUp := TRUE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tRelease := T#2S);
+AssertEquals(Expected := 600.0/3600.0, Actual := fbTel.AltitudeOffset, Delta := 1.0E-9, Message := 'at the limit: up refused');
+Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 7, bUp := FALSE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tRelease := T#2S);
+Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 7, bUp := FALSE, bDown := TRUE, bLeft := FALSE, bRight := FALSE, tRelease := T#2S);
+AssertEquals(Expected := 600.0/3600.0 - 5.0/3600.0, Actual := fbTel.AltitudeOffset, Delta := 1.0E-9, Message := 'down reduces');
+fbTel.AltitudeOffset := 2.0;
+Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 7, bUp := FALSE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tRelease := T#2S);
+Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 7, bUp := TRUE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tRelease := T#2S);
+AssertEquals(Expected := 2.0, Actual := fbTel.AltitudeOffset, Delta := 1.0E-9, Message := 'beyond the limit: up refused');
+Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 7, bUp := FALSE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tRelease := T#2S);
+Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 7, bUp := FALSE, bDown := TRUE, bLeft := FALSE, bRight := FALSE, tRelease := T#2S);
+AssertEquals(Expected := 2.0 - 5.0/3600.0, Actual := fbTel.AltitudeOffset, Delta := 1.0E-9, Message := 'beyond the limit: down reduces');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Auto_Elevation_Nudge_Refused_Outside_Goto_Window" Id="{b1c2d3e4-0008-4a5b-8c6d-7e8f90a1b208}">
+      <Declaration><![CDATA[// #177: the elevation nudge may not take the axis target above the goto window (default max 89.5 deg)
+METHOD PRIVATE Auto_Elevation_Nudge_Refused_Outside_Goto_Window
+VAR
+	fbComm	: FB_NullComm;
+	fbP		: FB_MonetPendantProbe(comm := fbComm);
+	fbEl	: FB_ElevationMock(comm := fbComm);
+	fbAz	: FB_AzimuthMock(comm := fbComm);
+	fbDr	: FB_DerotatorMock(comm := fbComm);
+	fbFo	: FB_FocusMock(comm := fbComm);
+	fbTel	: FB_MonetTelescopeProbe(comm := fbComm);
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Auto_Elevation_Nudge_Refused_Outside_Goto_Window');
+fbEl.SetDigitalInputs(16#3);
+fbAz.SetDigitalInputs(16#3);
+fbEl.Position := 45.0;
+fbDr.Position := 0.0;
+fbTel.SetReady(1.0);
+fbP.iTelescope := fbTel;
+fbP.eMode := E_TelescopeMode.automatic;
+fbP.tCycle := T#10MS;
+fbEl.Position := 89.5;
+Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 7, bUp := FALSE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tRelease := T#2S);
+Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 7, bUp := TRUE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tRelease := T#2S);
+AssertEquals(Expected := 0.0, Actual := fbTel.AltitudeOffset, Delta := 1.0E-12, Message := 'at the window edge: up refused');
+Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 7, bUp := FALSE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tRelease := T#2S);
+Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 7, bUp := FALSE, bDown := TRUE, bLeft := FALSE, bRight := FALSE, tRelease := T#2S);
+AssertEquals(Expected := -5.0/3600.0, Actual := fbTel.AltitudeOffset, Delta := 1.0E-9, Message := 'down is inside the window');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Auto_Nudge_Adds_To_Offset_Set_Elsewhere" Id="{b1c2d3e4-0009-4a5b-8c6d-7e8f90a1b209}">
+      <Declaration><![CDATA[// #177: the nudge is read-modify-write: it adds to an offset set by MQTT (SetAltitudeOffset), it does not overwrite it
+METHOD PRIVATE Auto_Nudge_Adds_To_Offset_Set_Elsewhere
+VAR
+	fbComm	: FB_NullComm;
+	fbP		: FB_MonetPendantProbe(comm := fbComm);
+	fbEl	: FB_ElevationMock(comm := fbComm);
+	fbAz	: FB_AzimuthMock(comm := fbComm);
+	fbDr	: FB_DerotatorMock(comm := fbComm);
+	fbFo	: FB_FocusMock(comm := fbComm);
+	fbTel	: FB_MonetTelescopeProbe(comm := fbComm);
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Auto_Nudge_Adds_To_Offset_Set_Elsewhere');
+fbEl.SetDigitalInputs(16#3);
+fbAz.SetDigitalInputs(16#3);
+fbEl.Position := 45.0;
+fbDr.Position := 0.0;
+fbTel.SetReady(1.0);
+fbP.iTelescope := fbTel;
+fbP.eMode := E_TelescopeMode.automatic;
+fbP.tCycle := T#10MS;
+fbTel.SetAltitudeOffset(0.05);
+Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 7, bUp := FALSE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tRelease := T#2S);
+Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 7, bUp := TRUE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tRelease := T#2S);
+AssertEquals(Expected := 0.05 + 5.0/3600.0, Actual := fbTel.AltitudeOffset, Delta := 1.0E-9, Message := 'added to the MQTT value');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Auto_Derotator_Nudge_Adds_To_Derotator_Offset" Id="{b1c2d3e4-0010-4a5b-8c6d-7e8f90a1b210}">
+      <Declaration><![CDATA[// #177: selector 6: left/right nudge the derotator offset (fDerotStep), not the derotator Move*
+METHOD PRIVATE Auto_Derotator_Nudge_Adds_To_Derotator_Offset
+VAR
+	fbComm	: FB_NullComm;
+	fbP		: FB_MonetPendantProbe(comm := fbComm);
+	fbEl	: FB_ElevationMock(comm := fbComm);
+	fbAz	: FB_AzimuthMock(comm := fbComm);
+	fbDr	: FB_DerotatorMock(comm := fbComm);
+	fbFo	: FB_FocusMock(comm := fbComm);
+	fbTel	: FB_MonetTelescopeProbe(comm := fbComm);
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Auto_Derotator_Nudge_Adds_To_Derotator_Offset');
+fbEl.SetDigitalInputs(16#3);
+fbAz.SetDigitalInputs(16#3);
+fbEl.Position := 45.0;
+fbDr.Position := 0.0;
+fbTel.SetReady(1.0);
+fbP.iTelescope := fbTel;
+fbP.eMode := E_TelescopeMode.automatic;
+fbP.tCycle := T#10MS;
+fbDr.fMinPosition := -90.0;
+fbDr.fMaxPosition := 360.0;
+Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 6, bUp := FALSE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tRelease := T#2S);
+Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 6, bUp := FALSE, bDown := FALSE, bLeft := FALSE, bRight := TRUE, tRelease := T#2S);
+AssertEquals(Expected := 0.02, Actual := fbTel.DerotatorOffset, Delta := 1.0E-9, Message := 'right: +0.02 deg');
+AssertFalse(Condition := fbDr.MovePos, Message := 'no Move*');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Auto_Held_Direction_Ramps" Id="{b1c2d3e4-0011-4a5b-8c6d-7e8f90a1b211}">
+      <Declaration><![CDATA[// #177: a held direction: tap, nothing until 0.5 s, then 10 arcsec/s (10 ms scans: 3 s are 300 scans)
+METHOD PRIVATE Auto_Held_Direction_Ramps
+VAR
+	fbComm	: FB_NullComm;
+	fbP		: FB_MonetPendantProbe(comm := fbComm);
+	fbEl	: FB_ElevationMock(comm := fbComm);
+	fbAz	: FB_AzimuthMock(comm := fbComm);
+	fbDr	: FB_DerotatorMock(comm := fbComm);
+	fbFo	: FB_FocusMock(comm := fbComm);
+	fbTel	: FB_MonetTelescopeProbe(comm := fbComm);
+	nI		: INT;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Auto_Held_Direction_Ramps');
+fbEl.SetDigitalInputs(16#3);
+fbAz.SetDigitalInputs(16#3);
+fbEl.Position := 45.0;
+fbDr.Position := 0.0;
+fbTel.SetReady(1.0);
+fbP.iTelescope := fbTel;
+fbP.eMode := E_TelescopeMode.automatic;
+fbP.tCycle := T#10MS;
+Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 7, bUp := FALSE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tRelease := T#2S);
+Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 7, bUp := TRUE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tRelease := T#2S);
+FOR nI := 1 TO 98 DO
+	Scan(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 7, bUp := TRUE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tRelease := T#2S);
+END_FOR
+AssertEquals(Expected := 5.0/3600.0, Actual := fbTel.AltitudeOffset, Delta := 1.0E-9, Message := 'before 0.5 s only the tap');
+FOR nI := 1 TO 100 DO
+	Scan(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 7, bUp := TRUE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tRelease := T#2S);
+END_FOR
+AssertTrue(Condition := fbTel.AltitudeOffset > 5.0/3600.0 + 4.0/3600.0, Message := 'after 0.5 s: slow rate about 10 arcsec/s');
+AssertTrue(Condition := fbTel.AltitudeOffset < 5.0/3600.0 + 8.0/3600.0, Message := 'slow rate, not fast');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Auto_Unwired_Telescope_Does_Not_Fault" Id="{b1c2d3e4-0012-4a5b-8c6d-7e8f90a1b212}">
+      <Declaration><![CDATA[// #177: automatic mode with iTelescope not assigned: no nudge, no write, no page fault
+METHOD PRIVATE Auto_Unwired_Telescope_Does_Not_Fault
+VAR
+	fbComm	: FB_NullComm;
+	fbP		: FB_MonetPendantProbe(comm := fbComm);
+	fbEl	: FB_ElevationMock(comm := fbComm);
+	fbAz	: FB_AzimuthMock(comm := fbComm);
+	fbDr	: FB_DerotatorMock(comm := fbComm);
+	fbFo	: FB_FocusMock(comm := fbComm);
+	fbTel	: FB_MonetTelescopeProbe(comm := fbComm);
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Auto_Unwired_Telescope_Does_Not_Fault');
+fbEl.SetDigitalInputs(16#3);
+fbAz.SetDigitalInputs(16#3);
+fbEl.Position := 45.0;
+fbDr.Position := 0.0;
+fbTel.SetReady(1.0);
+fbP.eMode := E_TelescopeMode.automatic;
+fbP.tCycle := T#10MS;
+Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 7, bUp := FALSE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tRelease := T#2S);
+Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 7, bUp := TRUE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tRelease := T#2S);
+AssertTrue(Condition := TRUE, Message := 'reached the end without a page fault');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Off_Mode_Writes_Nothing" Id="{b1c2d3e4-0013-4a5b-8c6d-7e8f90a1b213}">
+      <Declaration><![CDATA[// #177: off mode (key Local, hydraulics off): selector 5-8 write neither Enable/Move* nor offsets; the covers keep working
+METHOD PRIVATE Off_Mode_Writes_Nothing
+VAR
+	fbComm	: FB_NullComm;
+	fbP		: FB_MonetPendantProbe(comm := fbComm);
+	fbEl	: FB_ElevationMock(comm := fbComm);
+	fbAz	: FB_AzimuthMock(comm := fbComm);
+	fbDr	: FB_DerotatorMock(comm := fbComm);
+	fbFo	: FB_FocusMock(comm := fbComm);
+	fbTel	: FB_MonetTelescopeProbe(comm := fbComm);
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Off_Mode_Writes_Nothing');
+fbEl.SetDigitalInputs(16#3);
+fbAz.SetDigitalInputs(16#3);
+fbEl.Position := 45.0;
+fbDr.Position := 0.0;
+fbTel.SetReady(1.0);
+fbP.iTelescope := fbTel;
+fbP.eMode := E_TelescopeMode.automatic;
+fbP.tCycle := T#10MS;
+fbP.eMode := E_TelescopeMode.off;
+fbEl.Enable := FALSE;
+Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 7, bUp := FALSE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tRelease := T#2S);
+Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 7, bUp := TRUE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tRelease := T#2S);
+AssertFalse(Condition := fbEl.Enable, Message := 'off: Enable not written');
+AssertFalse(Condition := fbEl.MovePos, Message := 'off: no jog');
+AssertEquals(Expected := 0.0, Actual := fbTel.AltitudeOffset, Delta := 1.0E-12, Message := 'off: no nudge');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Manual_To_Auto_Releases_Move_And_Keeps_Enable" Id="{b1c2d3e4-0014-4a5b-8c6d-7e8f90a1b214}">
+      <Declaration><![CDATA[// #177: manual jog, then the mode goes to automatic: Move* FALSE once, and the Enable is not dropped after tEnableRelease (the telescope owns it)
+METHOD PRIVATE Manual_To_Auto_Releases_Move_And_Keeps_Enable
+VAR
+	fbComm	: FB_NullComm;
+	fbP		: FB_MonetPendantProbe(comm := fbComm);
+	fbEl	: FB_ElevationMock(comm := fbComm);
+	fbAz	: FB_AzimuthMock(comm := fbComm);
+	fbDr	: FB_DerotatorMock(comm := fbComm);
+	fbFo	: FB_FocusMock(comm := fbComm);
+	fbTel	: FB_MonetTelescopeProbe(comm := fbComm);
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Manual_To_Auto_Releases_Move_And_Keeps_Enable');
+fbEl.SetDigitalInputs(16#3);
+fbAz.SetDigitalInputs(16#3);
+fbEl.Position := 45.0;
+fbDr.Position := 0.0;
+fbTel.SetReady(1.0);
+fbP.iTelescope := fbTel;
+fbP.eMode := E_TelescopeMode.automatic;
+fbP.tCycle := T#10MS;
+fbP.eMode := E_TelescopeMode.manual;
+Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := TRUE, nSel := 7, bUp := TRUE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tRelease := T#2S);
+AssertTrue(Condition := fbEl.MovePos, Message := 'precondition: manual jog on');
+AssertTrue(Condition := fbEl.Enable, Message := 'precondition: manual Enable on');
+fbP.eMode := E_TelescopeMode.automatic;
+Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := FALSE, nSel := 7, bUp := FALSE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tRelease := T#2S);
+Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := FALSE, nSel := 7, bUp := FALSE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tRelease := T#2S);
+Hold(fbP := fbP, fbEl := fbEl, fbAz := fbAz, fbDr := fbDr, fbFo := fbFo, bKey := TRUE, bButton := FALSE, nSel := 7, bUp := FALSE, bDown := FALSE, bLeft := FALSE, bRight := FALSE, tRelease := T#2S);
+AssertFalse(Condition := fbEl.MovePos, Message := 'automatic: Move* released');
+AssertTrue(Condition := fbEl.Enable, Message := 'automatic: Enable not dropped by the pendant');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="New_Target_Clears_Offsets_Same_Target_Keeps_Them" Id="{b1c2d3e4-0015-4a5b-8c6d-7e8f90a1b215}">
+      <Declaration><![CDATA[// #177: a new target clears the three offsets, the same target sent again keeps them
+METHOD PRIVATE New_Target_Clears_Offsets_Same_Target_Keeps_Them
+VAR
+	fbComm	: FB_NullComm;
+	fbP		: FB_MonetPendantProbe(comm := fbComm);
+	fbEl	: FB_ElevationMock(comm := fbComm);
+	fbAz	: FB_AzimuthMock(comm := fbComm);
+	fbDr	: FB_DerotatorMock(comm := fbComm);
+	fbFo	: FB_FocusMock(comm := fbComm);
+	fbTel	: FB_MonetTelescopeProbe(comm := fbComm);
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('New_Target_Clears_Offsets_Same_Target_Keeps_Them');
+fbTel.SetAltitudeOffset(0.01);
+fbTel.SetAzimuthOffset(0.02);
+fbTel.SetDerotatorOffset(0.5);
+fbTel.Track(fRightAscension := 10.0, fDeclination := 20.0);
+AssertEquals(Expected := 0.0, Actual := fbTel.AltitudeOffset, Delta := 1.0E-12, Message := 'new target: elevation offset cleared');
+AssertEquals(Expected := 0.0, Actual := fbTel.AzimuthOffset, Delta := 1.0E-12, Message := 'new target: azimuth offset cleared');
+AssertEquals(Expected := 0.0, Actual := fbTel.DerotatorOffset, Delta := 1.0E-12, Message := 'new target: derotator offset cleared');
+fbTel.SetAltitudeOffset(0.01);
+fbTel.Track(fRightAscension := 10.0, fDeclination := 20.0);
+AssertEquals(Expected := 0.01, Actual := fbTel.AltitudeOffset, Delta := 1.0E-12, Message := 'same target again: offset kept');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
     <Method Name="Scan" Id="{71d29b26-686b-4cd9-9173-dad44653aedb}">
       <Declaration><![CDATA[// one pendant scan with the given inputs. The selector debounce is off (T#0S) but needs a second scan to see the selector stable,
 // so a change of the selector is applied with Hold (two scans).

@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
   <POU Name="FB_MonetTelescopeTelemetry" Id="{2bb35fc4-6038-4c3b-9fbc-4a0a5cbb7f0a}" SpecialFunc="None">
     <Declaration><![CDATA[// #24 step 4a: the MONET part of the telescope telemetry, moved unchanged out of FB_MonetTelescopeControl._SendTelemetry
@@ -140,6 +140,7 @@ comm.PublishLREAL('telescope', 'dome', 'POSITION.INSTRUMENTAL.AZ.TARGETPOS', stT
 comm.PublishLREAL('telescope', 'dome', 'POSITION.INSTRUMENTAL.AZ.CURRSPEED', stTelemetry.fAzimuthVelocity);
 comm.PublishLREAL('telescope', 'dome', 'POSITION.INSTRUMENTAL.AZ.TARGETDISTANCE', ABS(stTelemetry.fAzimuthCurrent-stTelemetry.fAzimuthPosition));
 comm.PublishLREAL('telescope', 'dome', 'POSITION.INSTRUMENTAL.AZ.OFFSET', stTelemetry.fAzimuthOffset);
+comm.PublishLREAL('telescope', 'dome', 'POSITION.INSTRUMENTAL.DEROT.OFFSET', stTelemetry.fDerotatorOffset);	// #177
 
 
 (*HORIZONTAL*)
