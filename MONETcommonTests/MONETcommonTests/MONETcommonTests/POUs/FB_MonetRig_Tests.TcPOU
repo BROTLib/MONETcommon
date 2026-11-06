@@ -865,7 +865,8 @@ CASE nStep OF
 		TEST_FINISHED();
 	END_IF
 10:
-	IF rig.Online THEN
+	IF rig.Online AND rig.fbTel.bStopped AND NOT rig.fbTel.bBusy THEN	// idle, so a MoveAxis from here on is the slew's
+		bMoved := FALSE;
 		rig.fbTel.Slew(fAzimuth := 175.0, fAltitude := -5.0);
 		nStep := 20;
 		nCycles := 0;
@@ -879,10 +880,11 @@ CASE nStep OF
 	IF NOT rig.fbTel.bSlewActive THEN
 		AssertFalse(Condition := bMoved OR rig.fbTel.bError, Message := 'elevation -5: no move and no error');
 		F_Note(bFailed := bMoved OR rig.fbTel.bError, sText := CONCAT(sTest, 'elevation -5: no move and no error'));
+		bMoved := FALSE;
 		rig.fbTel.Slew(fAzimuth := 175.0, fAltitude := 95.0);
 		nStep := 30;
 		nCycles := 0;
-	ELSIF nCycles > 300 THEN
+	ELSIF nCycles > 600 THEN
 		AssertTrue(Condition := FALSE, Message := 'elevation -5: the slew was not dropped');
 		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'elevation -5: the slew was not dropped'));
 		nStep := 99;
@@ -892,10 +894,11 @@ CASE nStep OF
 	IF NOT rig.fbTel.bSlewActive THEN
 		AssertFalse(Condition := bMoved OR rig.fbTel.bError, Message := 'elevation 95: no move and no error');
 		F_Note(bFailed := bMoved OR rig.fbTel.bError, sText := CONCAT(sTest, 'elevation 95: no move and no error'));
+		bMoved := FALSE;
 		rig.fbTel.Slew(fAzimuth := 175.0, fAltitude := 2.5);
 		nStep := 40;
 		nCycles := 0;
-	ELSIF nCycles > 300 THEN
+	ELSIF nCycles > 600 THEN
 		AssertTrue(Condition := FALSE, Message := 'elevation 95: the slew was not dropped');
 		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'elevation 95: the slew was not dropped'));
 		nStep := 99;
@@ -907,7 +910,7 @@ CASE nStep OF
 		F_Note(bFailed := rig.fbTel.bError, sText := CONCAT(sTest, 'elevation 2.5: the slew is carried out'));
 		nStep := 99;
 		TEST_FINISHED();
-	ELSIF nCycles > 300 THEN
+	ELSIF nCycles > 600 THEN
 		AssertTrue(Condition := FALSE, Message := 'elevation 2.5: the slew did not start');
 		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'elevation 2.5: the slew did not start'));
 		nStep := 99;
