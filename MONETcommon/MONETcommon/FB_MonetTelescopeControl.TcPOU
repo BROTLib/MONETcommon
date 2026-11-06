@@ -126,6 +126,9 @@ VAR
 	// #2: a slew target outside the axis limits was refused (one-scan flag, set by _SlewTelescope).
 	bSlewOutOfLimits	: BOOL;
 	SlewOutOfLimitsEvent: FB_EventLog;
+	// #212: a slew target outside the elevation window (stMotionUsed.fGotoMinElevation..fGotoMaxElevation, as goto) was refused (one-scan flag, set by _SlewTelescope).
+	bSlewOutsideWindow	: BOOL;
+	SlewOutsideWindowEvent: FB_EventLog;
 
 	// #34: home or park position at or below fHorizon + stMotionUsed.fHorizonMargin. The horizon guard
 	// would send the telescope home, find it still below the horizon, and home it again forever.
@@ -1770,6 +1773,13 @@ CASE eSlewStage OF
 		// #2: the axes would clamp a position outside their limits to another one, so refuse it before any move
 		fSlewAzimuth := fAzimuth + fAzimuthPointingOffset + F_AzimuthOffsetOnAxis(fAzimuthOffset, fElevation);
 		fSlewDerotator := fElevation + fDerotatorOffset;
+		// #212: the same elevation window as goto (F_GotoTargetCheck, #109), on the elevation the axis would get. A warning, nothing latched, no move.
+		IF BROTLib.F_GotoTargetCheck(fElevation + fElevationPointingOffset + fElevationOffset, stMotionUsed.fGotoMinElevation, stMotionUsed.fGotoMaxElevation) <> 0 THEN
+			bSlewOutsideWindow := TRUE;
+			bSlewActive := FALSE;
+			eSlewStage := E_SlewStage.idle;
+			RETURN;
+		END_IF
 		IF fSlewAzimuth < fbAzimuth.fMinPosition - 1.0E-6 OR fSlewAzimuth > fbAzimuth.fMaxPosition + 1.0E-6
 			OR fSlewDerotator < fbDerotator.fMinPosition - 1.0E-6 OR fSlewDerotator > fbDerotator.fMaxPosition + 1.0E-6 THEN
 			bSlewOutOfLimits := TRUE;
@@ -1885,6 +1895,13 @@ SlewOutOfLimitsEvent(	Trigger := bSlewOutOfLimits,
 				OffMEssage := '',
 				Comm := fbComm);
 bSlewOutOfLimits := FALSE;
+SlewOutsideWindowEvent(	Trigger := bSlewOutsideWindow,
+				Level := ADSLOG_MSGTYPE_WARN,
+				FormatString := '%s',
+				OnMessage := 'Slew target outside the elevation window, slew refused',
+				OffMEssage := '',
+				Comm := fbComm);
+bSlewOutsideWindow := FALSE;
 TCSreadyEvent(	Trigger := bPowerActive AND bReady, 
 				Level := ADSLOG_MSGTYPE_HINT,
 				FormatString := '%s',
