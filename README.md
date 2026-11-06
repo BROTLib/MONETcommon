@@ -324,8 +324,13 @@ state uses the existing telemetry field and power-on commands. Update Python
 consumers for CALIBRATING/0.8 before firmware rollout. Hardware acceptance and
 firmware deployment are separate from building these changes.
 
-Readiness uses the same error predicate in automatic and suspended/manual mode:
-axis/controller error, latched software error, power-on failure, or E-stop. A
+Readiness uses nearly the same error predicate in automatic and suspended/manual mode:
+axis/controller error, latched software error, power-on failure, or E-stop.
+In manual the live E-stop, safety error and power failure come in through the optional inputs of
+`SuspendAutomatic` (`bEstopIn`, `bSafetyErrorIn`, `bMainReadyIn`, #168), which only select the published
+value (-1.0) and never drive an axis. Difference: a safety error alone gives -1.0 in manual but -2.0 in
+automatic (there it disables the axes, so the telescope is not operational; changing that would also change
+`Initialized`). Axis errors that appear in manual are not seen. A
 power-on failure remains visible through reset until the next clean power-on
 attempt clears `bPowerFailure`; it does not wait for that startup to complete.
 A transient operational interlock gates online without erasing completed startup.
@@ -347,6 +352,6 @@ command (`bIsParked` means secured). A park that was pending at the switch is ke
 comes back; this is logged as a warning. Telemetry other than READY_STATE (1 s heartbeat) pauses in manual.
 
 Not part of this change, see the plan `specs/plans/2026-10-27-manual-to-auto-readiness-policy-72.md`: a pose check before
-the move to home (Q4), error and E-stop state in manual (Q5, needs a MAIN line per site) and the redesign of the mode
+the move to home (Q4), the reset in manual and the redesign of the mode
 handling ([#168](https://github.com/BROTLib/MONETcommon/issues/168)). Hardware acceptance on MONET/N and MONET/S is separate
 (IAG repo, MONET telescope test plan).

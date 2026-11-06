@@ -1516,7 +1516,15 @@ END_CASE]]></ST>
 // during manual (Stop()) is processed after the return, it must not brake an axis the operator is jogging.
 // #72: the first manual scan also sets bInitRequired: after any manual interval a new Init (power=1) is always required before
 // a move is accepted, a startup is never resumed and nothing queued replays. Stop, park, reset and Init stay accepted.
+// #168 (small alternative): the three optional inputs carry the live safety state of MAIN into the READY_STATE heartbeat of the
+// manual mode. They are telemetry only: they are used in the fbStartup.Suspend(Error := ...) call and nowhere else, never for an
+// axis, brake, hydraulics or cover write. The defaults give the heartbeat of before (no E-stop, no safety error, power present).
 METHOD SuspendAutomatic
+VAR_INPUT
+	bEstopIn		: BOOL := FALSE;	// MAIN: SafetyHandling.estop
+	bSafetyErrorIn	: BOOL := FALSE;	// MAIN: SafetyHandling.error
+	bMainReadyIn	: BOOL := TRUE;		// MAIN: the power monitoring (MONETS ready, MONETN mainReady)
+END_VAR
 ]]></Declaration>
       <Implementation><ST><![CDATA[// #156: the axis references are assigned only by the telescope body. After a start in manual (key on Local) they are still
 // unassigned, so the axis part is skipped until the first automatic scan. The rest (events, READY_STATE) does not use them.
@@ -1632,7 +1640,9 @@ IF NOT bSuspendStop THEN
     tonCommandTimeout(IN := FALSE);
     eTimeoutCommand := TCS_command;
 END_IF
-fReadyState := fbStartup.Suspend(Error := bError OR bSoftwareError OR bPowerFailure OR bEstopTriggered, Parked := bIsParked);
+// #168: bError and bPowerFailure are the values of the last automatic scan (bSoftwareError is part of bError); the live safety
+// state comes in through the inputs. In manual Error only selects the published value (the startup is aborted anyway).
+fReadyState := fbStartup.Suspend(Error := bError OR bPowerFailure OR bEstopIn OR bSafetyErrorIn OR NOT bMainReadyIn, Parked := bIsParked);
 // Continue the existing readiness heartbeat without replaying a frozen ONLINE value.
 tonMQTTTimer(IN := TRUE, PT := T#1S);
 IF fbStartup.PublishDue(CommValid := fbComm <> 0, Heartbeat := tonMQTTTimer.Q) THEN
