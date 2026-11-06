@@ -206,8 +206,8 @@ CASE nStep OF
 	IF nCycles >= 50 THEN
 		AssertTrue(Condition := rig.fbTel.ReadyState = -1.0, Message := 'the heartbeat shows the error');
 		F_Note(bFailed := NOT (rig.fbTel.ReadyState = -1.0), sText := CONCAT(sTest, 'the heartbeat shows the error'));
-		AssertTrue(Condition := rig.fbElev.MovePos, Message := 'the operator's jog request is not forced off');
-		F_Note(bFailed := NOT (rig.fbElev.MovePos), sText := CONCAT(sTest, 'the operator's jog request is not forced off'));
+		AssertTrue(Condition := rig.fbElev.MovePos, Message := 'the jog request of the operator is not forced off');
+		F_Note(bFailed := NOT (rig.fbElev.MovePos), sText := CONCAT(sTest, 'the jog request of the operator is not forced off'));
 		AssertTrue(Condition := rig.fbElev.nStopEdges = nElevStop AND rig.fbAzim.nStopEdges = nAzimStop AND rig.fbDero.nStopEdges = nDeroStop, Message := 'no stop request to an axis');
 		F_Note(bFailed := NOT (rig.fbElev.nStopEdges = nElevStop AND rig.fbAzim.nStopEdges = nAzimStop AND rig.fbDero.nStopEdges = nDeroStop), sText := CONCAT(sTest, 'no stop request to an axis'));
 		AssertTrue(Condition := rig.fbElev.nResetEdges = nElevReset AND rig.fbAzim.nResetEdges = nAzimReset AND rig.fbDero.nResetEdges = nDeroReset, Message := 'no reset to an axis');
