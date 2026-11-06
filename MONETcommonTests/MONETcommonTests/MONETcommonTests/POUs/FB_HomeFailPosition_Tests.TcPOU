@@ -1,0 +1,227 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="FB_HomeFailPosition_Tests" Id="{80035c72-b5ba-4460-98fe-3a132076c04b}" SpecialFunc="None">
+    <Declaration><![CDATA[// Tests for HalfBROT.FB_HomeFailPosition, the position restore after a failed cam homing (HalfBROT#147). Pure logic, no NC: the NC's
+// virtual homing position is simulated as -1E10 / +1E10 (MC_SetPosition is not run, the block only asks for it).
+FUNCTION_BLOCK FB_HomeFailPosition_Tests EXTENDS TcUnit.FB_TestSuite
+VAR
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[Restores_Start_Plus_Travel();
+Waits_Until_Axis_Can_Set();
+Clamped_Into_Window();
+Latest_Idle_Position_Is_The_Start();
+Jump_Is_Not_Travel();
+Done_Ends_The_Restore();
+Set_Error_No_Retry();
+Uncalibrated_Start_Not_Restored();
+Failure_At_Real_Position_Not_Restored();
+]]></ST>
+    </Implementation>
+    <Method Name="Restores_Start_Plus_Travel" Id="{72e29b07-e526-4d22-a914-60592843abce}">
+      <Declaration><![CDATA[// Homing started at 40.0, moved 0.5 at the virtual position, failed: restore to 40.5, not clamped.
+METHOD PRIVATE Restores_Start_Plus_Travel
+VAR
+	fb	: HalfBROT.FB_HomeFailPosition;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Restores_Start_Plus_Travel');
+Step(fb := fb, fActual := 40.0, bCalibrated := TRUE);
+Step(fb := fb, fActual := -1.0E10, bHomeActive := TRUE);
+Step(fb := fb, fActual := -1.0E10 + 0.5, bHomeActive := TRUE);
+Step(fb := fb, fActual := -1.0E10 + 0.5, bFailed := TRUE);
+AssertTrue(Condition := fb.bRestore, Message := 'restore wanted');
+AssertEquals_LREAL(Expected := 40.5, Actual := fb.fRestorePosition, Delta := 1.0E-9, Message := 'start + travel');
+AssertEquals_LREAL(Expected := 40.5, Actual := fb.fEstimate, Delta := 1.0E-9, Message := 'estimate');
+AssertFalse(Condition := fb.bClamped, Message := 'not clamped');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Waits_Until_Axis_Can_Set" Id="{333c9514-e7cf-464b-8287-2ededba31bd5}">
+      <Declaration><![CDATA[// The restore is asked for only while MC_SetPosition can run (no error, axis at rest).
+METHOD PRIVATE Waits_Until_Axis_Can_Set
+VAR
+	fb	: HalfBROT.FB_HomeFailPosition;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Waits_Until_Axis_Can_Set');
+Step(fb := fb, fActual := 40.0, bCalibrated := TRUE);
+Step(fb := fb, fActual := -1.0E10, bHomeActive := TRUE);
+Step(fb := fb, fActual := -1.0E10 + 0.5, bHomeActive := TRUE);
+Step(fb := fb, fActual := -1.0E10 + 0.5, bFailed := TRUE);
+Step(fb := fb, fActual := -1.0E10 + 0.5, bCanSet := FALSE);
+AssertFalse(Condition := fb.bRestore, Message := 'waiting');
+Step(fb := fb, fActual := -1.0E10 + 0.5, bCanSet := TRUE);
+AssertTrue(Condition := fb.bRestore, Message := 'restore wanted');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Clamped_Into_Window" Id="{295992e0-70dd-4494-96a7-221a245dc7dd}">
+      <Declaration><![CDATA[// Start close to the upper end: the restored value is held fMargin inside the window.
+METHOD PRIVATE Clamped_Into_Window
+VAR
+	fb	: HalfBROT.FB_HomeFailPosition;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Clamped_Into_Window');
+Step(fb := fb, fActual := 89.9, bCalibrated := TRUE);
+Step(fb := fb, fActual := -1.0E10, bHomeActive := TRUE);
+Step(fb := fb, fActual := -1.0E10 + 0.0, bHomeActive := TRUE);
+Step(fb := fb, fActual := -1.0E10 + 0.0, bFailed := TRUE);
+AssertTrue(Condition := fb.bRestore, Message := 'restore wanted');
+AssertEquals_LREAL(Expected := 89.5, Actual := fb.fRestorePosition, Delta := 1.0E-9, Message := 'clamped to max - margin');
+AssertEquals_LREAL(Expected := 89.9, Actual := fb.fEstimate, Delta := 1.0E-9, Message := 'estimate unclamped');
+AssertTrue(Condition := fb.bClamped, Message := 'clamped');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Latest_Idle_Position_Is_The_Start" Id="{988de5d5-a85c-4379-b34d-499e045f6c72}">
+      <Declaration><![CDATA[// The start is the last real position before the homing, not the first one.
+METHOD PRIVATE Latest_Idle_Position_Is_The_Start
+VAR
+	fb	: HalfBROT.FB_HomeFailPosition;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Latest_Idle_Position_Is_The_Start');
+Step(fb := fb, fActual := 40.0, bCalibrated := TRUE);
+Step(fb := fb, fActual := 50.0, bCalibrated := TRUE);
+Step(fb := fb, fActual := -1.0E10, bHomeActive := TRUE);
+Step(fb := fb, fActual := -1.0E10, bFailed := TRUE);
+AssertTrue(Condition := fb.bRestore, Message := 'restore wanted');
+AssertEquals_LREAL(Expected := 50.0, Actual := fb.fRestorePosition, Delta := 1.0E-9, Message := 'restore to the latest position');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Jump_Is_Not_Travel" Id="{2bf21859-5a17-465a-a5eb-b644e714e7e7}">
+      <Declaration><![CDATA[// The NC jump from -1E10 to +1E10 at the cam is not counted as travel, only the real travel after it.
+METHOD PRIVATE Jump_Is_Not_Travel
+VAR
+	fb	: HalfBROT.FB_HomeFailPosition;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Jump_Is_Not_Travel');
+Step(fb := fb, fActual := 40.0, bCalibrated := TRUE);
+Step(fb := fb, fActual := -1.0E10, bHomeActive := TRUE);
+Step(fb := fb, fActual := 1.0E10, bHomeActive := TRUE);
+Step(fb := fb, fActual := 1.0E10 + 0.25, bHomeActive := TRUE);
+Step(fb := fb, fActual := 1.0E10 + 0.25, bFailed := TRUE);
+AssertTrue(Condition := fb.bRestore, Message := 'restore wanted');
+AssertEquals_LREAL(Expected := 40.25, Actual := fb.fRestorePosition, Delta := 1.0E-9, Message := 'start + 0.25, without the jump');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Done_Ends_The_Restore" Id="{55a4e71a-53e0-4767-b41b-eec2058ccea1}">
+      <Declaration><![CDATA[// MC_SetPosition done: reported for one cycle, the request ends.
+METHOD PRIVATE Done_Ends_The_Restore
+VAR
+	fb	: HalfBROT.FB_HomeFailPosition;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Done_Ends_The_Restore');
+Step(fb := fb, fActual := 40.0, bCalibrated := TRUE);
+Step(fb := fb, fActual := -1.0E10, bHomeActive := TRUE);
+Step(fb := fb, fActual := -1.0E10 + 0.5, bHomeActive := TRUE);
+Step(fb := fb, fActual := -1.0E10 + 0.5, bFailed := TRUE);
+Step(fb := fb, fActual := -1.0E10 + 0.5, bSetDone := TRUE);
+AssertTrue(Condition := fb.bRestored, Message := 'restored');
+AssertFalse(Condition := fb.bRestore, Message := 'request ends');
+Step(fb := fb, fActual := 40.5);
+AssertFalse(Condition := fb.bRestored, Message := 'one cycle only');
+AssertFalse(Condition := fb.bRestore, Message := 'no new request');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Set_Error_No_Retry" Id="{014d163d-3350-4510-8225-4f633f97c018}">
+      <Declaration><![CDATA[// MC_SetPosition failed: reported for one cycle, no retry.
+METHOD PRIVATE Set_Error_No_Retry
+VAR
+	fb	: HalfBROT.FB_HomeFailPosition;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Set_Error_No_Retry');
+Step(fb := fb, fActual := 40.0, bCalibrated := TRUE);
+Step(fb := fb, fActual := -1.0E10, bHomeActive := TRUE);
+Step(fb := fb, fActual := -1.0E10 + 0.5, bHomeActive := TRUE);
+Step(fb := fb, fActual := -1.0E10 + 0.5, bFailed := TRUE);
+Step(fb := fb, fActual := -1.0E10 + 0.5, bSetError := TRUE);
+AssertTrue(Condition := fb.bRestoreFailed, Message := 'failed');
+AssertFalse(Condition := fb.bRestore, Message := 'request ends');
+Step(fb := fb, fActual := -1.0E10 + 0.5);
+AssertFalse(Condition := fb.bRestoreFailed, Message := 'one cycle only');
+AssertFalse(Condition := fb.bRestore, Message := 'no retry');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Uncalibrated_Start_Not_Restored" Id="{875a6c98-ca1a-41c8-9179-b12d3b982674}">
+      <Declaration><![CDATA[// A homing that started on an uncalibrated axis has no meaningful start: no restore.
+METHOD PRIVATE Uncalibrated_Start_Not_Restored
+VAR
+	fb	: HalfBROT.FB_HomeFailPosition;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Uncalibrated_Start_Not_Restored');
+Step(fb := fb, fActual := 40.0, bCalibrated := FALSE);
+Step(fb := fb, fActual := -1.0E10, bHomeActive := TRUE);
+Step(fb := fb, fActual := -1.0E10, bFailed := TRUE);
+AssertFalse(Condition := fb.bRestore, Message := 'no restore');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Failure_At_Real_Position_Not_Restored" Id="{8f4adfb8-1b4b-41de-aabf-437442a15a93}">
+      <Declaration><![CDATA[// A failure report while the position is real (not the NC's virtual one): nothing to restore.
+METHOD PRIVATE Failure_At_Real_Position_Not_Restored
+VAR
+	fb	: HalfBROT.FB_HomeFailPosition;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Failure_At_Real_Position_Not_Restored');
+Step(fb := fb, fActual := 40.0, bCalibrated := TRUE);
+Step(fb := fb, fActual := 40.0, bHomeActive := TRUE);
+Step(fb := fb, fActual := 40.0, bFailed := TRUE);
+AssertFalse(Condition := fb.bRestore, Message := 'no restore');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Step" Id="{24a4a111-a2f5-427b-a7cc-264139becc48}">
+      <Declaration><![CDATA[// One cycle of the block with a window of 0 to 90 (margin 0.5, largest step 1.0: the block defaults).
+METHOD PRIVATE Step
+VAR_INPUT
+	fActual		: LREAL;
+	bHomeActive	: BOOL;
+	bCalibrated	: BOOL;
+	bFailed		: BOOL;
+	bCanSet		: BOOL := TRUE;
+	bSetDone	: BOOL;
+	bSetError	: BOOL;
+END_VAR
+VAR_IN_OUT
+	fb			: HalfBROT.FB_HomeFailPosition;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[fb(fActualPosition := fActual, bHomeActive := bHomeActive, bHomePending := FALSE, bCalibrated := bCalibrated, bFailed := bFailed,
+	bCanSet := bCanSet, fMin := 0.0, fMax := 90.0, bSetDone := bSetDone, bSetError := bSetError);
+]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>
