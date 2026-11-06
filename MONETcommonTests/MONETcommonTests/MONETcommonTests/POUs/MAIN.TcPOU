@@ -36,6 +36,7 @@ VAR
 	fbMonetTimeoutsTests : MonetTimeouts_Tests;
 	fbMonetSafeStateTests	: MonetSafeState_Tests;
 	fbStageAbortTests	: F_StageAbort_Tests;	// suite 34 of 41
+	fbJogRequestTests	: FB_JogRequest_Tests;	// suite 36 of 41 (#148)
 	fbHomeRequestTests	: FB_HomeRequest_Tests;	// suite 35 of 41 (MAXNUMBEROFTESTSUITES); #24 step 6 freed 6 slots (the BROTLib duplicates)
 END_VAR
 ]]></Declaration>
