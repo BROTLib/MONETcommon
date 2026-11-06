@@ -100,7 +100,7 @@ fbTel.nTimeDivisor := nValue;	// also in manual, where the body (and its input l
 ]]></Declaration>
       <Implementation>
         <ST><![CDATA[IF bManual THEN
-	fbTel.SuspendAutomatic();
+	fbTel.SuspendAutomatic(bEstopIn := bEstopIn, bSafetyErrorIn := bSafetyIn, bMainReadyIn := bMainReadyIn);
 ELSE
 	fbTel(
 		telescopeConfig := telescopeConfig,
