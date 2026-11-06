@@ -1812,18 +1812,22 @@ CASE eSlewStage OF
 				eSlewStage := E_SlewStage.wait_standstill;
 		END_IF
 	E_SlewStage.wait_standstill:
-		IF fbElevation.MoveDone THEN
+		// #225: like the goto, MoveAxis is dropped per axis only when its move is really done (NOT Busy AND MoveDone), and the stage ends
+		// only when all three are dropped. bSlewing and bStopped are computed later in the body, so in the first scan of this stage they
+		// still hold the values from before the move (not slewing, stopped); the stage then went to done at once (MS-140: bSlewActive TRUE
+		// for 60 ms, the slew timeout 16#40 never covered the travel).
+		IF NOT fbElevation.Busy AND fbElevation.MoveDone THEN
 			fbElevation.MoveAxis := FALSE;
 		END_IF
 		
-		IF fbAzimuth.MoveDone THEN
+		IF NOT fbAzimuth.Busy AND fbAzimuth.MoveDone THEN
 			fbAzimuth.MoveAxis := FALSE;
 		END_IF
 
-		IF fbDerotator.MoveDone THEN
+		IF NOT fbDerotator.Busy AND fbDerotator.MoveDone THEN
 			fbDerotator.MoveAxis := FALSE;
 		END_IF
-		IF NOT bSlewing AND bStopped THEN // all axis standstill
+		IF NOT fbElevation.MoveAxis AND NOT fbAzimuth.MoveAxis AND NOT fbDerotator.MoveAxis AND NOT bSlewing AND bStopped THEN // all axis standstill
 			eSlewStage := E_SlewStage.done;
 		END_IF
 	E_SlewStage.done:
