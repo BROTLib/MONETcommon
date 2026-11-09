@@ -327,5 +327,16 @@ END_VAR
 ]]></ST>
       </Implementation>
     </Method>
+    <Method Name="SetAzimuthPowerLost" Id="{90980f09-40a4-4fe6-bdab-e7ed198b3590}">
+      <Declaration><![CDATA[METHOD SetAzimuthPowerLost
+VAR_INPUT
+	bLost	: BOOL;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[fbAzim.SetPowerLost(bLost);
+]]></ST>
+      </Implementation>
+    </Method>
   </POU>
 </TcPlcObject>
