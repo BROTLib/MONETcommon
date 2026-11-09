@@ -101,14 +101,6 @@ nInjectedId := nId;
 ]]></ST>
       </Implementation>
     </Method>
-    <LineIds Name="FB_AzimuthMock">
-      <LineId Id="3" Count="49" />
-      <LineId Id="2" Count="0" />
-    </LineIds>
-    <LineIds Name="FB_AzimuthMock.InjectError">
-      <LineId Id="3" Count="1" />
-      <LineId Id="2" Count="0" />
-    </LineIds>
     <Method Name="SetPowerLost" Id="{2c4a888a-544d-494f-b3c3-109fceaee724}">
       <Declaration><![CDATA[// #232: the drive power is cut though the request stays (HalfBROT brake interlock): Ready and StandStill FALSE, like the NC state Disabled
 METHOD SetPowerLost
@@ -121,5 +113,13 @@ END_VAR
 ]]></ST>
       </Implementation>
     </Method>
+    <LineIds Name="FB_AzimuthMock">
+      <LineId Id="3" Count="49" />
+      <LineId Id="2" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_AzimuthMock.InjectError">
+      <LineId Id="3" Count="1" />
+      <LineId Id="2" Count="0" />
+    </LineIds>
   </POU>
 </TcPlcObject>
