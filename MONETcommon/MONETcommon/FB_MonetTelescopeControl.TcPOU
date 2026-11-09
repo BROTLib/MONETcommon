@@ -24,6 +24,12 @@ VAR_INPUT
 	// Switch on per site after the on-sky check (MONETcommon#30).
 	bLiveWeatherRefraction	: BOOL := FALSE;
 
+	// #236: the derotator offset is applied to the running track at this rate at most (deg/s). A step in the setpoint of the
+	// external setpoint generator takes the AX5206 down (F324 excessive position command value deviation, seen with a 2 deg step
+	// on MONET/S, MS-165). The pendant nudges (5 arcsec tap, up to 60 arcsec/s) stay far below. 0 = no limit (old behaviour).
+	fDerotatorOffsetRate	: LREAL := 0.5;
+	tCycle					: TIME := T#10MS;	// PLC task cycle time (10 ms on MONETS and MONETN); _TaskInfo is not visible in a library
+
 	// #155: SafetyHandling.error, wired in MAIN. FALSE (default) means the safety block of the brake is not enforced.
 	bSafetyError		: BOOL;
 
@@ -148,6 +154,10 @@ VAR
 	tonGotoTimeout		: FB_TimeoutTimer;
 	tonHomeTimeout		: FB_TimeoutTimer;
 	tonSlewTimeout		: FB_TimeoutTimer;
+
+	// #236: the derotator offset as applied to the setpoint (fDerotatorOffset is the requested one). Follows the request at once
+	// while the derotator does not track; during a track it ramps at fDerotatorOffsetRate.
+	fDerotatorOffsetApplied	: LREAL;
 
 	// #24 step 3a: the stage of each stage machine (until 0.12.0 a bare USINT nStage in the VAR_INST of the method; here so
 	// the read-only properties GotoStage, SlewStage, ParkStage and PowerOnStage can return it). The values are the old numbers.
@@ -2336,8 +2346,16 @@ fAzimuthCalc := fAzimuthCalc + fAzimuthPointingOffset + F_AzimuthOffsetOnAxis(fA
 // in the same scan. Only a requested goto/track makes the RA/Dec target relevant.
 bTargetBelowHorizonWarn := BROTLib.F_TargetBelowHorizonWarning(bGoto := bGotoActive, bTrack := bTrackActive, fElevationCalc := fElevationCalc, fHorizon := fHorizon);
 
+// #236: apply the requested derotator offset; during a track as a ramp (see fDerotatorOffsetRate), otherwise at once
+IF fbDerotator.Tracking AND fDerotatorOffsetRate > 0.0 THEN
+	fDerotatorOffsetApplied := fDerotatorOffsetApplied + LIMIT(-fDerotatorOffsetRate * MAX(TIME_TO_LREAL(tCycle) * 0.001, 1.0E-6),
+												fDerotatorOffset - fDerotatorOffsetApplied,
+												fDerotatorOffsetRate * MAX(TIME_TO_LREAL(tCycle) * 0.001, 1.0E-6));
+ELSE
+	fDerotatorOffsetApplied := fDerotatorOffset;
+END_IF
 // calculate derotator position 
-fDerotatorCalc := F_DerotatorPosition2(fAzimuthCalc, fElevationCalc, telescopeConfig.latitude, fDerotatorSign)  + fDerotatorOffset;
+fDerotatorCalc := F_DerotatorPosition2(fAzimuthCalc, fElevationCalc, telescopeConfig.latitude, fDerotatorSign)  + fDerotatorOffsetApplied;
 
 // calculate velocities
 fDerotatorVelocity := F_Derotatorvelocity(fAzimuthCalc, fElevationCalc, telescopeConfig.latitude, fDerotatorSign);
