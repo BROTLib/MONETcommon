@@ -70,16 +70,7 @@
     <Compile Include="POUs\FB_JogRequest_Tests.TcPOU">
       <SubType>Code</SubType>
     </Compile>
-    <Compile Include="POUs\FB_BrakeSettleEnable_Tests.TcPOU">
-      <SubType>Code</SubType>
-    </Compile>
-    <Compile Include="POUs\FB_FocusDriveEnable_Tests.TcPOU">
-      <SubType>Code</SubType>
-    </Compile>
-    <Compile Include="POUs\FB_HomeFailPosition_Tests.TcPOU">
-      <SubType>Code</SubType>
-    </Compile>
-    <Compile Include="POUs\FB_PumpResetPulse_Tests.TcPOU">
+    <Compile Include="POUs\FB_HalfBROTHelpers_Tests.TcPOU">
       <SubType>Code</SubType>
     </Compile>
     <Compile Include="POUs\FB_FocusJogLatch_Tests.TcPOU">

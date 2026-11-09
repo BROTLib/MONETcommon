@@ -60,7 +60,11 @@ tctool MONETcommonTests.sln build run --require-valid-license
 
 ## Things to know
 
-Same as `BROTLibTests` (CI runs these tests through `tcbuild.yml`) -- TcUnit sized to 41 suites (39 used since the four HalfBROT helper suites of HalfBROT#32; 35 since #24 step 6, which removed the 6 suites of the BROTLib copies; all 41 were used since HalfBROT#136) / 32 tests / 256 asserts, every test method
+Same as `BROTLibTests` (CI runs these tests through `tcbuild.yml`) -- TcUnit parameters 41 suites / 32 tests / 256 asserts per suite, **but only 35 suites load**: 35 suites (306 tests) run on the user-mode runtime, with 36 or more
+the boot project fails to load (`PLC: Error (hr=0x98410033) loading boot project`, then `Init44\IO ... AdsError 1804`; observed 2026-11-09 with 36, 37 and 38 suites, runner idle). The build reports
+~70 MB of global data for 35 suites, i.e. about 2 MB per suite instance (the TcUnit arrays are sized by the three parameters above), which is probably the limit; this was not confirmed. So new tests go into
+an existing suite while it has fewer than 32 tests / 256 asserts, not into a new suite, until the parameters are lowered (the largest suite here has 32 tests). `FB_HalfBROTHelpers_Tests` holds the HalfBROT helpers
+without a test of their own (HalfBROT#32). Every test method
 runs every PLC cycle (multi-cycle tests must guard their own state), `.tmc`/`_Boot`/`_CompileInfo`/
 `_Libraries` are generated and git-ignored.
 

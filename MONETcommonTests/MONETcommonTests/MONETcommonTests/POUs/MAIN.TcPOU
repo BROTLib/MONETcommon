@@ -38,10 +38,7 @@ VAR
 	fbStageAbortTests	: F_StageAbort_Tests;	// suite 34 of 41
 	fbJogRequestTests	: FB_JogRequest_Tests;	// suite 36 of 41 (#148)
 	fbHomeRequestTests	: FB_HomeRequest_Tests;	// suite 35 of 41 (MAXNUMBEROFTESTSUITES); #24 step 6 freed 6 slots (the BROTLib duplicates)
-	fbBrakeSettleEnableTests	: FB_BrakeSettleEnable_Tests;	// suites 36-39 of 41: the HalfBROT helpers that had no test (HalfBROT#32)
-	fbFocusDriveEnableTests	: FB_FocusDriveEnable_Tests;
-	fbHomeFailPositionTests	: FB_HomeFailPosition_Tests;
-	fbPumpResetPulseTests	: FB_PumpResetPulse_Tests;
+	fbHalfBROTHelpersTests	: FB_HalfBROTHelpers_Tests;	// suite 35: the HalfBROT helpers that had no test, in one suite (HalfBROT#32); see "Things to know" in the README for why not more suites
 END_VAR
 ]]></Declaration>
     <Implementation>
