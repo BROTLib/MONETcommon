@@ -31,9 +31,6 @@
     <Compile Include="POUs\FB_RecordingComm.TcPOU">
       <SubType>Code</SubType>
     </Compile>
-    <Compile Include="POUs\F_AzimuthOffsetOnAxis_Tests.TcPOU">
-      <SubType>Code</SubType>
-    </Compile>
     <Compile Include="POUs\F_CommandAcceptance_Tests.TcPOU">
       <SubType>Code</SubType>
     </Compile>
@@ -41,9 +38,6 @@
       <SubType>Code</SubType>
     </Compile>
     <Compile Include="POUs\F_BrakeMustClose_Tests.TcPOU">
-      <SubType>Code</SubType>
-    </Compile>
-    <Compile Include="POUs\F_ParkAxesCanMove_Tests.TcPOU">
       <SubType>Code</SubType>
     </Compile>
     <Compile Include="POUs\FB_HomeRequest_Tests.TcPOU">
@@ -58,13 +52,10 @@
     <Compile Include="POUs\F_WakeShakeWindow_Tests.TcPOU">
       <SubType>Code</SubType>
     </Compile>
-    <Compile Include="POUs\F_FocusHomeRelease_Tests.TcPOU">
-      <SubType>Code</SubType>
-    </Compile>
     <Compile Include="POUs\F_FocusTargetFollowsActual_Tests.TcPOU">
       <SubType>Code</SubType>
     </Compile>
-    <Compile Include="POUs\F_FocusTrackStoredPosition_Tests.TcPOU">
+    <Compile Include="POUs\FB_FocusParkHelpers_Tests.TcPOU">
       <SubType>Code</SubType>
     </Compile>
     <Compile Include="POUs\FB_JogRequest_Tests.TcPOU">
@@ -73,16 +64,10 @@
     <Compile Include="POUs\FB_HalfBROTHelpers_Tests.TcPOU">
       <SubType>Code</SubType>
     </Compile>
-    <Compile Include="POUs\FB_FocusJogLatch_Tests.TcPOU">
-      <SubType>Code</SubType>
-    </Compile>
     <Compile Include="POUs\FocusModeSwitch_Sim_Tests.TcPOU">
       <SubType>Code</SubType>
     </Compile>
     <Compile Include="POUs\FB_FocusTargetInit_Tests.TcPOU">
-      <SubType>Code</SubType>
-    </Compile>
-    <Compile Include="POUs\F_FocusHomingReference_Tests.TcPOU">
       <SubType>Code</SubType>
     </Compile>
     <Compile Include="POUs\FocusTargetInit_Sim_Tests.TcPOU">
@@ -194,7 +179,7 @@
       <Namespace>MONETcommon</Namespace>
     </PlaceholderReference>
     <PlaceholderReference Include="BROTLib">
-      <DefaultResolution>BROTLib, 0.18.0 (BROT)</DefaultResolution>
+      <DefaultResolution>BROTLib, 0.20.0 (BROT)</DefaultResolution>
       <Namespace>BROTLib</Namespace>
     </PlaceholderReference>
     <PlaceholderReference Include="HalfBROT">

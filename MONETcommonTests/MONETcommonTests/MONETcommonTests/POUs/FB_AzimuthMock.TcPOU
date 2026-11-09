@@ -19,6 +19,7 @@ VAR
 	pBool	: POINTER TO BOOL;
 	pLreal	: POINTER TO LREAL;
 	bInjected	: BOOL;
+	bMockPowerLost	: BOOL;		// #232: drive power cut while bEnable stays (NC state Disabled), set with SetPowerLost
 	nInjectedId	: UDINT;
 END_VAR
 ]]></Declaration>
@@ -27,7 +28,7 @@ END_VAR
 // StopAxis -> fbAxis.Stop(), HomeAxis -> _StartHoming) stay, so the telescope sees the real command interface. The model
 // is driven by the levels the telescope writes and writes what the telescope reads: the base outputs and, through pointers
 // (FB_Axis outputs are not writable from outside), the nested fbAxis outputs.
-fbCore(bEnable := bEnable, bHome := bHomeAxis, bMove := bMoveAxis, bStop := bStopAxis, fTarget := fPosition, fHomePosition := fCalibPosition,
+fbCore(bEnable := bEnable, bPowerLost := bMockPowerLost, bHome := bHomeAxis, bMove := bMoveAxis, bStop := bStopAxis, fTarget := fPosition, fHomePosition := fCalibPosition,
 	bTracking := bTracking, nMoveScans := nMockMoveScans, nStopScans := nMockStopScans, nHomeScans := nMockHomeScans,
 	nDisableScans := nMockDisableScans);
 
@@ -97,6 +98,18 @@ END_VAR
       <Implementation>
         <ST><![CDATA[bInjected := TRUE;
 nInjectedId := nId;
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="SetPowerLost" Id="{2c4a888a-544d-494f-b3c3-109fceaee724}">
+      <Declaration><![CDATA[// #232: the drive power is cut though the request stays (HalfBROT brake interlock): Ready and StandStill FALSE, like the NC state Disabled
+METHOD SetPowerLost
+VAR_INPUT
+	bLost	: BOOL;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[bMockPowerLost := bLost;
 ]]></ST>
       </Implementation>
     </Method>

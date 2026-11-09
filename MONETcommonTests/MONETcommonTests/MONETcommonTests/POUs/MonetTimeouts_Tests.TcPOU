@@ -14,6 +14,7 @@ Suspend_Stuck_Stop_Hands_Over_And_Keeps_The_Abort();
 Command_Timeout_From_stMotion_Fires_At_1_Minute();
 Slew_Timeout_Ramps_Parks_And_Recovers_With_Reset();
 Stop_During_The_Timeout_Ramp_Cancels_The_Park();
+Goto_Window_Error_During_Motion_Ramps_Without_Park();
 ]]></ST>
     </Implementation>
     <Method Name="Slew_Times_Out_After_600_Seconds" Id="{0f1dac27-94df-4228-bf7c-9724d9d1204a}">
@@ -512,6 +513,118 @@ CASE nStep OF
 		F_Note(bFailed := rig.fbTel.bIsParked OR ABS(rig.fbElev.fActualPosition - 60.0) < 0.001, sText := CONCAT(sTest, 'the telescope was not parked after the stop'));
 		AssertTrue(Condition := rig.fbTel.bError AND rig.fbTel.nErrorID = 16#40, Message := 'the error 16#40 stays latched');
 		F_Note(bFailed := NOT (rig.fbTel.bError AND rig.fbTel.nErrorID = 16#40), sText := CONCAT(sTest, 'the error 16#40 stays latched'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+END_CASE
+
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Goto_Window_Error_During_Motion_Ramps_Without_Park" Id="{06a79f67-e26e-4359-bf01-8cd1feb2a6d5}">
+      <Declaration><![CDATA[// #230: a goto target that leaves the elevation window while the axes travel (software error 16#16, here provoked by lowering
+// stMotion.fGotoMaxElevation to 30 deg under a goto to dec -89, el about 32 deg) is stopped with the axes enabled first: bStop
+// (MC_Stop sent), the drives are disabled only after the stop has settled, and there is no park (bParkActive and bIsParked stay FALSE,
+// no emergency park). The error stays latched (16#16, READY_STATE -1.0) and the reset clears it. Before the fix the error branch disabled
+// the moving axes in the scan after the error (NC 0x4260 on the real axes, then the emergency park of the axis error).
+METHOD PRIVATE Goto_Window_Error_During_Motion_Ramps_Without_Park
+VAR_INST
+	rig			: FB_MonetRig;
+	stCfg		: BROTLib.ST_MotionConfig;
+	nStep		: INT;
+	nCycles		: UINT;
+	sTest		: STRING(80);
+	nEdges0		: UINT;	// stop edges of the three axes before the ramp
+	bSawStop	: BOOL;
+	bSawPark	: BOOL;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Goto_Window_Error_During_Motion_Ramps_Without_Park');
+sTest := 'Goto_Window_Error_During_Motion_Ramps_Without_Park: ';
+IF nStep >= 90 THEN
+	RETURN;
+END_IF
+rig.Scan();
+nCycles := nCycles + 1;
+CASE nStep OF
+0:	// wait for the clock, then power on
+	IF rig.ClockValid THEN
+		rig.fbTel.Init();
+		nStep := 10;
+		nCycles := 0;
+	ELSIF nCycles > 2000 THEN
+		AssertTrue(Condition := FALSE, Message := 'the astronomical clock never became valid');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the astronomical clock never became valid'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+10:	// online: slow axes, goto to a target inside the default window
+	IF rig.Online THEN
+		rig.SetMoveScans(nScans := 60000);
+		rig.fbTel.Track(fRightAscension := 0.0, fDeclination := -89.0);
+		nStep := 20;
+		nCycles := 0;
+	ELSIF nCycles > 1500 THEN
+		AssertTrue(Condition := FALSE, Message := 'the mock telescope did not reach READY_STATE 1.0');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the mock telescope did not reach READY_STATE 1.0'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+20:	// the axes travel: now the window shrinks below the target
+	IF rig.fbTel.bGotoActive AND rig.fbTel.bSlewing AND nCycles > 20 THEN
+		AssertFalse(Condition := rig.fbTel.bError, Message := 'the goto runs without an error before the window changes');
+		F_Note(bFailed := (rig.fbTel.bError), sText := CONCAT(sTest, 'the goto runs without an error before the window changes'));
+		nEdges0 := rig.fbElev.nStopEdges + rig.fbAzim.nStopEdges + rig.fbDero.nStopEdges;
+		stCfg.fGotoMaxElevation := 30.0;
+		rig.SetMotion(stValue := stCfg);
+		nStep := 30;
+		nCycles := 0;
+	ELSIF nCycles > 1500 THEN
+		AssertTrue(Condition := FALSE, Message := 'the goto never started to move');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the goto never started to move'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+30:	// the scan that raised 16#16
+	IF rig.fbTel.bError THEN
+		AssertTrue(Condition := rig.fbTel.nErrorID = 16#16 AND NOT rig.fbTel.bGotoActive, Message := 'the target above stMotion.fGotoMaxElevation is error 16#16, the goto is dropped');
+		F_Note(bFailed := NOT (rig.fbTel.nErrorID = 16#16 AND NOT rig.fbTel.bGotoActive), sText := CONCAT(sTest, 'the target above stMotion.fGotoMaxElevation is error 16#16, the goto is dropped'));
+		nStep := 40;
+		nCycles := 0;
+	ELSIF nCycles > 300 THEN
+		AssertTrue(Condition := FALSE, Message := 'the target outside the window was not refused during the move');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the target outside the window was not refused during the move'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+40:	// the ramp: bStop with the axes still enabled, until the stop has settled
+	bSawStop := bSawStop OR rig.fbTel.bStopActive;
+	bSawPark := bSawPark OR rig.fbTel.bParkActive OR rig.fbTel.bIsParked OR rig.fbTel.bParkAfterStop;
+	IF nCycles = 1 THEN	// the scan after the one that raised the error
+		AssertTrue(Condition := rig.fbTel.bStopActive AND rig.fbElev.bEnable AND rig.fbAzim.bEnable AND rig.fbDero.bEnable, Message := 'the window error ramps (bStop) with the axes enabled');
+		F_Note(bFailed := NOT (rig.fbTel.bStopActive AND rig.fbElev.bEnable AND rig.fbAzim.bEnable AND rig.fbDero.bEnable), sText := CONCAT(sTest, 'the window error ramps (bStop) with the axes enabled'));
+	END_IF
+	IF NOT rig.fbTel.bStopActive AND nCycles > 5 AND NOT (rig.fbElev.bEnable OR rig.fbAzim.bEnable OR rig.fbDero.bEnable) THEN
+		AssertTrue(Condition := bSawStop AND rig.fbElev.nStopEdges + rig.fbAzim.nStopEdges + rig.fbDero.nStopEdges > nEdges0, Message := 'the moving axes got an MC_Stop');
+		F_Note(bFailed := NOT (bSawStop AND rig.fbElev.nStopEdges + rig.fbAzim.nStopEdges + rig.fbDero.nStopEdges > nEdges0), sText := CONCAT(sTest, 'the moving axes got an MC_Stop'));
+		AssertFalse(Condition := bSawPark, Message := 'no park, no emergency park');
+		F_Note(bFailed := (bSawPark), sText := CONCAT(sTest, 'no park, no emergency park'));
+		AssertTrue(Condition := rig.fbTel.bError AND rig.fbTel.nErrorID = 16#16 AND rig.fbTel.ReadyState = -1.0, Message := 'the error 16#16 stays latched, READY_STATE -1.0');
+		F_Note(bFailed := NOT (rig.fbTel.bError AND rig.fbTel.nErrorID = 16#16 AND rig.fbTel.ReadyState = -1.0), sText := CONCAT(sTest, 'the error 16#16 stays latched, READY_STATE -1.0'));
+		rig.fbTel.Reset();
+		nStep := 50;
+		nCycles := 0;
+	ELSIF nCycles > 1500 THEN
+		AssertTrue(Condition := FALSE, Message := 'the axes were not disabled after the stop');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the axes were not disabled after the stop'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+50:	// reset=1 clears the software error
+	IF nCycles >= 10 THEN
+		AssertTrue(Condition := NOT rig.fbTel.bError AND rig.fbTel.nErrorID = 0 AND NOT rig.fbTel.bIsParked, Message := 'reset=1 clears 16#16, the telescope is not parked');
+		F_Note(bFailed := NOT (NOT rig.fbTel.bError AND rig.fbTel.nErrorID = 0 AND NOT rig.fbTel.bIsParked), sText := CONCAT(sTest, 'reset=1 clears 16#16, the telescope is not parked'));
 		nStep := 99;
 		TEST_FINISHED();
 	END_IF
