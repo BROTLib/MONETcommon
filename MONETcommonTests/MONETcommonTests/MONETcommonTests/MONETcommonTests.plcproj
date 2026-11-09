@@ -179,11 +179,11 @@
       <Namespace>MONETcommon</Namespace>
     </PlaceholderReference>
     <PlaceholderReference Include="BROTLib">
-      <DefaultResolution>BROTLib, 0.18.0 (BROT)</DefaultResolution>
+      <DefaultResolution>BROTLib, 0.20.0 (BROT)</DefaultResolution>
       <Namespace>BROTLib</Namespace>
     </PlaceholderReference>
     <PlaceholderReference Include="HalfBROT">
-      <DefaultResolution>HalfBROT, 0.13.0 (BROT)</DefaultResolution>
+      <DefaultResolution>HalfBROT, 0.14.0 (BROT)</DefaultResolution>
       <Namespace>HalfBROT</Namespace>
     </PlaceholderReference>
     <PlaceholderReference Include="AstroBROT">
