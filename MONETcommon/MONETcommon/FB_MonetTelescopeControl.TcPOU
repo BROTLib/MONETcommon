@@ -282,6 +282,16 @@ VAR
 	bMainPowerRamp			: BOOL;	// the controlled stop of a power failure is running, the error branch does not disable the axes
 	bMainPowerRampStarted	: BOOL;	// one scan, logged
 	MainPowerRampEvent		: FB_EventLog;
+	// #230: a goto target outside the elevation window (software error 16#15/16#16, raised by _GotoTelescope in every scan of the goto, so
+	// also when the target drifts over the limit during the travel) while an enabled axis moves: the generic error branch would disable the
+	// drives under motion (NC 0x4260 on all three axes) and the hardware-error park would follow. Ramp first, like a timeout but without the
+	// park: bStop (stop transaction #96), the error branch leaves the axes enabled until the stop has settled, then it disables them as at
+	// standstill. The error stays until the reset.
+	bWindowError			: BOOL;	// bSoftwareError with 16#15 or 16#16 in this scan
+	bWindowErrorLast		: BOOL;	// its value of the last automatic scan (edge memory)
+	bWindowRamp				: BOOL;	// the controlled stop of a window error is running, the error branch does not disable the axes
+	bWindowRampStarted		: BOOL;	// one scan, logged
+	WindowRampEvent			: FB_EventLog;
 	// #24 step 7 PR 8 (plan D8, specs/design/monetcommon-safe-states.md row "Focus error"): only the focus is faulty, the axes are
 	// healthy. On the edge of the emergency park (#86), if the axes can drive (F_ParkAxesCanMove, oil pressure there), the park drives
 	// to the park position instead of parking in place: an enabled axis that moves gets the controlled stop first (bStop, #96, the
@@ -519,6 +529,24 @@ IF bTimeoutError AND NOT bTimeoutErrorLast AND bTimeoutCanMove AND NOT bIsParked
 END_IF
 bTimeoutErrorLast := bTimeoutError;
 
+// #230: the elevation-window errors of a goto (16#15/16#16) ramp the moving axes before the error branch disables them. Same end
+// conditions as the other ramps: the stop has been released, a hardware error, E-stop or safety error takes over (the error branch
+// disables at once), the error is gone (reset) or the stop timeout. No park: at standstill these errors latch without one (MS-123, MS-153).
+bWindowError := bSoftwareError AND (nSoftwareErrorID = 16#15 OR nSoftwareErrorID = 16#16);
+IF bWindowRamp AND (NOT bWindowError OR NOT bTimeoutCanMove OR NOT bStopActive OR
+		(tonCommandTimeout.Q AND TCS_command = E_TCSCommand.stop)) THEN
+	bWindowRamp := FALSE;
+END_IF
+IF bWindowError AND NOT bWindowErrorLast AND bTimeoutCanMove AND
+		((fbStopTx.abEnabled[1] AND (fbStopTx.abMoving[1] OR aAxis[1].bTracking)) OR
+		 (fbStopTx.abEnabled[2] AND (fbStopTx.abMoving[2] OR aAxis[2].bTracking)) OR
+		 (fbStopTx.abEnabled[3] AND (fbStopTx.abMoving[3] OR aAxis[3].bTracking))) THEN
+	bWindowRamp := TRUE;
+	bWindowRampStarted := TRUE;
+	bStopActive := TRUE;
+END_IF
+bWindowErrorLast := bWindowError;
+
 // #24 step 7 PR 8 (D8, row focus error): a focus error alone leaves the axes controllable. Ramp first, then the emergency park
 // drives to the park position. Decided before the error branch below, which would otherwise disable the axes in this scan.
 bFocusErrorOnly := fbFocus.Error AND NOT bEstopTriggered AND NOT bSafetyError AND
@@ -608,7 +636,7 @@ IF bError THEN
 	// park of a timeout (bTimeoutPark, only without a hardware error, E-stop or safety error). PR 7: nor during the ramp of a power failure.
 	// PR 8: nor during the ramp and the drive of the focus-error park (bFocusErrorPark, only while the focus error is the only error);
 	// its park disables them
-	IF NOT bHydraulicsRamp AND NOT bTimeoutPark AND NOT bMainPowerRamp AND NOT bFocusErrorPark THEN
+	IF NOT bHydraulicsRamp AND NOT bTimeoutPark AND NOT bMainPowerRamp AND NOT bFocusErrorPark AND NOT bWindowRamp THEN
 		fbElevation.Enable := FALSE;
 		fbAzimuth.Enable := FALSE;
 		fbDerotator.Enable := FALSE;
@@ -1569,7 +1597,7 @@ IF __ISVALIDREF(fbAzimuth) AND __ISVALIDREF(fbElevation) AND __ISVALIDREF(fbDero
         // #24 step 7 PR 8: also during the ramp or the drive of the focus-error park; after manual mode that park parks in place
         // (the pendant may have moved or disabled the axes), so it is given up here
         bSuspendStop := BROTLib.F_SuspendStop(	// #24 step 6: BROTLib's copy, the three axes OR-ed here
-            bError := bError AND NOT bHydraulicsRamp AND NOT bTimeoutPark AND NOT bMainPowerRamp AND NOT bFocusErrorPark,
+            bError := bError AND NOT bHydraulicsRamp AND NOT bTimeoutPark AND NOT bMainPowerRamp AND NOT bFocusErrorPark AND NOT bWindowRamp,
             bStopRunning := TCS_command = E_TCSCommand.stop AND (bStopActive OR bMoveAbortPending),
             bAnyAxisMoving := (fbStopTx.abEnabled[1] AND fbStopTx.abMoving[1])
                 OR (fbStopTx.abEnabled[2] AND fbStopTx.abMoving[2])
@@ -1974,6 +2002,12 @@ MainPowerRampEvent(	Trigger := bMainPowerRampStarted,
 				OnMessage := 'power failure (bMainReady FALSE): controlled stop of the axes, then emergency park in place',
 				Comm := fbComm);
 bMainPowerRampStarted := FALSE;
+WindowRampEvent(	Trigger := bWindowRampStarted,
+				Level := ADSLOG_MSGTYPE_WARN,
+				FormatString := '%s',
+				OnMessage := 'goto target outside the elevation window while moving: controlled stop of the axes, no park',
+				Comm := fbComm);
+bWindowRampStarted := FALSE;
 FocusErrorParkEvent(	Trigger := bFocusErrorParkStarted,
 				Level := ADSLOG_MSGTYPE_WARN,
 				FormatString := '%s',
