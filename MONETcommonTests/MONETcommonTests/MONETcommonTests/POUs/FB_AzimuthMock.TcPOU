@@ -8,7 +8,6 @@ VAR_INPUT
 	nMockStopScans	: UINT := 3;	// scans an MC_Stop takes until Done
 	nMockHomeScans	: UINT := 3;	// scans a homing takes
 	nMockDisableScans	: UINT := 1;	// scans MC_ExtSetPointGenDisable takes (BROTLib#101)
-	bMockPowerLost	: BOOL;			// #232: drive power cut while bEnable stays (NC state Disabled)
 END_VAR
 VAR_OUTPUT
 	nStopEdges		: UINT;			// stop requests the telescope made (rising edges of StopAxis)
@@ -20,6 +19,7 @@ VAR
 	pBool	: POINTER TO BOOL;
 	pLreal	: POINTER TO LREAL;
 	bInjected	: BOOL;
+	bMockPowerLost	: BOOL;		// #232: drive power cut while bEnable stays (NC state Disabled), set with SetPowerLost
 	nInjectedId	: UDINT;
 END_VAR
 ]]></Declaration>
@@ -109,5 +109,17 @@ nInjectedId := nId;
       <LineId Id="3" Count="1" />
       <LineId Id="2" Count="0" />
     </LineIds>
+    <Method Name="SetPowerLost" Id="{2c4a888a-544d-494f-b3c3-109fceaee724}">
+      <Declaration><![CDATA[// #232: the drive power is cut though the request stays (HalfBROT brake interlock): Ready and StandStill FALSE, like the NC state Disabled
+METHOD SetPowerLost
+VAR_INPUT
+	bLost	: BOOL;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[bMockPowerLost := bLost;
+]]></ST>
+      </Implementation>
+    </Method>
   </POU>
 </TcPlcObject>

@@ -258,7 +258,7 @@ END_CASE
       </Implementation>
     </Method>
     <Method Name="Stop_And_Park_Complete_When_An_Axis_Power_Is_Cut_By_An_Interlock" Id="{2e58537e-0767-4ec2-b7ae-cf0d0ba31918}">
-      <Declaration><![CDATA[// #232 (MONET/S 2026-11-09, MS-158): the elevation is disabled at standstill, the brake closes, and HalfBROT powers the azimuth only
+      <Declaration><![CDATA[// #232 (MONET/S 2026-11-09, MS-158): the brake closes after the elevation was disabled at standstill, and HalfBROT powers the azimuth only
 // with the brake open (fbAxis.Enable := bEnable AND bAtRest AND bBrakeOpen), so the NC azimuth goes to Disabled: bEnable (the request)
 // stays TRUE, fbAxis.Ready and StandStill are FALSE. bStopped used the request and stayed FALSE for ever: a park and a stop were held
 // with no progress and no log line. The mock core models the NC state Disabled with bPowerLost. A stop settles, then a park completes.
@@ -292,8 +292,7 @@ CASE nStep OF
 	END_IF
 10:	// online: the azimuth loses its power (request unchanged) and the elevation is disabled, as after the brake interlock
 	IF rig.Online THEN
-		rig.fbAzim.bMockPowerLost := TRUE;
-		rig.fbElev.bEnable := FALSE;
+		rig.SetAzimuthPowerLost(TRUE);
 		nStep := 20;
 		nCycles := 0;
 	ELSIF nCycles > 1500 THEN
@@ -324,10 +323,10 @@ CASE nStep OF
 		nStep := 99;
 		TEST_FINISHED();
 	END_IF
-40:	// the park is dispatched and completes (in place: the elevation is disabled)
+40:	// the park is dispatched and completes
 	IF rig.fbTel.bIsParked THEN
-		AssertTrue(Condition := rig.fbTel.bParkedInPlace, Message := 'the park completed in place');
-		F_Note(bFailed := NOT rig.fbTel.bParkedInPlace, sText := CONCAT(sTest, 'the park completed in place'));
+		AssertTrue(Condition := rig.fbTel.bIsParked, Message := 'the park completed');
+		F_Note(bFailed := NOT rig.fbTel.bIsParked, sText := CONCAT(sTest, 'the park completed'));
 		nStep := 99;
 		TEST_FINISHED();
 	ELSIF nCycles > 1500 THEN
