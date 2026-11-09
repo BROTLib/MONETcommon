@@ -1,0 +1,416 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="FB_FocusParkHelpers_Tests" Id="{be54170c-e181-4720-9be3-b86446bfb91e}" SpecialFunc="None">
+    <Declaration><![CDATA[// Tests for six small pure functions / function blocks, in one suite (the TcUnit test-suite limit, see "Things to know" in the README):
+// F_FocusTrackStoredPosition: Tests for HalfBROT.F_FocusTrackStoredPosition (HalfBROT 0.7.2, #66): when the stored focus position takes the actual position.
+// FB_FocusJogLatch: Tests for HalfBROT.FB_FocusJogLatch (HalfBROT 0.7.2): a jog runs from the command until the axis is at standstill.
+// F_FocusHomingReference: Tests for HalfBROT.F_FocusHomingReference (HalfBROT 0.7.3, #115): mode and reference of the focus homing, chosen once when it starts.
+// F_AzimuthOffsetOnAxis: Tests for MONETcommon.F_AzimuthOffsetOnAxis, the azimuth offset bounded near the zenith (BROTLib#27).
+// F_ParkAxesCanMove: Tests for MONETcommon.F_ParkAxesCanMove, the park decision: drive to the park position or park in place (#87, #121).
+// F_FocusHomeRelease: Tests for HalfBROT.F_FocusHomeRelease, when the homing request (bHomeAxis) of the focus ends (manual re-home, HalfBROT 0.7.x).
+FUNCTION_BLOCK FB_FocusParkHelpers_Tests EXTENDS TcUnit.FB_TestSuite
+VAR
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[Calibrated_Locked_Idle_Tracks();
+Unlocked_Does_Not_Track();
+Homing_Does_Not_Track();
+Not_Calibrated_Does_Not_Track();
+Command_Sets();
+Holds_Until_StandStill();
+Idle_Clear();
+StandStill_With_Command_Stays();
+Stored_Position_Is_Direct();
+Minus_One_Is_Cam_Homing();
+Zero_Is_Cam_Homing();
+Small_Positive_Is_Direct();
+Horizon_Is_The_Offset_Itself();
+Sixty_Degrees_Doubles();
+Zenith_Is_Finite();
+Result_Is_Limited_To_Ten_Degrees();
+All_Ready_Moves();
+El_Disabled_Brake_Open_Parks_In_Place();
+Brake_Closed_Parks_In_Place();
+Axis_Not_Calibrated_Parks_In_Place();
+Az_Or_Dr_Disabled_Parks_In_Place();
+Pending_On_Calibrated_Keeps_Level();
+Active_Keeps_Level();
+Calibrated_Idle_Releases();
+Error_Releases();
+Not_Calibrated_Keeps_Level();
+]]></ST>
+    </Implementation>
+    <Method Name="Calibrated_Locked_Idle_Tracks" Id="{c234a005-5ad7-4cc6-88bb-9b738a644373}">
+      <Declaration><![CDATA[// #66: the function has no mode input. A focus jogged in manual mode is stored like one moved in automatic mode.
+METHOD PRIVATE Calibrated_Locked_Idle_Tracks
+VAR
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Calibrated_Locked_Idle_Tracks');
+AssertTrue(Condition := HalfBROT.F_FocusTrackStoredPosition(bCalibrated := TRUE, bLocked := TRUE, bHoming := FALSE), Message := 'calibrated, locked, not homing');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Unlocked_Does_Not_Track" Id="{c18ed53f-9c6c-48e4-b15f-1833acc4d89b}">
+      <Declaration><![CDATA[// While the drive is enabled the focus moves or is about to.
+METHOD PRIVATE Unlocked_Does_Not_Track
+VAR
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Unlocked_Does_Not_Track');
+AssertFalse(Condition := HalfBROT.F_FocusTrackStoredPosition(bCalibrated := TRUE, bLocked := FALSE, bHoming := FALSE), Message := 'unlocked');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Homing_Does_Not_Track" Id="{91dd4f63-beae-408f-8678-e9e7f5bbe9ee}">
+      <Declaration><![CDATA[// The homing owns fLastPosition (MC_Direct reads it).
+METHOD PRIVATE Homing_Does_Not_Track
+VAR
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Homing_Does_Not_Track');
+AssertFalse(Condition := HalfBROT.F_FocusTrackStoredPosition(bCalibrated := TRUE, bLocked := TRUE, bHoming := TRUE), Message := 'homing');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Not_Calibrated_Does_Not_Track" Id="{3a45cd72-43d7-4ee5-9da7-41e1db6ffef0}">
+      <Declaration><![CDATA[// An uncalibrated focus has no valid actual position.
+METHOD PRIVATE Not_Calibrated_Does_Not_Track
+VAR
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Not_Calibrated_Does_Not_Track');
+AssertFalse(Condition := HalfBROT.F_FocusTrackStoredPosition(bCalibrated := FALSE, bLocked := TRUE, bHoming := FALSE), Message := 'not calibrated');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Command_Sets" Id="{20734b22-5737-4fc5-ac28-e9dcbc2a5a6f}">
+      <Declaration><![CDATA[// The jog command sets the latch at once.
+METHOD PRIVATE Command_Sets
+VAR
+	fbLatch	: HalfBROT.FB_FocusJogLatch;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Command_Sets');
+fbLatch(bJogCommand := TRUE, bStandStill := FALSE);
+AssertTrue(Condition := fbLatch.bJogging, Message := 'jogging');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Holds_Until_StandStill" Id="{284eaaa7-afae-42be-be9f-5ecf59eda00f}">
+      <Declaration><![CDATA[// The ramp down after the button is released is part of the jog.
+METHOD PRIVATE Holds_Until_StandStill
+VAR
+	fbLatch	: HalfBROT.FB_FocusJogLatch;
+	n	: INT;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Holds_Until_StandStill');
+fbLatch(bJogCommand := TRUE, bStandStill := FALSE);
+FOR n := 1 TO 3 DO
+	fbLatch(bJogCommand := FALSE, bStandStill := FALSE);
+	AssertTrue(Condition := fbLatch.bJogging, Message := 'ramp down');
+END_FOR
+fbLatch(bJogCommand := FALSE, bStandStill := TRUE);
+AssertFalse(Condition := fbLatch.bJogging, Message := 'at standstill');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Idle_Clear" Id="{c64d69c8-da38-4d1f-b31a-d5e2fc7042c9}">
+      <Declaration><![CDATA[// No command and no jog running: not jogging, moving or not.
+METHOD PRIVATE Idle_Clear
+VAR
+	fbLatch	: HalfBROT.FB_FocusJogLatch;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Idle_Clear');
+fbLatch(bJogCommand := FALSE, bStandStill := TRUE);
+AssertFalse(Condition := fbLatch.bJogging, Message := 'idle, at rest');
+fbLatch(bJogCommand := FALSE, bStandStill := FALSE);
+AssertFalse(Condition := fbLatch.bJogging, Message := 'idle, a move runs, not a jog');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="StandStill_With_Command_Stays" Id="{130782d2-ae61-4741-91bf-bfffeb610243}">
+      <Declaration><![CDATA[// A held jog command wins over StandStill (the first cycles of a jog).
+METHOD PRIVATE StandStill_With_Command_Stays
+VAR
+	fbLatch	: HalfBROT.FB_FocusJogLatch;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('StandStill_With_Command_Stays');
+fbLatch(bJogCommand := TRUE, bStandStill := TRUE);
+AssertTrue(Condition := fbLatch.bJogging, Message := 'command and standstill');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Stored_Position_Is_Direct" Id="{e8d49b37-ec89-4451-ad37-dd6d028107fc}">
+      <Declaration><![CDATA[// A stored position gives MC_Direct to that position.
+METHOD PRIVATE Stored_Position_Is_Direct
+VAR
+	fRef	: LREAL;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Stored_Position_Is_Direct');
+AssertTrue(Condition := HalfBROT.F_FocusHomingReference(fLastPosition := 35.9978, fHomingPosition := 92.02, fReference => fRef), Message := 'direct');
+AssertEquals_LREAL(Expected := 35.9978, Actual := fRef, Delta := 0.00001, Message := 'reference');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Minus_One_Is_Cam_Homing" Id="{d750d5ef-0a5b-483e-a904-c9c86649159a}">
+      <Declaration><![CDATA[// -1 (no stored position) gives the cam homing to the homing position.
+METHOD PRIVATE Minus_One_Is_Cam_Homing
+VAR
+	fRef	: LREAL;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Minus_One_Is_Cam_Homing');
+AssertFalse(Condition := HalfBROT.F_FocusHomingReference(fLastPosition := -1.0, fHomingPosition := 92.02, fReference => fRef), Message := 'cam');
+AssertEquals_LREAL(Expected := 92.02, Actual := fRef, Delta := 0.00001, Message := 'reference');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Zero_Is_Cam_Homing" Id="{213fdc73-3e26-416b-a112-22241b7d2229}">
+      <Declaration><![CDATA[// 0 is not a stored position (as before, fLastPosition > 0).
+METHOD PRIVATE Zero_Is_Cam_Homing
+VAR
+	fRef	: LREAL;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Zero_Is_Cam_Homing');
+AssertFalse(Condition := HalfBROT.F_FocusHomingReference(fLastPosition := 0.0, fHomingPosition := 92.02, fReference => fRef), Message := 'cam');
+AssertEquals_LREAL(Expected := 92.02, Actual := fRef, Delta := 0.00001, Message := 'reference');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Small_Positive_Is_Direct" Id="{cd6ba676-e058-41e0-8d0b-a21cb2f28dcb}">
+      <Declaration><![CDATA[// Any positive value is a stored position.
+METHOD PRIVATE Small_Positive_Is_Direct
+VAR
+	fRef	: LREAL;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Small_Positive_Is_Direct');
+AssertTrue(Condition := HalfBROT.F_FocusHomingReference(fLastPosition := 0.001, fHomingPosition := 92.02, fReference => fRef), Message := 'direct');
+AssertEquals_LREAL(Expected := 0.001, Actual := fRef, Delta := 0.00001, Message := 'reference');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Horizon_Is_The_Offset_Itself" Id="{f67f8529-49cb-4467-ad87-e50c606e14cd}">
+      <Declaration><![CDATA[METHOD PRIVATE Horizon_Is_The_Offset_Itself
+VAR
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Horizon_Is_The_Offset_Itself');
+AssertEquals_LREAL(Expected := 0.01, Actual := MONETcommon.F_AzimuthOffsetOnAxis(0.01, 0.0), Delta := 1.0E-12, Message := 'elevation 0');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Sixty_Degrees_Doubles" Id="{723e9989-7a0a-47db-a324-8f034873bc71}">
+      <Declaration><![CDATA[// Below 89.5 deg the result is the plain offset / COS(elevation).
+METHOD PRIVATE Sixty_Degrees_Doubles
+VAR
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Sixty_Degrees_Doubles');
+AssertEquals_LREAL(Expected := 0.02, Actual := MONETcommon.F_AzimuthOffsetOnAxis(0.01, 60.0), Delta := 1.0E-12, Message := 'elevation 60');
+AssertEquals_LREAL(Expected := -0.02, Actual := MONETcommon.F_AzimuthOffsetOnAxis(-0.01, 60.0), Delta := 1.0E-12, Message := 'elevation 60, negative offset');
+AssertEquals_LREAL(Expected := 0.01 / COS(85.0 * 0.017453292519943295), Actual := MONETcommon.F_AzimuthOffsetOnAxis(0.01, 85.0), Delta := 1.0E-12, Message := 'elevation 85');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Zenith_Is_Finite" Id="{a849fd02-52dc-4f73-a782-dcddf283762f}">
+      <Declaration><![CDATA[// At exactly 90 deg the old code divided by COS(90 deg) = 0 (up to rounding).
+METHOD PRIVATE Zenith_Is_Finite
+VAR
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Zenith_Is_Finite');
+AssertEquals_LREAL(Expected := 0.01 / 0.008726535498373935, Actual := MONETcommon.F_AzimuthOffsetOnAxis(0.01, 90.0), Delta := 1.0E-9, Message := 'elevation 90');
+AssertEquals_LREAL(Expected := 0.01 / 0.008726535498373935, Actual := MONETcommon.F_AzimuthOffsetOnAxis(0.01, 89.9), Delta := 1.0E-9, Message := 'elevation 89.9');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Result_Is_Limited_To_Ten_Degrees" Id="{d3cd9c61-a18d-4a76-97ad-dca668041daf}">
+      <Declaration><![CDATA[METHOD PRIVATE Result_Is_Limited_To_Ten_Degrees
+VAR
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Result_Is_Limited_To_Ten_Degrees');
+AssertEquals_LREAL(Expected := 10.0, Actual := MONETcommon.F_AzimuthOffsetOnAxis(1.0, 89.9), Delta := 1.0E-12, Message := 'positive');
+AssertEquals_LREAL(Expected := -10.0, Actual := MONETcommon.F_AzimuthOffsetOnAxis(-1.0, 89.9), Delta := 1.0E-12, Message := 'negative');
+AssertEquals_LREAL(Expected := 0.0, Actual := MONETcommon.F_AzimuthOffsetOnAxis(0.0, 90.0), Delta := 1.0E-12, Message := 'no offset at the zenith');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="All_Ready_Moves" Id="{d5cb2487-dd2d-4b23-a482-9f15e0769d1a}">
+      <Declaration><![CDATA[// All calibrated and enabled, brake open.
+METHOD PRIVATE All_Ready_Moves
+VAR
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('All_Ready_Moves');
+AssertTrue(Condition := MONETcommon.F_ParkAxesCanMove(TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE), Message := 'all ready');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="El_Disabled_Brake_Open_Parks_In_Place" Id="{9a016f68-51ce-48fc-9fc8-6814312ccdb3}">
+      <Declaration><![CDATA[// The #121 case: elevation disabled with the brake open must not drive.
+METHOD PRIVATE El_Disabled_Brake_Open_Parks_In_Place
+VAR
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('El_Disabled_Brake_Open_Parks_In_Place');
+AssertFalse(Condition := MONETcommon.F_ParkAxesCanMove(TRUE, TRUE, TRUE, FALSE, TRUE, TRUE, TRUE), Message := 'el disabled, brake open');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Brake_Closed_Parks_In_Place" Id="{d38e789f-9734-40d4-b6ce-59fbbff0769e}">
+      <Declaration><![CDATA[// Brake closed.
+METHOD PRIVATE Brake_Closed_Parks_In_Place
+VAR
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Brake_Closed_Parks_In_Place');
+AssertFalse(Condition := MONETcommon.F_ParkAxesCanMove(TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, FALSE), Message := 'brake closed');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Axis_Not_Calibrated_Parks_In_Place" Id="{fb188bc5-e458-4fa4-a754-c68132ff6ad8}">
+      <Declaration><![CDATA[// One axis not calibrated.
+METHOD PRIVATE Axis_Not_Calibrated_Parks_In_Place
+VAR
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Axis_Not_Calibrated_Parks_In_Place');
+AssertFalse(Condition := MONETcommon.F_ParkAxesCanMove(FALSE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE), Message := 'el not calibrated');
+AssertFalse(Condition := MONETcommon.F_ParkAxesCanMove(TRUE, FALSE, TRUE, TRUE, TRUE, TRUE, TRUE), Message := 'az not calibrated');
+AssertFalse(Condition := MONETcommon.F_ParkAxesCanMove(TRUE, TRUE, FALSE, TRUE, TRUE, TRUE, TRUE), Message := 'dr not calibrated');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Az_Or_Dr_Disabled_Parks_In_Place" Id="{bce454d6-2fea-451a-9378-ae40560e7f7f}">
+      <Declaration><![CDATA[// Azimuth or derotator disabled.
+METHOD PRIVATE Az_Or_Dr_Disabled_Parks_In_Place
+VAR
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Az_Or_Dr_Disabled_Parks_In_Place');
+AssertFalse(Condition := MONETcommon.F_ParkAxesCanMove(TRUE, TRUE, TRUE, TRUE, FALSE, TRUE, TRUE), Message := 'az disabled');
+AssertFalse(Condition := MONETcommon.F_ParkAxesCanMove(TRUE, TRUE, TRUE, TRUE, TRUE, FALSE, TRUE), Message := 'dr disabled');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Pending_On_Calibrated_Keeps_Level" Id="{d3988157-f963-49be-9e02-91be68919565}">
+      <Declaration><![CDATA[// A manual re-home starts on a calibrated axis (HomeDone is a level): while Home() waits for the drive the request must stay.
+METHOD PRIVATE Pending_On_Calibrated_Keeps_Level
+VAR
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Pending_On_Calibrated_Keeps_Level');
+AssertFalse(Condition := HalfBROT.F_FocusHomeRelease(bCalibrated := TRUE, bHomeActive := FALSE, bHomePending := TRUE, bError := FALSE), Message := 'pending, calibrated');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Active_Keeps_Level" Id="{28fe2669-2122-4ce2-a63d-777b0b373074}">
+      <Declaration><![CDATA[// A running homing keeps the request, calibrated or not.
+METHOD PRIVATE Active_Keeps_Level
+VAR
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Active_Keeps_Level');
+AssertFalse(Condition := HalfBROT.F_FocusHomeRelease(bCalibrated := TRUE, bHomeActive := TRUE, bHomePending := FALSE, bError := FALSE), Message := 'active, calibrated');
+AssertFalse(Condition := HalfBROT.F_FocusHomeRelease(bCalibrated := FALSE, bHomeActive := TRUE, bHomePending := FALSE, bError := FALSE), Message := 'active, not calibrated');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Calibrated_Idle_Releases" Id="{b6cf7118-0823-4a32-aa00-8d2b08c48867}">
+      <Declaration><![CDATA[// Calibrated and no homing active or pending: the request ends.
+METHOD PRIVATE Calibrated_Idle_Releases
+VAR
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Calibrated_Idle_Releases');
+AssertTrue(Condition := HalfBROT.F_FocusHomeRelease(bCalibrated := TRUE, bHomeActive := FALSE, bHomePending := FALSE, bError := FALSE), Message := 'calibrated, idle');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Error_Releases" Id="{d9bb5408-3ea7-469b-847d-1e42c9249c96}">
+      <Declaration><![CDATA[// An axis error ends the request in every state.
+METHOD PRIVATE Error_Releases
+VAR
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Error_Releases');
+AssertTrue(Condition := HalfBROT.F_FocusHomeRelease(bCalibrated := FALSE, bHomeActive := FALSE, bHomePending := FALSE, bError := TRUE), Message := 'error, idle');
+AssertTrue(Condition := HalfBROT.F_FocusHomeRelease(bCalibrated := TRUE, bHomeActive := TRUE, bHomePending := TRUE, bError := TRUE), Message := 'error, busy');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Not_Calibrated_Keeps_Level" Id="{54afa5f4-43c9-4196-b157-6bbd62ab9426}">
+      <Declaration><![CDATA[// The automatic homing of an uncalibrated focus is unchanged: the request stays until the axis is calibrated.
+METHOD PRIVATE Not_Calibrated_Keeps_Level
+VAR
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Not_Calibrated_Keeps_Level');
+AssertFalse(Condition := HalfBROT.F_FocusHomeRelease(bCalibrated := FALSE, bHomeActive := FALSE, bHomePending := FALSE, bError := FALSE), Message := 'not calibrated, idle');
+AssertFalse(Condition := HalfBROT.F_FocusHomeRelease(bCalibrated := FALSE, bHomeActive := FALSE, bHomePending := TRUE, bError := FALSE), Message := 'not calibrated, pending');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

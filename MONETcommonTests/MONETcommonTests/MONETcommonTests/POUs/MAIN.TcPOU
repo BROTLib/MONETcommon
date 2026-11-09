@@ -4,21 +4,15 @@
     <Declaration><![CDATA[PROGRAM MAIN
 VAR
 	// TcUnit finds every FB_TestSuite instance by itself; it is enough to declare them here.
-	fbAzimuthOffsetTests	: F_AzimuthOffsetOnAxis_Tests;
 	fbCommandAcceptanceTests	: F_CommandAcceptance_Tests;
 	fbAxisTurnTests	: F_AxisTurn_Tests;
 	fbBrakeMustCloseTests	: F_BrakeMustClose_Tests;
-	fbParkAxesCanMoveTests	: F_ParkAxesCanMove_Tests;
 	fbWakeShakeErrorExemptTests	: F_WakeShakeErrorExempt_Tests;
 	fbWakeShakeWindowTests	: F_WakeShakeWindow_Tests;
-	fbFocusHomeReleaseTests	: F_FocusHomeRelease_Tests;
 	fbFocusManualHomeTests	: FB_FocusManualHome_Tests;
 	fbFocusTargetFollowsActualTests	: F_FocusTargetFollowsActual_Tests;
-	fbFocusTrackStoredPositionTests	: F_FocusTrackStoredPosition_Tests;
-	fbFocusJogLatchTests	: FB_FocusJogLatch_Tests;
 	fbFocusModeSwitchSimTests	: FocusModeSwitch_Sim_Tests;
 	fbFocusTargetInitTests	: FB_FocusTargetInit_Tests;
-	fbFocusHomingReferenceTests	: F_FocusHomingReference_Tests;
 	fbFocusTargetInitSimTests	: FocusTargetInit_Sim_Tests;
 	fbOilLevelValidTests	: F_OilLevelValid_Tests;
 	fbOilSuctionLatchTests	: F_OilSuctionLatch_Tests;
@@ -39,6 +33,7 @@ VAR
 	fbJogRequestTests	: FB_JogRequest_Tests;	// suite 36 of 41 (#148)
 	fbHomeRequestTests	: FB_HomeRequest_Tests;	// suite 35 of 41 (MAXNUMBEROFTESTSUITES); #24 step 6 freed 6 slots (the BROTLib duplicates)
 	fbHalfBROTHelpersTests	: FB_HalfBROTHelpers_Tests;	// suite 35: the HalfBROT helpers that had no test, in one suite (HalfBROT#32); see "Things to know" in the README for why not more suites
+	fbFocusParkHelpersTests	: FB_FocusParkHelpers_Tests;	// six small function suites in one (26 tests): 30 suites, five slots of headroom below MAXNUMBEROFTESTSUITES
 END_VAR
 ]]></Declaration>
     <Implementation>
