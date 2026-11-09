@@ -1,0 +1,647 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="FB_HalfBROTHelpers_Tests" Id="{bdb118c1-88d6-4331-9208-3a130305869d}" SpecialFunc="None">
+    <Declaration><![CDATA[// Tests for the pure-logic helpers of HalfBROT 0.13.0 that had no test (HalfBROT#32): FB_BrakeSettleEnable (Settle_), FB_FocusDriveEnable
+// (Drive_), FB_HomeFailPosition (HomeFail_) and FB_PumpResetPulse (Pump_). One suite: this project loads with at most 35 suites on the
+// user-mode runtime (see README). Times are T#0S ("now") or T#1H ("never within a test"), so no test depends on the PLC cycle time.
+FUNCTION_BLOCK FB_HalfBROTHelpers_Tests EXTENDS TcUnit.FB_TestSuite
+VAR
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[Settle_Waits_For_Settle();
+Settle_Zero_Settle_Follows_Inputs();
+Settle_Brake_Closed_No_Enable();
+Settle_Drops_In_The_Same_Cycle();
+Settle_Ready_Waits_For_Ready_Delay();
+Drive_Move_Wanted_Enables();
+Drive_Home_Wanted_Enables();
+Drive_Manual_Never_Enables();
+Drive_Error_Is_Not_Wanted();
+Drive_Brake_Delay_Locks_At_Rest();
+Drive_Brake_Delay_Not_Elapsed();
+Drive_Moving_Axis_Not_Locked();
+Drive_Uncalibrated_Not_Locked();
+Drive_Wanted_Blocks_Lock();
+Drive_Lock_Request_At_Rest();
+Drive_Lock_Request_Waits_For_Rest();
+Drive_Lock_Request_Dropped_By_Move();
+Drive_Lock_Request_In_Error();
+HomeFail_Restores_Start_Plus_Travel();
+HomeFail_Waits_Until_Axis_Can_Set();
+HomeFail_Clamped_Into_Window();
+HomeFail_Latest_Idle_Position_Is_The_Start();
+HomeFail_Jump_Is_Not_Travel();
+HomeFail_Done_Ends_The_Restore();
+HomeFail_Set_Error_No_Retry();
+HomeFail_Uncalibrated_Start_Not_Restored();
+HomeFail_Failure_At_Real_Position_Not_Restored();
+Pump_Pulse_Off_Follows_Request();
+Pump_Pulse_Before_First_Start();
+Pump_Running_Pump_Needs_No_Pulse();
+Pump_Request_Resets_Stopped_Starters_Only();
+Pump_Pulse_After_Pump_Failure();
+]]></ST>
+    </Implementation>
+    <Method Name="Settle_Waits_For_Settle" Id="{df511109-40f0-4b41-bbf7-93c739624687}">
+      <Declaration><![CDATA[// Enable and brake open, tSettle not elapsed: the axis is not enabled yet, settling is reported.
+METHOD PRIVATE Settle_Waits_For_Settle
+VAR
+	fb	: HalfBROT.FB_BrakeSettleEnable;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Settle_Waits_For_Settle');
+fb(bEnable := TRUE, bBrakeOpen := TRUE, tSettle := T#1H, tReadyDelay := T#1H);
+AssertFalse(Condition := fb.bAxisEnable, Message := 'not enabled');
+AssertTrue(Condition := fb.bSettling, Message := 'settling');
+AssertFalse(Condition := fb.bReady, Message := 'not ready');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Settle_Zero_Settle_Follows_Inputs" Id="{5b4930a3-b617-437e-86e5-5eab8cdaac36}">
+      <Declaration><![CDATA[// tSettle = T#0S is the old behaviour: the enable follows bEnable AND bBrakeOpen directly.
+METHOD PRIVATE Settle_Zero_Settle_Follows_Inputs
+VAR
+	fb	: HalfBROT.FB_BrakeSettleEnable;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Settle_Zero_Settle_Follows_Inputs');
+fb(bEnable := TRUE, bBrakeOpen := TRUE, tSettle := T#0S, tReadyDelay := T#0S);
+AssertTrue(Condition := fb.bAxisEnable, Message := 'enabled');
+AssertFalse(Condition := fb.bSettling, Message := 'not settling');
+AssertTrue(Condition := fb.bReady, Message := 'ready');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Settle_Brake_Closed_No_Enable" Id="{b98365ee-ecd5-473e-8274-f39e67425cfa}">
+      <Declaration><![CDATA[// The brake is not reported open: no enable and no settling, whatever tSettle is.
+METHOD PRIVATE Settle_Brake_Closed_No_Enable
+VAR
+	fb	: HalfBROT.FB_BrakeSettleEnable;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Settle_Brake_Closed_No_Enable');
+fb(bEnable := TRUE, bBrakeOpen := FALSE, tSettle := T#0S, tReadyDelay := T#0S);
+AssertFalse(Condition := fb.bAxisEnable, Message := 'no enable');
+AssertFalse(Condition := fb.bSettling, Message := 'not settling');
+AssertFalse(Condition := fb.bReady, Message := 'not ready');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Settle_Drops_In_The_Same_Cycle" Id="{b57604e5-0304-4761-bcdc-17beb2cb33e4}">
+      <Declaration><![CDATA[// The enable drops in the same cycle as the brake report or bEnable, not one cycle later.
+METHOD PRIVATE Settle_Drops_In_The_Same_Cycle
+VAR
+	fb	: HalfBROT.FB_BrakeSettleEnable;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Settle_Drops_In_The_Same_Cycle');
+fb(bEnable := TRUE, bBrakeOpen := TRUE, tSettle := T#0S, tReadyDelay := T#0S);
+AssertTrue(Condition := fb.bAxisEnable, Message := 'enabled');
+fb(bEnable := TRUE, bBrakeOpen := FALSE, tSettle := T#0S, tReadyDelay := T#0S);
+AssertFalse(Condition := fb.bAxisEnable, Message := 'brake lost');
+AssertFalse(Condition := fb.bReady, Message := 'brake lost, not ready');
+fb(bEnable := TRUE, bBrakeOpen := TRUE, tSettle := T#0S, tReadyDelay := T#0S);
+AssertTrue(Condition := fb.bAxisEnable, Message := 'enabled again');
+fb(bEnable := FALSE, bBrakeOpen := TRUE, tSettle := T#0S, tReadyDelay := T#0S);
+AssertFalse(Condition := fb.bAxisEnable, Message := 'enable removed');
+AssertFalse(Condition := fb.bReady, Message := 'enable removed, not ready');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Settle_Ready_Waits_For_Ready_Delay" Id="{8ee98185-6db5-44a6-9d30-8549ca6b89d4}">
+      <Declaration><![CDATA[// bReady only after tReadyDelay of bAxisEnable (MONETcommon#121).
+METHOD PRIVATE Settle_Ready_Waits_For_Ready_Delay
+VAR
+	fb	: HalfBROT.FB_BrakeSettleEnable;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Settle_Ready_Waits_For_Ready_Delay');
+fb(bEnable := TRUE, bBrakeOpen := TRUE, tSettle := T#0S, tReadyDelay := T#1H);
+AssertTrue(Condition := fb.bAxisEnable, Message := 'enabled');
+AssertFalse(Condition := fb.bReady, Message := 'ready delay not elapsed');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Drive_Move_Wanted_Enables" Id="{e6eaf78e-0568-4661-81ae-2ba775ee5639}">
+      <Declaration><![CDATA[// A wanted move in automatic positioning switches the drive on.
+METHOD PRIVATE Drive_Move_Wanted_Enables
+VAR
+	fb	: HalfBROT.FB_FocusDriveEnable;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Drive_Move_Wanted_Enables');
+fb(bAutomatic := TRUE, bCalibrated := TRUE, bError := FALSE, bMoveWanted := TRUE, bHomeWanted := FALSE, bAtRest := FALSE, tBrakeDelay := T#1H);
+AssertTrue(Condition := fb.bEnableOn, Message := 'on');
+AssertFalse(Condition := fb.bEnableOff, Message := 'not off');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Drive_Home_Wanted_Enables" Id="{60f866d9-2033-4d81-b3cf-2f20614d840a}">
+      <Declaration><![CDATA[// A wanted homing switches the drive on.
+METHOD PRIVATE Drive_Home_Wanted_Enables
+VAR
+	fb	: HalfBROT.FB_FocusDriveEnable;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Drive_Home_Wanted_Enables');
+fb(bAutomatic := TRUE, bCalibrated := TRUE, bError := FALSE, bMoveWanted := FALSE, bHomeWanted := TRUE, bAtRest := FALSE, tBrakeDelay := T#1H);
+AssertTrue(Condition := fb.bEnableOn, Message := 'on');
+AssertFalse(Condition := fb.bEnableOff, Message := 'not off');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Drive_Manual_Never_Enables" Id="{583e51bc-17aa-4929-bd86-ca7f13b4cbc4}">
+      <Declaration><![CDATA[// Not automatic positioning (manual unlock): no enable from this block.
+METHOD PRIVATE Drive_Manual_Never_Enables
+VAR
+	fb	: HalfBROT.FB_FocusDriveEnable;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Drive_Manual_Never_Enables');
+fb(bAutomatic := FALSE, bCalibrated := TRUE, bError := FALSE, bMoveWanted := TRUE, bHomeWanted := FALSE, bAtRest := FALSE, tBrakeDelay := T#1H);
+AssertFalse(Condition := fb.bEnableOn, Message := 'not on');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Drive_Error_Is_Not_Wanted" Id="{e1540829-f3d6-45e3-9246-b37f27f7929d}">
+      <Declaration><![CDATA[// A move in error is not wanted any more (MC blocks keep Execute until Reset, #114): no enable.
+METHOD PRIVATE Drive_Error_Is_Not_Wanted
+VAR
+	fb	: HalfBROT.FB_FocusDriveEnable;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Drive_Error_Is_Not_Wanted');
+fb(bAutomatic := TRUE, bCalibrated := TRUE, bError := TRUE, bMoveWanted := TRUE, bHomeWanted := FALSE, bAtRest := FALSE, tBrakeDelay := T#1H);
+AssertFalse(Condition := fb.bEnableOn, Message := 'not on in error');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Drive_Brake_Delay_Locks_At_Rest" Id="{2dc7b21b-ed5b-4da9-9525-ac180ab29034}">
+      <Declaration><![CDATA[// Nothing wanted, at rest, calibrated, brake delay elapsed: the drive is locked.
+METHOD PRIVATE Drive_Brake_Delay_Locks_At_Rest
+VAR
+	fb	: HalfBROT.FB_FocusDriveEnable;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Drive_Brake_Delay_Locks_At_Rest');
+fb(bAutomatic := TRUE, bCalibrated := TRUE, bError := FALSE, bMoveWanted := FALSE, bHomeWanted := FALSE, bAtRest := TRUE, tBrakeDelay := T#0S);
+AssertFalse(Condition := fb.bEnableOn, Message := 'not on');
+AssertTrue(Condition := fb.bEnableOff, Message := 'off');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Drive_Brake_Delay_Not_Elapsed" Id="{7489bcfb-f293-4952-8868-99aac21ab411}">
+      <Declaration><![CDATA[// Same, but the brake delay has not elapsed: the drive stays on.
+METHOD PRIVATE Drive_Brake_Delay_Not_Elapsed
+VAR
+	fb	: HalfBROT.FB_FocusDriveEnable;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Drive_Brake_Delay_Not_Elapsed');
+fb(bAutomatic := TRUE, bCalibrated := TRUE, bError := FALSE, bMoveWanted := FALSE, bHomeWanted := FALSE, bAtRest := TRUE, tBrakeDelay := T#1H);
+AssertFalse(Condition := fb.bEnableOff, Message := 'not off yet');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Drive_Moving_Axis_Not_Locked" Id="{eec4bdf8-eec5-4401-aa9d-33f7da47e9f4}">
+      <Declaration><![CDATA[// Nothing wanted but the axis is not at rest (decelerating): never lock.
+METHOD PRIVATE Drive_Moving_Axis_Not_Locked
+VAR
+	fb	: HalfBROT.FB_FocusDriveEnable;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Drive_Moving_Axis_Not_Locked');
+fb(bAutomatic := TRUE, bCalibrated := TRUE, bError := FALSE, bMoveWanted := FALSE, bHomeWanted := FALSE, bAtRest := FALSE, tBrakeDelay := T#0S);
+AssertFalse(Condition := fb.bEnableOff, Message := 'not off while moving');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Drive_Uncalibrated_Not_Locked" Id="{1b0ab438-35e0-48ee-a455-e57d2ecbd746}">
+      <Declaration><![CDATA[// An uncalibrated axis is not locked by the brake delay (it may be about to home).
+METHOD PRIVATE Drive_Uncalibrated_Not_Locked
+VAR
+	fb	: HalfBROT.FB_FocusDriveEnable;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Drive_Uncalibrated_Not_Locked');
+fb(bAutomatic := TRUE, bCalibrated := FALSE, bError := FALSE, bMoveWanted := FALSE, bHomeWanted := FALSE, bAtRest := TRUE, tBrakeDelay := T#0S);
+AssertFalse(Condition := fb.bEnableOff, Message := 'not off');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Drive_Wanted_Blocks_Lock" Id="{f5458ef3-d446-44d6-830a-87eb15a622f4}">
+      <Declaration><![CDATA[// A wanted move keeps the drive on even at rest with an elapsed brake delay.
+METHOD PRIVATE Drive_Wanted_Blocks_Lock
+VAR
+	fb	: HalfBROT.FB_FocusDriveEnable;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Drive_Wanted_Blocks_Lock');
+fb(bAutomatic := TRUE, bCalibrated := TRUE, bError := FALSE, bMoveWanted := TRUE, bHomeWanted := FALSE, bAtRest := TRUE, tBrakeDelay := T#0S);
+AssertTrue(Condition := fb.bEnableOn, Message := 'on');
+AssertFalse(Condition := fb.bEnableOff, Message := 'not off');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Drive_Lock_Request_At_Rest" Id="{4add1d60-d184-463b-a64f-8cb5b250b376}">
+      <Declaration><![CDATA[// RequestLock locks as soon as the axis is at rest, without a brake delay, also when not calibrated.
+METHOD PRIVATE Drive_Lock_Request_At_Rest
+VAR
+	fb	: HalfBROT.FB_FocusDriveEnable;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Drive_Lock_Request_At_Rest');
+fb.RequestLock();
+fb(bAutomatic := TRUE, bCalibrated := FALSE, bError := FALSE, bMoveWanted := FALSE, bHomeWanted := FALSE, bAtRest := TRUE, tBrakeDelay := T#1H);
+AssertTrue(Condition := fb.bEnableOff, Message := 'off');
+AssertFalse(Condition := fb.bLockPending, Message := 'request done');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Drive_Lock_Request_Waits_For_Rest" Id="{19878497-1be1-40ae-a971-29b0b5edc08d}">
+      <Declaration><![CDATA[// RequestLock while the axis still moves: pending until it is at rest.
+METHOD PRIVATE Drive_Lock_Request_Waits_For_Rest
+VAR
+	fb	: HalfBROT.FB_FocusDriveEnable;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Drive_Lock_Request_Waits_For_Rest');
+fb.RequestLock();
+fb(bAutomatic := TRUE, bCalibrated := TRUE, bError := FALSE, bMoveWanted := FALSE, bHomeWanted := FALSE, bAtRest := FALSE, tBrakeDelay := T#1H);
+AssertFalse(Condition := fb.bEnableOff, Message := 'not off while moving');
+AssertTrue(Condition := fb.bLockPending, Message := 'pending');
+fb(bAutomatic := TRUE, bCalibrated := TRUE, bError := FALSE, bMoveWanted := FALSE, bHomeWanted := FALSE, bAtRest := TRUE, tBrakeDelay := T#1H);
+AssertTrue(Condition := fb.bEnableOff, Message := 'off at rest');
+AssertFalse(Condition := fb.bLockPending, Message := 'request done');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Drive_Lock_Request_Dropped_By_Move" Id="{85dff5fc-f19d-42a4-803a-a9aa0d9d2c9c}">
+      <Declaration><![CDATA[// A new move takes over a pending lock; the brake delay locks after it.
+METHOD PRIVATE Drive_Lock_Request_Dropped_By_Move
+VAR
+	fb	: HalfBROT.FB_FocusDriveEnable;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Drive_Lock_Request_Dropped_By_Move');
+fb.RequestLock();
+fb(bAutomatic := TRUE, bCalibrated := TRUE, bError := FALSE, bMoveWanted := TRUE, bHomeWanted := FALSE, bAtRest := FALSE, tBrakeDelay := T#1H);
+AssertTrue(Condition := fb.bEnableOn, Message := 'on');
+AssertFalse(Condition := fb.bLockPending, Message := 'dropped');
+fb(bAutomatic := TRUE, bCalibrated := TRUE, bError := FALSE, bMoveWanted := FALSE, bHomeWanted := FALSE, bAtRest := FALSE, tBrakeDelay := T#1H);
+AssertFalse(Condition := fb.bEnableOff, Message := 'no lock after the move started');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Drive_Lock_Request_In_Error" Id="{abc8401b-f33a-44fb-82c1-392d07b7683a}">
+      <Declaration><![CDATA[// RequestLock in error: the drive is already off, the lock is released at once.
+METHOD PRIVATE Drive_Lock_Request_In_Error
+VAR
+	fb	: HalfBROT.FB_FocusDriveEnable;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Drive_Lock_Request_In_Error');
+fb.RequestLock();
+fb(bAutomatic := TRUE, bCalibrated := TRUE, bError := TRUE, bMoveWanted := FALSE, bHomeWanted := FALSE, bAtRest := FALSE, tBrakeDelay := T#1H);
+AssertTrue(Condition := fb.bEnableOff, Message := 'off in error');
+AssertFalse(Condition := fb.bLockPending, Message := 'request done');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="HomeFail_Restores_Start_Plus_Travel" Id="{e67a0882-ea61-4438-a3a5-4add3bcb4f03}">
+      <Declaration><![CDATA[// Homing started at 40.0, moved 0.5 at the virtual position, failed: restore to 40.5, not clamped.
+METHOD PRIVATE HomeFail_Restores_Start_Plus_Travel
+VAR
+	fb	: HalfBROT.FB_HomeFailPosition;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('HomeFail_Restores_Start_Plus_Travel');
+HomeFail_Step(fb := fb, fActual := 40.0, bHomeActive := FALSE, bCalibrated := TRUE, bFailed := FALSE, bCanSet := TRUE, bSetDone := FALSE, bSetError := FALSE);
+HomeFail_Step(fb := fb, fActual := -1.0E10, bHomeActive := TRUE, bCalibrated := FALSE, bFailed := FALSE, bCanSet := TRUE, bSetDone := FALSE, bSetError := FALSE);
+HomeFail_Step(fb := fb, fActual := -1.0E10 + 0.5, bHomeActive := TRUE, bCalibrated := FALSE, bFailed := FALSE, bCanSet := TRUE, bSetDone := FALSE, bSetError := FALSE);
+HomeFail_Step(fb := fb, fActual := -1.0E10 + 0.5, bHomeActive := FALSE, bCalibrated := FALSE, bFailed := TRUE, bCanSet := TRUE, bSetDone := FALSE, bSetError := FALSE);
+AssertTrue(Condition := fb.bRestore, Message := 'restore wanted');
+AssertEquals_LREAL(Expected := 40.5, Actual := fb.fRestorePosition, Delta := 1.0E-9, Message := 'start + travel');
+AssertEquals_LREAL(Expected := 40.5, Actual := fb.fEstimate, Delta := 1.0E-9, Message := 'estimate');
+AssertFalse(Condition := fb.bClamped, Message := 'not clamped');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="HomeFail_Waits_Until_Axis_Can_Set" Id="{2e991224-1975-4825-b7ba-bd4fc9a26bd1}">
+      <Declaration><![CDATA[// The restore is asked for only while MC_SetPosition can run (no error, axis at rest).
+METHOD PRIVATE HomeFail_Waits_Until_Axis_Can_Set
+VAR
+	fb	: HalfBROT.FB_HomeFailPosition;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('HomeFail_Waits_Until_Axis_Can_Set');
+HomeFail_Step(fb := fb, fActual := 40.0, bHomeActive := FALSE, bCalibrated := TRUE, bFailed := FALSE, bCanSet := TRUE, bSetDone := FALSE, bSetError := FALSE);
+HomeFail_Step(fb := fb, fActual := -1.0E10, bHomeActive := TRUE, bCalibrated := FALSE, bFailed := FALSE, bCanSet := TRUE, bSetDone := FALSE, bSetError := FALSE);
+HomeFail_Step(fb := fb, fActual := -1.0E10 + 0.5, bHomeActive := TRUE, bCalibrated := FALSE, bFailed := FALSE, bCanSet := TRUE, bSetDone := FALSE, bSetError := FALSE);
+HomeFail_Step(fb := fb, fActual := -1.0E10 + 0.5, bHomeActive := FALSE, bCalibrated := FALSE, bFailed := TRUE, bCanSet := TRUE, bSetDone := FALSE, bSetError := FALSE);
+HomeFail_Step(fb := fb, fActual := -1.0E10 + 0.5, bHomeActive := FALSE, bCalibrated := FALSE, bFailed := FALSE, bCanSet := FALSE, bSetDone := FALSE, bSetError := FALSE);
+AssertFalse(Condition := fb.bRestore, Message := 'waiting');
+HomeFail_Step(fb := fb, fActual := -1.0E10 + 0.5, bHomeActive := FALSE, bCalibrated := FALSE, bFailed := FALSE, bCanSet := TRUE, bSetDone := FALSE, bSetError := FALSE);
+AssertTrue(Condition := fb.bRestore, Message := 'restore wanted');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="HomeFail_Clamped_Into_Window" Id="{78be74c6-b1e3-48de-a650-3bcbe0379bcf}">
+      <Declaration><![CDATA[// Start close to the upper end: the restored value is held fMargin inside the window.
+METHOD PRIVATE HomeFail_Clamped_Into_Window
+VAR
+	fb	: HalfBROT.FB_HomeFailPosition;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('HomeFail_Clamped_Into_Window');
+HomeFail_Step(fb := fb, fActual := 89.9, bHomeActive := FALSE, bCalibrated := TRUE, bFailed := FALSE, bCanSet := TRUE, bSetDone := FALSE, bSetError := FALSE);
+HomeFail_Step(fb := fb, fActual := -1.0E10, bHomeActive := TRUE, bCalibrated := FALSE, bFailed := FALSE, bCanSet := TRUE, bSetDone := FALSE, bSetError := FALSE);
+HomeFail_Step(fb := fb, fActual := -1.0E10 + 0.0, bHomeActive := TRUE, bCalibrated := FALSE, bFailed := FALSE, bCanSet := TRUE, bSetDone := FALSE, bSetError := FALSE);
+HomeFail_Step(fb := fb, fActual := -1.0E10 + 0.0, bHomeActive := FALSE, bCalibrated := FALSE, bFailed := TRUE, bCanSet := TRUE, bSetDone := FALSE, bSetError := FALSE);
+AssertTrue(Condition := fb.bRestore, Message := 'restore wanted');
+AssertEquals_LREAL(Expected := 89.5, Actual := fb.fRestorePosition, Delta := 1.0E-9, Message := 'clamped to max - margin');
+AssertEquals_LREAL(Expected := 89.9, Actual := fb.fEstimate, Delta := 1.0E-9, Message := 'estimate unclamped');
+AssertTrue(Condition := fb.bClamped, Message := 'clamped');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="HomeFail_Latest_Idle_Position_Is_The_Start" Id="{04b23911-05c9-4a1a-87db-ff34dbffbf87}">
+      <Declaration><![CDATA[// The start is the last real position before the homing, not the first one.
+METHOD PRIVATE HomeFail_Latest_Idle_Position_Is_The_Start
+VAR
+	fb	: HalfBROT.FB_HomeFailPosition;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('HomeFail_Latest_Idle_Position_Is_The_Start');
+HomeFail_Step(fb := fb, fActual := 40.0, bHomeActive := FALSE, bCalibrated := TRUE, bFailed := FALSE, bCanSet := TRUE, bSetDone := FALSE, bSetError := FALSE);
+HomeFail_Step(fb := fb, fActual := 50.0, bHomeActive := FALSE, bCalibrated := TRUE, bFailed := FALSE, bCanSet := TRUE, bSetDone := FALSE, bSetError := FALSE);
+HomeFail_Step(fb := fb, fActual := -1.0E10, bHomeActive := TRUE, bCalibrated := FALSE, bFailed := FALSE, bCanSet := TRUE, bSetDone := FALSE, bSetError := FALSE);
+HomeFail_Step(fb := fb, fActual := -1.0E10, bHomeActive := FALSE, bCalibrated := FALSE, bFailed := TRUE, bCanSet := TRUE, bSetDone := FALSE, bSetError := FALSE);
+AssertTrue(Condition := fb.bRestore, Message := 'restore wanted');
+AssertEquals_LREAL(Expected := 50.0, Actual := fb.fRestorePosition, Delta := 1.0E-9, Message := 'restore to the latest position');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="HomeFail_Jump_Is_Not_Travel" Id="{c2250172-6da6-448b-9b76-aefafd31c736}">
+      <Declaration><![CDATA[// The NC jump from -1E10 to +1E10 at the cam is not counted as travel, only the real travel after it.
+METHOD PRIVATE HomeFail_Jump_Is_Not_Travel
+VAR
+	fb	: HalfBROT.FB_HomeFailPosition;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('HomeFail_Jump_Is_Not_Travel');
+HomeFail_Step(fb := fb, fActual := 40.0, bHomeActive := FALSE, bCalibrated := TRUE, bFailed := FALSE, bCanSet := TRUE, bSetDone := FALSE, bSetError := FALSE);
+HomeFail_Step(fb := fb, fActual := -1.0E10, bHomeActive := TRUE, bCalibrated := FALSE, bFailed := FALSE, bCanSet := TRUE, bSetDone := FALSE, bSetError := FALSE);
+HomeFail_Step(fb := fb, fActual := 1.0E10, bHomeActive := TRUE, bCalibrated := FALSE, bFailed := FALSE, bCanSet := TRUE, bSetDone := FALSE, bSetError := FALSE);
+HomeFail_Step(fb := fb, fActual := 1.0E10 + 0.25, bHomeActive := TRUE, bCalibrated := FALSE, bFailed := FALSE, bCanSet := TRUE, bSetDone := FALSE, bSetError := FALSE);
+HomeFail_Step(fb := fb, fActual := 1.0E10 + 0.25, bHomeActive := FALSE, bCalibrated := FALSE, bFailed := TRUE, bCanSet := TRUE, bSetDone := FALSE, bSetError := FALSE);
+AssertTrue(Condition := fb.bRestore, Message := 'restore wanted');
+AssertEquals_LREAL(Expected := 40.25, Actual := fb.fRestorePosition, Delta := 1.0E-9, Message := 'start + 0.25, without the jump');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="HomeFail_Done_Ends_The_Restore" Id="{f75f174b-5dcc-4cba-a434-4dd7efa26e21}">
+      <Declaration><![CDATA[// MC_SetPosition done: reported for one cycle, the request ends.
+METHOD PRIVATE HomeFail_Done_Ends_The_Restore
+VAR
+	fb	: HalfBROT.FB_HomeFailPosition;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('HomeFail_Done_Ends_The_Restore');
+HomeFail_Step(fb := fb, fActual := 40.0, bHomeActive := FALSE, bCalibrated := TRUE, bFailed := FALSE, bCanSet := TRUE, bSetDone := FALSE, bSetError := FALSE);
+HomeFail_Step(fb := fb, fActual := -1.0E10, bHomeActive := TRUE, bCalibrated := FALSE, bFailed := FALSE, bCanSet := TRUE, bSetDone := FALSE, bSetError := FALSE);
+HomeFail_Step(fb := fb, fActual := -1.0E10 + 0.5, bHomeActive := TRUE, bCalibrated := FALSE, bFailed := FALSE, bCanSet := TRUE, bSetDone := FALSE, bSetError := FALSE);
+HomeFail_Step(fb := fb, fActual := -1.0E10 + 0.5, bHomeActive := FALSE, bCalibrated := FALSE, bFailed := TRUE, bCanSet := TRUE, bSetDone := FALSE, bSetError := FALSE);
+HomeFail_Step(fb := fb, fActual := -1.0E10 + 0.5, bHomeActive := FALSE, bCalibrated := FALSE, bFailed := FALSE, bCanSet := TRUE, bSetDone := TRUE, bSetError := FALSE);
+AssertTrue(Condition := fb.bRestored, Message := 'restored');
+AssertFalse(Condition := fb.bRestore, Message := 'request ends');
+HomeFail_Step(fb := fb, fActual := 40.5, bHomeActive := FALSE, bCalibrated := FALSE, bFailed := FALSE, bCanSet := TRUE, bSetDone := FALSE, bSetError := FALSE);
+AssertFalse(Condition := fb.bRestored, Message := 'one cycle only');
+AssertFalse(Condition := fb.bRestore, Message := 'no new request');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="HomeFail_Set_Error_No_Retry" Id="{f98d7b6b-0bf4-4f2e-9a7a-25f470352da3}">
+      <Declaration><![CDATA[// MC_SetPosition failed: reported for one cycle, no retry.
+METHOD PRIVATE HomeFail_Set_Error_No_Retry
+VAR
+	fb	: HalfBROT.FB_HomeFailPosition;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('HomeFail_Set_Error_No_Retry');
+HomeFail_Step(fb := fb, fActual := 40.0, bHomeActive := FALSE, bCalibrated := TRUE, bFailed := FALSE, bCanSet := TRUE, bSetDone := FALSE, bSetError := FALSE);
+HomeFail_Step(fb := fb, fActual := -1.0E10, bHomeActive := TRUE, bCalibrated := FALSE, bFailed := FALSE, bCanSet := TRUE, bSetDone := FALSE, bSetError := FALSE);
+HomeFail_Step(fb := fb, fActual := -1.0E10 + 0.5, bHomeActive := TRUE, bCalibrated := FALSE, bFailed := FALSE, bCanSet := TRUE, bSetDone := FALSE, bSetError := FALSE);
+HomeFail_Step(fb := fb, fActual := -1.0E10 + 0.5, bHomeActive := FALSE, bCalibrated := FALSE, bFailed := TRUE, bCanSet := TRUE, bSetDone := FALSE, bSetError := FALSE);
+HomeFail_Step(fb := fb, fActual := -1.0E10 + 0.5, bHomeActive := FALSE, bCalibrated := FALSE, bFailed := FALSE, bCanSet := TRUE, bSetDone := FALSE, bSetError := TRUE);
+AssertTrue(Condition := fb.bRestoreFailed, Message := 'failed');
+AssertFalse(Condition := fb.bRestore, Message := 'request ends');
+HomeFail_Step(fb := fb, fActual := -1.0E10 + 0.5, bHomeActive := FALSE, bCalibrated := FALSE, bFailed := FALSE, bCanSet := TRUE, bSetDone := FALSE, bSetError := FALSE);
+AssertFalse(Condition := fb.bRestoreFailed, Message := 'one cycle only');
+AssertFalse(Condition := fb.bRestore, Message := 'no retry');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="HomeFail_Uncalibrated_Start_Not_Restored" Id="{06b47a8c-c85b-4ea7-844c-7954360b4d0f}">
+      <Declaration><![CDATA[// A homing that started on an uncalibrated axis has no meaningful start: no restore.
+METHOD PRIVATE HomeFail_Uncalibrated_Start_Not_Restored
+VAR
+	fb	: HalfBROT.FB_HomeFailPosition;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('HomeFail_Uncalibrated_Start_Not_Restored');
+HomeFail_Step(fb := fb, fActual := 40.0, bHomeActive := FALSE, bCalibrated := FALSE, bFailed := FALSE, bCanSet := TRUE, bSetDone := FALSE, bSetError := FALSE);
+HomeFail_Step(fb := fb, fActual := -1.0E10, bHomeActive := TRUE, bCalibrated := FALSE, bFailed := FALSE, bCanSet := TRUE, bSetDone := FALSE, bSetError := FALSE);
+HomeFail_Step(fb := fb, fActual := -1.0E10, bHomeActive := FALSE, bCalibrated := FALSE, bFailed := TRUE, bCanSet := TRUE, bSetDone := FALSE, bSetError := FALSE);
+AssertFalse(Condition := fb.bRestore, Message := 'no restore');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="HomeFail_Failure_At_Real_Position_Not_Restored" Id="{6af72677-4f54-479f-8896-cb8f44b84033}">
+      <Declaration><![CDATA[// A failure report while the position is real (not the NC's virtual one): nothing to restore.
+METHOD PRIVATE HomeFail_Failure_At_Real_Position_Not_Restored
+VAR
+	fb	: HalfBROT.FB_HomeFailPosition;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('HomeFail_Failure_At_Real_Position_Not_Restored');
+HomeFail_Step(fb := fb, fActual := 40.0, bHomeActive := FALSE, bCalibrated := TRUE, bFailed := FALSE, bCanSet := TRUE, bSetDone := FALSE, bSetError := FALSE);
+HomeFail_Step(fb := fb, fActual := 40.0, bHomeActive := TRUE, bCalibrated := FALSE, bFailed := FALSE, bCanSet := TRUE, bSetDone := FALSE, bSetError := FALSE);
+HomeFail_Step(fb := fb, fActual := 40.0, bHomeActive := FALSE, bCalibrated := FALSE, bFailed := TRUE, bCanSet := TRUE, bSetDone := FALSE, bSetError := FALSE);
+AssertFalse(Condition := fb.bRestore, Message := 'no restore');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Pump_Pulse_Off_Follows_Request" Id="{cd191934-ebcb-4f40-bd43-906a8f45cf27}">
+      <Declaration><![CDATA[// tPulse = T#0S: the reset outputs follow bResetRequest, no hold, no automatic pulse.
+METHOD PRIVATE Pump_Pulse_Off_Follows_Request
+VAR
+	fb	: HalfBROT.FB_PumpResetPulse;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Pump_Pulse_Off_Follows_Request');
+fb(bResetRequest := TRUE, bPumpRequest := TRUE, bPumpFailure := FALSE, bPumpRunning := FALSE, bSuctionRunning := FALSE, tPulse := T#0S);
+AssertTrue(Condition := fb.bResetPump, Message := 'pump reset');
+AssertTrue(Condition := fb.bResetSuction, Message := 'suction reset');
+AssertFalse(Condition := fb.bHoldPump, Message := 'no hold');
+AssertFalse(Condition := fb.bActive, Message := 'no pulse');
+fb(bResetRequest := FALSE, bPumpRequest := TRUE, bPumpFailure := FALSE, bPumpRunning := FALSE, bSuctionRunning := FALSE, tPulse := T#0S);
+AssertFalse(Condition := fb.bResetPump, Message := 'released');
+AssertFalse(Condition := fb.bResetSuction, Message := 'released');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Pump_Pulse_Before_First_Start" Id="{abeb7fa0-a22d-410e-9052-ae83dad2a559}">
+      <Declaration><![CDATA[// After a PLC start the first pump request is preceded by a pulse, and the pump enable is held off during it.
+METHOD PRIVATE Pump_Pulse_Before_First_Start
+VAR
+	fb	: HalfBROT.FB_PumpResetPulse;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Pump_Pulse_Before_First_Start');
+fb(bResetRequest := FALSE, bPumpRequest := TRUE, bPumpFailure := FALSE, bPumpRunning := FALSE, bSuctionRunning := FALSE, tPulse := T#1H);
+AssertTrue(Condition := fb.bActive, Message := 'pulse');
+AssertTrue(Condition := fb.bResetPump, Message := 'pump reset');
+AssertTrue(Condition := fb.bResetSuction, Message := 'suction reset');
+AssertTrue(Condition := fb.bHoldPump, Message := 'pump enable held');
+AssertEquals_STRING(Expected := 'before first start', Actual := fb.sReason, Message := 'reason');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Pump_Running_Pump_Needs_No_Pulse" Id="{70cc3325-0975-4756-ad41-c546b4ee1b94}">
+      <Declaration><![CDATA[// A pump with run feedback is never reset or held, the due pulse is dropped.
+METHOD PRIVATE Pump_Running_Pump_Needs_No_Pulse
+VAR
+	fb	: HalfBROT.FB_PumpResetPulse;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Pump_Running_Pump_Needs_No_Pulse');
+fb(bResetRequest := FALSE, bPumpRequest := TRUE, bPumpFailure := FALSE, bPumpRunning := TRUE, bSuctionRunning := FALSE, tPulse := T#1H);
+AssertFalse(Condition := fb.bActive, Message := 'no pulse');
+AssertFalse(Condition := fb.bResetPump, Message := 'no reset');
+AssertFalse(Condition := fb.bHoldPump, Message := 'no hold');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Pump_Request_Resets_Stopped_Starters_Only" Id="{fe27b69c-4958-48ef-9e51-1bbe8f1f3912}">
+      <Declaration><![CDATA[// A reset request pulses only the starters without run feedback.
+METHOD PRIVATE Pump_Request_Resets_Stopped_Starters_Only
+VAR
+	fb	: HalfBROT.FB_PumpResetPulse;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Pump_Request_Resets_Stopped_Starters_Only');
+fb(bResetRequest := TRUE, bPumpRequest := FALSE, bPumpFailure := FALSE, bPumpRunning := TRUE, bSuctionRunning := FALSE, tPulse := T#1H);
+AssertTrue(Condition := fb.bActive, Message := 'pulse');
+AssertFalse(Condition := fb.bResetPump, Message := 'running pump not reset');
+AssertTrue(Condition := fb.bResetSuction, Message := 'stopped suction reset');
+AssertFalse(Condition := fb.bHoldPump, Message := 'running pump not held');
+AssertEquals_STRING(Expected := 'requested', Actual := fb.sReason, Message := 'reason');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Pump_Pulse_After_Pump_Failure" Id="{646026e6-642a-4b9f-9d6e-82ce226a1af9}">
+      <Declaration><![CDATA[// A main pump failure after it ran makes the next start pulse again.
+METHOD PRIVATE Pump_Pulse_After_Pump_Failure
+VAR
+	fb	: HalfBROT.FB_PumpResetPulse;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Pump_Pulse_After_Pump_Failure');
+fb(bResetRequest := FALSE, bPumpRequest := TRUE, bPumpFailure := FALSE, bPumpRunning := TRUE, bSuctionRunning := FALSE, tPulse := T#1H);
+AssertFalse(Condition := fb.bActive, Message := 'running, no pulse');
+fb(bResetRequest := FALSE, bPumpRequest := TRUE, bPumpFailure := TRUE, bPumpRunning := FALSE, bSuctionRunning := FALSE, tPulse := T#1H);
+AssertTrue(Condition := fb.bActive, Message := 'pulse after the failure');
+AssertEquals_STRING(Expected := 'after pump failure', Actual := fb.sReason, Message := 'reason');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="HomeFail_Step" Id="{2c9f13fe-9e1c-4b9c-8ad2-31c3746f1635}">
+      <Declaration><![CDATA[// One cycle of the block with a window of 0 to 90 (margin 0.5, largest step 1.0: the block defaults).
+METHOD PRIVATE HomeFail_Step
+VAR_INPUT
+	fActual		: LREAL;
+	bHomeActive	: BOOL;
+	bCalibrated	: BOOL;
+	bFailed		: BOOL;
+	bCanSet		: BOOL := TRUE;
+	bSetDone	: BOOL;
+	bSetError	: BOOL;
+END_VAR
+VAR_IN_OUT
+	fb			: HalfBROT.FB_HomeFailPosition;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[fb(fActualPosition := fActual, bHomeActive := bHomeActive, bHomePending := FALSE, bCalibrated := bCalibrated, bFailed := bFailed,
+	bCanSet := bCanSet, fMin := 0.0, fMax := 90.0, bSetDone := bSetDone, bSetError := bSetError);
+]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>
