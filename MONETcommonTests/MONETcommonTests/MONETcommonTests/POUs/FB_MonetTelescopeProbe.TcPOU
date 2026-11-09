@@ -1,0 +1,24 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="FB_MonetTelescopeProbe" Id="{4e8a1c52-6b3d-4f07-a9c1-5d2e7b903f48}" SpecialFunc="None">
+    <Declaration><![CDATA[// Test seam (#177): the real FB_MonetTelescopeControl as the I_AltAzTelescope the pendant nudges, never scanned. The
+// offsets are its real properties; READY_STATE is set directly (1.0 = online).
+FUNCTION_BLOCK FB_MonetTelescopeProbe EXTENDS MONETcommon.FB_MonetTelescopeControl
+VAR
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[// no SUPER^(): the body does not run]]></ST>
+    </Implementation>
+    <Method Name="SetReady" Id="{9a3f6d21-5c8e-4b70-8d14-2e6a0b7c9f35}">
+      <Declaration><![CDATA[METHOD SetReady
+VAR_INPUT
+	fReady	: LREAL;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[fReadyState := fReady;]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

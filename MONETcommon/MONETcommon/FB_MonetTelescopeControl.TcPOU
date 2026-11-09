@@ -579,16 +579,19 @@ IF bGoHome AND NOT bGoHomeChecked THEN
 END_IF
 IF bGoto AND NOT bGotoChecked THEN
 	IF _AcceptMove(E_TCSCommand.goto, E_TCSCommand.no_command) THEN
+		_ClearOffsets();	// #177
 		bGotoActive := TRUE;
 	END_IF
 END_IF
 IF bSlew AND NOT bSlewChecked THEN
 	IF _AcceptMove(E_TCSCommand.slew, E_TCSCommand.no_command) THEN
+		_ClearOffsets();	// #177
 		bSlewActive := TRUE;
 	END_IF
 END_IF
 IF bTrack AND NOT bTrackChecked THEN
 	IF _AcceptMove(E_TCSCommand.track, E_TCSCommand.no_command) THEN
+		_ClearOffsets();	// #177
 		bTrackActive := TRUE;
 	END_IF
 END_IF
@@ -850,9 +853,9 @@ ELSIF bRequestIdle THEN
 	fbElevation.MoveAxis := FALSE;
 	fbAzimuth.MoveAxis := FALSE;
 	fbDerotator.MoveAxis := FALSE;
-	fbElevation.bTracking := FALSE;
-	fbAzimuth.bTracking := FALSE;
-	fbDerotator.bTracking := FALSE;
+	fbElevation.Tracking := FALSE;
+	fbAzimuth.Tracking := FALSE;
+	fbDerotator.Tracking := FALSE;
 END_IF
 
 // #56: each command counts its timeout from its own dispatch. A preemption never has a scan without command, so
@@ -1722,6 +1725,7 @@ stTelemetry.fAzimuthPosition			:= fbAzimuth.Position;
 stTelemetry.fAzimuthVelocity			:= fbAzimuth.Velocity;
 stTelemetry.fAzimuthCurrent				:= fAzimuthCurrent;
 stTelemetry.fAzimuthOffset				:= fAzimuthOffset;
+stTelemetry.fDerotatorOffset			:= fDerotatorOffset;	// #177
 
 stTelemetry.fElevationCurrentSky		:= fElevationCurrentSky;
 stTelemetry.fAzimuthCurrentSky			:= fAzimuthCurrentSky;
@@ -1812,18 +1816,22 @@ CASE eSlewStage OF
 				eSlewStage := E_SlewStage.wait_standstill;
 		END_IF
 	E_SlewStage.wait_standstill:
-		IF fbElevation.MoveDone THEN
+		// #225: like the goto, MoveAxis is dropped per axis only when its move is really done (NOT Busy AND MoveDone), and the stage ends
+		// only when all three are dropped. bSlewing and bStopped are computed later in the body, so in the first scan of this stage they
+		// still hold the values from before the move (not slewing, stopped); the stage then went to done at once (MS-140: bSlewActive TRUE
+		// for 60 ms, the slew timeout 16#40 never covered the travel).
+		IF NOT fbElevation.Busy AND fbElevation.MoveDone THEN
 			fbElevation.MoveAxis := FALSE;
 		END_IF
 		
-		IF fbAzimuth.MoveDone THEN
+		IF NOT fbAzimuth.Busy AND fbAzimuth.MoveDone THEN
 			fbAzimuth.MoveAxis := FALSE;
 		END_IF
 
-		IF fbDerotator.MoveDone THEN
+		IF NOT fbDerotator.Busy AND fbDerotator.MoveDone THEN
 			fbDerotator.MoveAxis := FALSE;
 		END_IF
-		IF NOT bSlewing AND bStopped THEN // all axis standstill
+		IF NOT fbElevation.MoveAxis AND NOT fbAzimuth.MoveAxis AND NOT fbDerotator.MoveAxis AND NOT bSlewing AND bStopped THEN // all axis standstill
 			eSlewStage := E_SlewStage.done;
 		END_IF
 	E_SlewStage.done:
@@ -2722,6 +2730,9 @@ bSlewChecked := TRUE;
 IF NOT _AcceptMove(E_TCSCommand.slew, E_TCSCommand.no_command) THEN
 	RETURN;
 END_IF
+IF ABS(fElevation - AltAz.Altitude) > 1.0E-9 OR ABS(fAzimuth - AltAz.Azimuth) > 1.0E-9 THEN
+	_ClearOffsets();	// #177: a new target, not the same one sent again
+END_IF
 fElevation 	:= AltAz.Altitude;
 fAzimuth 	:= AltAz.Azimuth;
 bSlewActive		:= TRUE;
@@ -2739,6 +2750,9 @@ END_VAR
 // #83: decide first, see MoveAltAz
 IF NOT _AcceptMove(E_TCSCommand.goto, E_TCSCommand.no_command) THEN
 	RETURN;
+END_IF
+IF ABS(fRightAscension - RaDec.RightAscension) > 1.0E-9 OR ABS(fDeclination - RaDec.Declination) > 1.0E-9 THEN
+	_ClearOffsets();	// #177
 END_IF
 fRightAscension	:= RaDec.RightAscension;
 fDeclination	:= RaDec.Declination;
@@ -2889,6 +2903,9 @@ END_VAR
 IF NOT _AcceptMove(E_TCSCommand.slew, E_TCSCommand.no_command) THEN
 	RETURN;			// Slew = FALSE: rejected, logged by the body
 END_IF
+IF ABS(THIS^.fElevation - fAltitude) > 1.0E-9 OR ABS(THIS^.fAzimuth - fAzimuth) > 1.0E-9 THEN
+	_ClearOffsets();	// #177
+END_IF
 THIS^.fElevation 	:= fAltitude;
 THIS^.fAzimuth 	:= fAzimuth;
 THIS^.bSlewActive		:= TRUE;
@@ -2900,6 +2917,10 @@ Slew := TRUE;]]></ST>
 ]]></Declaration>
       <Implementation>
         <ST><![CDATA[bStopChecked := TRUE;	// #24 step 5: a rising bStop in the same scan is this stop, not a second (repeated) one
+// #213: a stop ends a park that is queued behind a running stop (timeout or error park, park=1 during a stop). Only the stop
+// release started it; without this it started once the ramp stop settled and the stop was ignored (MS-137, 3 of 8 runs).
+// A Park() later in the same scan queues again.
+bParkAfterStop := FALSE;
 // #96 (D2): a repeated stop while a stop is running re-sends a stop only to axes that are moving again
 IF bStopActive THEN
 	fbStopTx.Restart();
@@ -2927,6 +2948,9 @@ bTrackChecked			:= TRUE;
 IF NOT _AcceptMove(E_TCSCommand.goto, E_TCSCommand.no_command) THEN
 	RETURN;
 END_IF
+IF ABS(THIS^.fRightAscension - fRightAscension) > 1.0E-9 OR ABS(THIS^.fDeclination - fDeclination) > 1.0E-9 THEN
+	_ClearOffsets();	// #177
+END_IF
 THIS^.fRightAscension	:= fRightAscension;
 THIS^.fDeclination		:= fDeclination;
 //THIS^.bTrack			:= TRUE;
@@ -2948,6 +2972,9 @@ bTrackChecked			:= TRUE;
 // #83: decide first, see Slew
 IF NOT _AcceptMove(E_TCSCommand.goto, E_TCSCommand.no_command) THEN
 	RETURN;
+END_IF
+IF ABS(fRightAscension - RaDec.RightAscension) > 1.0E-9 OR ABS(fDeclination - RaDec.Declination) > 1.0E-9 THEN
+	_ClearOffsets();	// #177
 END_IF
 fRightAscension	:= RaDec.RightAscension;
 fDeclination		:= RaDec.Declination;
@@ -3023,6 +3050,18 @@ CASE eDecision OF
 ELSE
 	_AcceptMove := TRUE;
 END_CASE]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="_ClearOffsets" Id="{7d2e9b40-1c6a-4f83-b5d7-3a9e0c8f1a62}" FolderPath="internal methods\">
+      <Declaration><![CDATA[// #177: a new target starts without the pointing offsets of the previous one (the pendant nudges them in automatic mode).
+// Called only after an accepted move to a target that differs from the last one (and on the rising bGoto/bSlew/bTrack
+// edges), so the same target sent again keeps its offsets. Not for Home/Park/Init.
+METHOD PRIVATE _ClearOffsets
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[fElevationOffset := 0.0;
+fAzimuthOffset := 0.0;
+fDerotatorOffset := 0.0;]]></ST>
       </Implementation>
     </Method>
     <Method Name="_NoteRejected" Id="{5b1d2a10-7c3e-4d52-9a61-0e4f8c2b7a14}" FolderPath="internal methods\">

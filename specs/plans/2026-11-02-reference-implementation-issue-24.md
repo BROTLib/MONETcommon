@@ -1,6 +1,13 @@
 # MONETcommon as a reference implementation (#24, code review finding D)
 
-Date: 2026-11-02. Status: **proposed, plan only, no code changed. Decisions D1-D9 taken (Tim, 2026-11-02, section 7;
+Date: 2026-11-02. Status (checked against git 2026-11-06): **code merged to `develop` and released; issue #24 closed 2026-11-06 on request, the on-site checks stay in IAG test plan T17/T18.**
+Steps 0-6 and step 7 PR 1-8 (PR 4/6/7/8 squash-merged as #190/#194/#192/#193), the E-stop covers follow-up (#205) and the
+cabinet over-temperature roof request (#206) are in MONETcommon 0.15.0/0.15.1 (`develop` is at 0.17.0); MONETS and MONETN
+`MAIN` have `bRoofCloseOnErrorEnable` (PR 2); IAG50cm dropped its local `ST_TelescopeConfig` (step 2b, BROTLib 0.17.0 pin). CI builds
+and runs the rig suites. Not run on a telescope: IAG test plan T17 steps 6-12 (timeouts partial, #213 open; cover, hydraulics,
+roof close, E-stop/safety, power failure, focus error open); no IAG50cm smoke test for step 2b found. The "not compiled, not
+run" lines in the step statuses below are the state at writing (2026-11-02/03) and are not updated.
+Original status line: **proposed, plan only, no code changed. Decisions D1-D9 taken (Tim, 2026-11-02, section 7;
 D8/D9 settle the old open points 8.1/8.2, the safe-state table is final for step 7); the open items left are in
 section 8.** Steps 0-1 written 2026-11-02 on `feat/safe-state-table-and-tests`: the
 table is [../design/monetcommon-safe-states.md](../design/monetcommon-safe-states.md) (cells corrected against 0.11.2), the suite

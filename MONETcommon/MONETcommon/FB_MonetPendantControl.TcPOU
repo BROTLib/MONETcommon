@@ -14,6 +14,25 @@ VAR_INPUT
 	fbDerotator			: REFERENCE TO FB_DerotatorControl;
 	tEnableRelease		: TIME := T#2S;		// #3: an Enable the pendant set is dropped this long after the pendant lets go of the function
 	tSelectionDebounce	: TIME := T#100MS;	// #3: the selector must read the same this long before the pendant drives that function
+	// #177: in automatic mode selector 5-8 nudge the pointing offsets of the telescope (never Enable/Move* of an axis).
+	iTelescope			: BROTLib.I_AltAzTelescope;	// offsets (read+write) and ReadyState; 0 = no nudges
+	stMotion			: BROTLib.ST_MotionConfig;	// goto elevation window for the elevation nudge
+	tCycle				: TIME := T#10MS;			// PLC task cycle time (PlcTask of MONETS and MONETN: 10 ms); _TaskInfo is not visible in a library
+	// nudge values (degrees, mm); suggestions to confirm on site (plan 2026-11-06-pendant-offsets-automatic-177, 3.4)
+	fElAzStep			: LREAL := 5.0/3600.0;		// tap
+	fElAzRateSlow		: LREAL := 10.0/3600.0;		// per second, held fSlowAfter..fFastAfter
+	fElAzRateFast		: LREAL := 60.0/3600.0;		// per second, held longer than fFastAfter
+	fElAzMax			: LREAL := 600.0/3600.0;	// |offset| limit
+	fDerotStep			: LREAL := 0.02;
+	fDerotRateSlow		: LREAL := 0.1;
+	fDerotRateFast		: LREAL := 1.0;
+	fDerotMax			: LREAL := 90.0;
+	fFocusStep			: LREAL := 0.02;			// mm per step
+	fFocusRange			: LREAL := 1.0;				// mm, |target - base| limit
+	fSlowAfter			: LREAL := 0.5;				// s held until the slow rate
+	fFastAfter			: LREAL := 3.0;				// s held until the fast rate
+	fFocusRepeatAfter	: LREAL := 1.0;				// s held until the focus steps repeat
+	fFocusRepeatEvery	: LREAL := 0.5;				// s between repeated focus steps
 END_VAR
 VAR_OUTPUT
 	bEnable				: BOOL;
@@ -43,6 +62,18 @@ VAR
 	bOwnedEnable		: BOOL;		// the last Enable the pendant wrote for nOwned
 	nEnablePending		: UINT;		// function whose Enable is dropped when tonEnableRelease expires, 0 = none
 	tonEnableRelease	: TON;
+	// #177 nudges in automatic mode
+	bManual				: BOOL;
+	bAuto				: BOOL;
+	bNudgeOk			: BOOL;		// automatic, key, stable selector, enable button, telescope online
+	bNudgeArmed			: BOOL;		// a press counts only after a scan with bNudgeOk and no direction pressed
+	nNudgeSel			: UINT;		// function the nudge state belongs to
+	nNudge				: UINT;		// function nudged in this scan, 0 = none (online view)
+	fHeld				: LREAL;	// s the direction has been held
+	fFocusAccum			: LREAL;
+	fFocusBase			: LREAL;	// focus target before the pendant started stepping
+	fFocusLast			: LREAL;	// the last target the pendant wrote
+	bFocusBaseSet		: BOOL;
 
 	//DIN17 2.0
 	// AT%I*/AT%Q* below are mapped directly on this FB: only one instance per PLC is
@@ -123,7 +154,10 @@ END_IF
 tonSelectionStable(IN := (nSelection = nSelectionLast), PT := tSelectionDebounce);
 nSelectionLast := nSelection;
 nSelectionStable := SEL(tonSelectionStable.Q, 0, nSelection);
-nDriven := SEL(IbEnableKey AND tonSelectionStable.Q, 0, nSelection);
+bManual := (eTelescopeMode = E_TelescopeMode.manual);
+bAuto := (eTelescopeMode = E_TelescopeMode.automatic);
+// #177: the pendant drives Enable/Move* only in manual; leaving manual is one more release trigger
+nDriven := SEL(bManual AND IbEnableKey AND tonSelectionStable.Q, 0, nSelection);
 IF nOwned <> 0 AND nOwned <> nDriven THEN
 	_ReleaseMove(nFunction := nOwned);
 	IF bOwnedEnable THEN
@@ -138,11 +172,17 @@ END_IF
 IF nEnablePending <> 0 AND nEnablePending = nDriven THEN
 	nEnablePending := 0;	// the same function is selected again: the enable button decides again
 END_IF
+IF bAuto THEN
+	nEnablePending := 0;	// #177: in automatic the telescope owns Enable; a pending drop is discarded, not deferred
+END_IF
 tonEnableRelease(IN := (nEnablePending <> 0), PT := tEnableRelease);
 IF tonEnableRelease.Q THEN
 	_DropEnable(nFunction := nEnablePending);
 	nEnablePending := 0;
 END_IF
+
+// #177: automatic mode, selector 5-8: nudge the offsets (before the key check: the arming needs the scans with the key off)
+_Nudge();
 
 // enabled?
 bEnable := IbEnableKey;
@@ -154,13 +194,9 @@ END_IF
 fbResetTrigger(CLK := IbResetButton);
 fbStartTrigger(CLK := IbEnableButton);
 
-// mode
-IF eTelescopeMode = E_TelescopeMode.automatic THEN
-	;
-END_IF
-
-// enable only the selected item and connect lamps and buttons accordingly
-CASE nSelectionStable OF
+// enable only the selected item and connect lamps and buttons accordingly. #177: selector 5-8 jog Enable/Move* in manual
+// mode only (automatic: _Nudge above, off: nothing).
+CASE SEL(nSelectionStable >= 5 AND nSelectionStable <= 8 AND NOT bManual, nSelectionStable, 0) OF
 	1, 2, 3:	// covers: lamps only; the hold-to-run is above the RETURN
 		IF __ISVALIDREF(fbCovers) THEN
 			ObLampUp := fbCovers.Opened;
@@ -185,15 +221,15 @@ CASE nSelectionStable OF
 			ObLampError := fbFocus.Error;
 		END_IF
 							
-	6:	// Derotator control
+	6:	// Derotator control: no hardware limit switches, the soft limits in the NC axis (XAE) and fMin/MaxPosition stop it
 		IF __ISVALIDREF(fbDerotator) THEN
 			nOwned := 6;
 			bOwnedEnable := IbEnableButton;
 			fbDerotator.Enable := IbEnableButton;
-			ObLampLeft  := fbDerotator.Ready AND NOT fbDerotator.InNegLimit;
-			ObLampRight := fbDerotator.Ready AND NOT fbDerotator.InPosLimit;
-			fbDerotator.MoveNeg := IbDirectionLeft AND NOT fbDerotator.inDigitalInputs.1;
-			fbDerotator.MovePos := IbDirectionRight AND NOT fbDerotator.inDigitalInputs.0;
+			ObLampLeft  := fbDerotator.Ready;
+			ObLampRight := fbDerotator.Ready;
+			fbDerotator.MoveNeg := IbDirectionLeft;
+			fbDerotator.MovePos := IbDirectionRight;
 			ObLampError := fbDerotator.Error;
 			IF fbResetTrigger.Q THEN
 				fbDerotator.Reset();
@@ -234,6 +270,154 @@ CASE nSelectionStable OF
 END_CASE
 ]]></ST>
     </Implementation>
+    <Method Name="_Nudge" Id="{3c1f5a7e-8d24-4b6a-9e51-6a0d2b7c4f19}">
+      <Declaration><![CDATA[// #177: automatic mode, selector 5-8, enable button held: nudge the sky-frame pointing offset of the telescope (7 elevation,
+// 8 azimuth, 6 derotator) or step the focus target (5). Never writes Enable/Move* of an axis.
+METHOD PRIVATE _Nudge
+VAR
+	fDt			: LREAL;
+	nDir		: INT;
+	fDelta		: LREAL;
+	fOld		: LREAL;
+	fMax		: LREAL;
+	fPos		: LREAL;
+	bFocusStep	: BOOL;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[nNudge := 0;
+bNudgeOk := bAuto AND IbEnableKey AND tonSelectionStable.Q AND IbEnableButton AND nSelectionStable >= 5 AND nSelectionStable <= 8
+	AND iTelescope <> 0;
+IF bNudgeOk THEN
+	bNudgeOk := (iTelescope.ReadyState = 1.0);	// online, as the MQTT focus (BROTLib#74)
+END_IF
+
+// direction: exactly one of the two buttons of the function
+IF nSelectionStable = 5 OR nSelectionStable = 7 THEN
+	nDir := BOOL_TO_INT(IbDirectionUp AND NOT IbDirectionDown) - BOOL_TO_INT(IbDirectionDown AND NOT IbDirectionUp);
+ELSE
+	nDir := BOOL_TO_INT(IbDirectionRight AND NOT IbDirectionLeft) - BOOL_TO_INT(IbDirectionLeft AND NOT IbDirectionRight);
+END_IF
+
+// arming: a direction held through a mode change, key on, enable press or selector change does nothing until released
+IF NOT bNudgeOk OR nSelectionStable <> nNudgeSel THEN
+	bNudgeArmed := FALSE;
+ELSIF NOT IbDirectionUp AND NOT IbDirectionDown AND NOT IbDirectionLeft AND NOT IbDirectionRight THEN
+	bNudgeArmed := TRUE;
+END_IF
+nNudgeSel := nSelectionStable;
+
+// lamps: direction lamps while a nudge would be accepted, error lamp for a telescope error
+IF bAuto AND IbEnableKey AND nSelectionStable >= 5 AND nSelectionStable <= 8 AND iTelescope <> 0 THEN
+	ObLampError := bError OR iTelescope.ReadyState < 0.0;
+	IF bNudgeOk THEN
+		IF nSelectionStable = 5 OR nSelectionStable = 7 THEN
+			ObLampUp := TRUE;
+			ObLampDown := TRUE;
+		ELSE
+			ObLampLeft := TRUE;
+			ObLampRight := TRUE;
+		END_IF
+	END_IF
+END_IF
+
+IF NOT (bNudgeOk AND bNudgeArmed AND nDir <> 0) THEN
+	fHeld := 0.0;
+	fFocusAccum := 0.0;
+	RETURN;
+END_IF
+
+// dt in seconds from the task cycle time input
+fDt := MAX(TIME_TO_LREAL(tCycle) * 0.001, 1.0E-6);
+
+// how far this scan: a tap is one step, then slow and fast rates (focus: one step every fFocusRepeatEvery after fFocusRepeatAfter)
+fDelta := 0.0;
+bFocusStep := FALSE;
+CASE nSelectionStable OF
+	7, 8:
+		fMax := fElAzMax;
+		IF fHeld = 0.0 THEN
+			fDelta := nDir * fElAzStep;
+		ELSIF fHeld >= fFastAfter THEN
+			fDelta := nDir * fElAzRateFast * fDt;
+		ELSIF fHeld >= fSlowAfter THEN
+			fDelta := nDir * fElAzRateSlow * fDt;
+		END_IF
+	6:
+		fMax := fDerotMax;
+		IF fHeld = 0.0 THEN
+			fDelta := nDir * fDerotStep;
+		ELSIF fHeld >= fFastAfter THEN
+			fDelta := nDir * fDerotRateFast * fDt;
+		ELSIF fHeld >= fSlowAfter THEN
+			fDelta := nDir * fDerotRateSlow * fDt;
+		END_IF
+	5:
+		IF fHeld = 0.0 THEN
+			bFocusStep := TRUE;
+		ELSIF fHeld >= fFocusRepeatAfter THEN
+			fFocusAccum := fFocusAccum + fDt;
+			IF fFocusAccum >= fFocusRepeatEvery THEN
+				fFocusAccum := fFocusAccum - fFocusRepeatEvery;
+				bFocusStep := TRUE;
+			END_IF
+		END_IF
+		IF bFocusStep THEN
+			fDelta := nDir * fFocusStep;
+		END_IF
+END_CASE
+fHeld := fHeld + fDt;
+IF fDelta = 0.0 THEN
+	RETURN;
+END_IF
+
+// apply: read-modify-write in this scan (an MQTT write of the last scan is the base); the new value is refused when it
+// leaves the limit, except that an offset beyond the limit can always be reduced
+CASE nSelectionStable OF
+	7:
+		IF __ISVALIDREF(fbElevation) THEN
+			fOld := iTelescope.AltitudeOffset;
+			fPos := fbElevation.Position + fDelta;
+			IF (ABS(fOld + fDelta) <= fMax OR ABS(fOld + fDelta) < ABS(fOld))
+				AND fPos >= stMotion.fGotoMinElevation AND fPos <= stMotion.fGotoMaxElevation THEN
+				iTelescope.AltitudeOffset := fOld + fDelta;
+				nNudge := 7;
+			END_IF
+		END_IF
+	8:
+		fOld := iTelescope.AzimuthOffset;	// sky frame: FB_MonetTelescopeControl applies F_AzimuthOffsetOnAxis
+		IF ABS(fOld + fDelta) <= fMax OR ABS(fOld + fDelta) < ABS(fOld) THEN
+			iTelescope.AzimuthOffset := fOld + fDelta;
+			nNudge := 8;
+		END_IF
+	6:
+		IF __ISVALIDREF(fbDerotator) THEN
+			fOld := iTelescope.DerotatorOffset;
+			fPos := fbDerotator.Position + fDelta;
+			IF (ABS(fOld + fDelta) <= fMax OR ABS(fOld + fDelta) < ABS(fOld))
+				AND fPos >= fbDerotator.fMinPosition AND fPos <= fbDerotator.fMaxPosition THEN
+				iTelescope.DerotatorOffset := fOld + fDelta;
+				nNudge := 6;
+			END_IF
+		END_IF
+	5:
+		IF fbFocus <> 0 THEN
+			// the base is the target before the pendant started; a new target from elsewhere (MQTT focus) re-bases
+			IF NOT bFocusBaseSet OR fbFocus.Position <> fFocusLast THEN
+				fFocusBase := fbFocus.Position;
+				bFocusBaseSet := TRUE;
+			END_IF
+			fPos := fbFocus.Position + fDelta;
+			IF ABS(fPos - fFocusBase) <= fFocusRange AND fPos >= fbFocus.MinPosition AND fPos <= fbFocus.MaxPosition THEN
+				fbFocus.Position := fPos;
+				fFocusLast := fPos;
+				nNudge := 5;
+			END_IF
+		END_IF
+END_CASE
+]]></ST>
+      </Implementation>
+    </Method>
     <Method Name="_ReleaseMove" Id="{ba987d59-44d6-43e4-a7bf-f9aeebcb6b84}">
       <Declaration><![CDATA[// #3: the pendant lets go of function 5-8: its jog commands are set FALSE once (Enable: _DropEnable)
 METHOD PRIVATE _ReleaseMove
@@ -311,9 +495,6 @@ END_VAR]]></Declaration>
         <ST><![CDATA[THIS^.fbComm 	:= comm;]]></ST>
       </Implementation>
     </Method>
-    <LineIds Name="FB_MonetPendantControl">
-      <LineId Id="1" Count="109" />
-    </LineIds>
     <LineIds Name="FB_MonetPendantControl.FB_Init">
       <LineId Id="1" Count="0" />
     </LineIds>
