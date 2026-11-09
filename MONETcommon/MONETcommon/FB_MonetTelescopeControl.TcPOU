@@ -1887,6 +1887,15 @@ TCStrackEvent(	Trigger := bTrackActive,
 				OnMessage := 'commencing',
 				OffMEssage := 'completed', 
 				Comm := fbComm);
+// #234: the park stage sets bParkedInPlaceLogged in automatic mode; the event was only called in SuspendAutomatic (manual), so the
+// WARN was never logged. Same call as in SuspendAutomatic (only one of the two bodies runs per scan).
+ParkedInPlaceEvent(	Trigger := bParkedInPlaceLogged,
+				Level := ADSLOG_MSGTYPE_WARN,
+				FormatString := '%s',
+				OnMessage := CONCAT(CONCAT(CONCAT('parked in place at el ', LREAL_TO_STRING(fElevationCurrent)), ' az '),
+									CONCAT(LREAL_TO_STRING(fAzimuthCurrent), ' (not the park position)')),
+				Comm := fbComm);
+bParkedInPlaceLogged := FALSE;
 _StopEvents();
 TCStargetHorizonEvent(	Trigger := bTargetBelowHorizonWarn,
 				Level := ADSLOG_MSGTYPE_WARN,
