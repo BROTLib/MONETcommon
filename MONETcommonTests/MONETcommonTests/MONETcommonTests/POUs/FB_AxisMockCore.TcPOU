@@ -12,6 +12,7 @@
 FUNCTION_BLOCK FB_AxisMockCore
 VAR_INPUT
 	bEnable			: BOOL;
+	bPowerLost		: BOOL;		// #232: the drive power is cut though the request stays (HalfBROT brake interlock): Ready and StandStill FALSE, like the NC state Disabled
 	bHome			: BOOL;
 	bMove			: BOOL;
 	bStop			: BOOL;		// the StopAxis level: a rising edge is a stop request (MC_Stop)
@@ -87,6 +88,10 @@ ELSE
 	nReadyCount := 0;
 	bReady := FALSE;
 END_IF
+IF bPowerLost THEN
+	nReadyCount := 0;
+	bReady := FALSE;
+END_IF
 
 IF bHome AND bReady AND NOT bCalibrated AND NOT bStopping THEN
 	bHoming := TRUE;
@@ -138,7 +143,7 @@ IF bExtError THEN
 END_IF
 bTrackActive := bExtActive AND bTracking;
 
-bStandStill := NOT bInMotion AND NOT bHoming AND NOT bStopping;	// a tracking axis is not at standstill for the status (the mocks use bTrackActive), but it stays ready
+bStandStill := NOT bInMotion AND NOT bHoming AND NOT bStopping AND NOT bPowerLost;	// a tracking axis is not at standstill for the status (the mocks use bTrackActive), but it stays ready
 ]]></ST>
     </Implementation>
   </POU>
