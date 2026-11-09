@@ -853,9 +853,9 @@ ELSIF bRequestIdle THEN
 	fbElevation.MoveAxis := FALSE;
 	fbAzimuth.MoveAxis := FALSE;
 	fbDerotator.MoveAxis := FALSE;
-	fbElevation.bTracking := FALSE;
-	fbAzimuth.bTracking := FALSE;
-	fbDerotator.bTracking := FALSE;
+	fbElevation.Tracking := FALSE;
+	fbAzimuth.Tracking := FALSE;
+	fbDerotator.Tracking := FALSE;
 END_IF
 
 // #56: each command counts its timeout from its own dispatch. A preemption never has a scan without command, so
