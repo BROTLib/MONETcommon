@@ -875,7 +875,7 @@ END_IF
 IF bHwError AND NOT bHwErrorLast AND bFocusErrorOnly AND NOT bIsParked AND fbHydraulics.OilPressureOK AND
 		F_ParkAxesCanMove(
 			bElCalibrated := fbElevation.Calibrated, bAzCalibrated := fbAzimuth.Calibrated, bDrCalibrated := fbDerotator.Calibrated,
-			bElEnabled := fbElevation.bEnable, bAzEnabled := fbAzimuth.bEnable, bDrEnabled := fbDerotator.bEnable,
+			bElEnabled := fbElevation.bEnable AND fbElevation.fbAxis.Ready, bAzEnabled := fbAzimuth.bEnable AND fbAzimuth.fbAxis.Ready, bDrEnabled := fbDerotator.bEnable AND fbDerotator.fbAxis.Ready,
 			bBrakeOpen := fbBrake.BrakeOpen) THEN
 	bFocusErrorPark := TRUE;
 	bFocusErrorParkStarted := TRUE;
@@ -1625,11 +1625,12 @@ CASE eParkStage OF
 		IF NOT fbFocus.Error THEN
 			fbFocus.Position := telescopeConfig.focusPark;
 		END_IF
-		// #87: the axes can only drive to the park position when they are calibrated, enabled and the brake is open.
+		// #87: the axes can only drive to the park position when they are calibrated, enabled and the brake is open. #232: enabled = requested AND powered (fbAxis.Ready): a request the drive power interlock has cut
+		// leaves the NC axis Disabled, a move on it never completes.
 		// Otherwise (aborted power-on, after a reset) park in place, like the emergency park: no axis motion.
 		bAxesCanMove := F_ParkAxesCanMove(
 			bElCalibrated := fbElevation.Calibrated, bAzCalibrated := fbAzimuth.Calibrated, bDrCalibrated := fbDerotator.Calibrated,
-			bElEnabled := fbElevation.bEnable, bAzEnabled := fbAzimuth.bEnable, bDrEnabled := fbDerotator.bEnable,
+			bElEnabled := fbElevation.bEnable AND fbElevation.fbAxis.Ready, bAzEnabled := fbAzimuth.bEnable AND fbAzimuth.fbAxis.Ready, bDrEnabled := fbDerotator.bEnable AND fbDerotator.fbAxis.Ready,
 			bBrakeOpen := fbBrake.BrakeOpen);
 		// #24 step 7 PR 5: the park of a timeout (bTimeoutPark, a software error only) drives to the park position like a normal park
 		// #24 step 7 PR 8: the emergency park of a focus error alone drives to the park position (bFocusErrorPark, set in the body)
