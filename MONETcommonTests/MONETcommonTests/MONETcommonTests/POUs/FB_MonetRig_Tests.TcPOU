@@ -16,6 +16,7 @@ VAR
 	fbDero			: FB_DerotatorMock(comm := fbComm);
 	fbFocus			: FB_FocusMock(comm := fbComm);
 	fbCovers		: FB_CoversMock(comm := fbComm);
+	stFocusOut		: HalfBROT.ST_FocusOut;
 	fbBrakeHyd		: FB_BrakeHydraulicsMock;
 	fbPointing		: FB_PointingModelForward(AOFF := 0.0, BNP := 0.0, AN_A := 0.0, AE_A := 0.0, NPAE := 0.0, EOFF := 0.0, AN_E := 0.0, AE_E := 0.0, TF := 0.0);	// zero coefficients
 	fbPointingInv	: FB_PointingModelInversion(fbPointing := fbPointing);
@@ -103,7 +104,7 @@ FOR i := 1 TO 10 DO
 	fbElev();
 	fbAzim();
 	fbDero();
-	fbFocus();
+	fbFocus(stOut := stFocusOut);
 END_FOR
 AssertFalse(Condition := fbTel.bError, Message := 'telescope on mock axes reports no error');
 TEST_FINISHED();
