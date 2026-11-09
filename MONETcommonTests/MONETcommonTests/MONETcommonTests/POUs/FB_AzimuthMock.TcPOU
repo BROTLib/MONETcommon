@@ -8,6 +8,7 @@ VAR_INPUT
 	nMockStopScans	: UINT := 3;	// scans an MC_Stop takes until Done
 	nMockHomeScans	: UINT := 3;	// scans a homing takes
 	nMockDisableScans	: UINT := 1;	// scans MC_ExtSetPointGenDisable takes (BROTLib#101)
+	bMockPowerLost	: BOOL;			// #232: drive power cut while bEnable stays (NC state Disabled)
 END_VAR
 VAR_OUTPUT
 	nStopEdges		: UINT;			// stop requests the telescope made (rising edges of StopAxis)
@@ -27,7 +28,7 @@ END_VAR
 // StopAxis -> fbAxis.Stop(), HomeAxis -> _StartHoming) stay, so the telescope sees the real command interface. The model
 // is driven by the levels the telescope writes and writes what the telescope reads: the base outputs and, through pointers
 // (FB_Axis outputs are not writable from outside), the nested fbAxis outputs.
-fbCore(bEnable := bEnable, bHome := bHomeAxis, bMove := bMoveAxis, bStop := bStopAxis, fTarget := fPosition, fHomePosition := fCalibPosition,
+fbCore(bEnable := bEnable, bPowerLost := bMockPowerLost, bHome := bHomeAxis, bMove := bMoveAxis, bStop := bStopAxis, fTarget := fPosition, fHomePosition := fCalibPosition,
 	bTracking := bTracking, nMoveScans := nMockMoveScans, nStopScans := nMockStopScans, nHomeScans := nMockHomeScans,
 	nDisableScans := nMockDisableScans);
 

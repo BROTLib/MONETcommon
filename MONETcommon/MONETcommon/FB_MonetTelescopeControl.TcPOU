@@ -2374,9 +2374,12 @@ VAR_INPUT
 END_VAR
 ]]></Declaration>
       <Implementation>
-        <ST><![CDATA[fbStopTx.abEnabled[1] := fbAzimuth.bEnable;
-fbStopTx.abEnabled[2] := fbElevation.bEnable;
-fbStopTx.abEnabled[3] := fbDerotator.bEnable;
+        <ST><![CDATA[// #232: enabled = requested AND powered. The request (bEnable) stays TRUE when the drive power is cut by an interlock (HalfBROT:
+// the azimuth and derotator power needs the brake open, fbAxis.Enable := bEnable AND bAtRest AND bBrakeOpen); the NC axis is then
+// Disabled, StandStill is FALSE by definition and a request-based bStopped never became TRUE again (park and stop held for ever).
+fbStopTx.abEnabled[1] := fbAzimuth.bEnable AND fbAzimuth.fbAxis.Ready;
+fbStopTx.abEnabled[2] := fbElevation.bEnable AND fbElevation.fbAxis.Ready;
+fbStopTx.abEnabled[3] := fbDerotator.bEnable AND fbDerotator.fbAxis.Ready;
 fbStopTx.abStandStill[1] := aAxis[1].bStandStill;
 fbStopTx.abStandStill[2] := aAxis[2].bStandStill;
 fbStopTx.abStandStill[3] := aAxis[3].bStandStill;
@@ -2402,9 +2405,10 @@ VAR_INPUT
 END_VAR
 ]]></Declaration>
       <Implementation>
-        <ST><![CDATA[bStopped :=  (NOT fbElevation.bEnable OR aAxis[2].bStandStill) AND
-			(NOT fbAzimuth.bEnable OR aAxis[1].bStandStill) AND
-			(NOT fbDerotator.bEnable OR aAxis[3].bStandStill);
+        <ST><![CDATA[// #232: an axis that is requested but not powered (fbAxis.Ready FALSE, NC state Disabled) cannot move and has no StandStill
+bStopped :=  (NOT (fbElevation.bEnable AND fbElevation.fbAxis.Ready) OR aAxis[2].bStandStill) AND
+			(NOT (fbAzimuth.bEnable AND fbAzimuth.fbAxis.Ready) OR aAxis[1].bStandStill) AND
+			(NOT (fbDerotator.bEnable AND fbDerotator.fbAxis.Ready) OR aAxis[3].bStandStill);
 
 // #96: settles the stop (every issued axis reported StopDone, at rest for 3 scans) or raises the timeout cases
 fbStopTx.bStopped := bStopped;
