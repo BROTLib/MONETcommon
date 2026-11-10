@@ -14,6 +14,8 @@ VAR
 	fbDero			: FB_DerotatorMock(comm := fbComm);
 	fbFocus			: FB_FocusMock(comm := fbComm);
 	fbCovers		: FB_CoversMock(comm := fbComm);	// a HalfBROT.FB_CoverControl subclass, its FB_Init takes comm
+	stCoverOut		: HalfBROT.ST_CoverOut;	// the process outputs of the covers and the focus block (HalfBROT 0.14.0: VAR_IN_OUT stOut); the mocks do not use them
+	stFocusOut		: HalfBROT.ST_FocusOut;
 	fbBrakeHyd		: FB_BrakeHydraulicsMock;
 	fbPointing		: FB_PointingModelForward(AOFF := 0.0, BNP := 0.0, AN_A := 0.0, AE_A := 0.0, NPAE := 0.0, EOFF := 0.0, AN_E := 0.0, AE_E := 0.0, TF := 0.0);	// zero coefficients
 	fbPointingInv	: FB_PointingModelInversion(fbPointing := fbPointing);
@@ -120,11 +122,11 @@ ELSE
 		fElevationMoveVelocity := fElevationMoveVelocityIn,
 		nTimeDivisor := nTimeDivisor);
 END_IF
-fbCovers();	// after the telescope, as MAIN calls CoverControl(); only the travel model (SetCoverTravelScans) runs in it
+fbCovers(stOut := stCoverOut);	// after the telescope, as MAIN calls CoverControl(); only the travel model (SetCoverTravelScans) runs in it
 fbElev(fbCovers := fbCovers, fbBrake := fbBrakeHyd);
 fbAzim();
 fbDero();
-fbFocus();
+fbFocus(stOut := stFocusOut);
 nScans := nScans + 1;
 ]]></ST>
       </Implementation>

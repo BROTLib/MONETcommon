@@ -16,6 +16,7 @@ VAR
 	fbDero			: FB_DerotatorMock(comm := fbComm);
 	fbFocus			: FB_FocusMock(comm := fbComm);
 	fbCovers		: FB_CoversMock(comm := fbComm);
+	stFocusOut		: HalfBROT.ST_FocusOut;
 	fbBrakeHyd		: FB_BrakeHydraulicsMock;
 	fbPointing		: FB_PointingModelForward(AOFF := 0.0, BNP := 0.0, AN_A := 0.0, AE_A := 0.0, NPAE := 0.0, EOFF := 0.0, AN_E := 0.0, AE_E := 0.0, TF := 0.0);	// zero coefficients
 	fbPointingInv	: FB_PointingModelInversion(fbPointing := fbPointing);
@@ -39,6 +40,7 @@ Held_Slew_Input_Starts_The_Slew_Once();
 Slew_Input_Falling_Does_Not_Abort_The_Slew();
 Slew_Method_And_Input_Edge_In_One_Scan_Count_Once();
 Repeated_Track_Retargets_And_Second_Stop_Works();
+Derotator_Offset_Set_At_The_Start_Of_A_Track_Is_Ramped();
 Goto_Window_From_stMotion_Refuses_The_Pole();
 Slew_Window_Refuses_Low_And_High_Elevation();
 ]]></ST>
@@ -103,7 +105,7 @@ FOR i := 1 TO 10 DO
 	fbElev();
 	fbAzim();
 	fbDero();
-	fbFocus();
+	fbFocus(stOut := stFocusOut);
 END_FOR
 AssertFalse(Condition := fbTel.bError, Message := 'telescope on mock axes reports no error');
 TEST_FINISHED();
@@ -761,6 +763,85 @@ CASE nStep OF
 	ELSIF nCycles > 400 THEN
 		AssertTrue(Condition := FALSE, Message := 'the stop did not settle');
 		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the stop did not settle'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+END_CASE
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Derotator_Offset_Set_At_The_Start_Of_A_Track_Is_Ramped" Id="{8b039839-1a3d-4258-97d0-17d9fcc1fdad}">
+      <Declaration><![CDATA[// #246 (MONETS MS-172): a derotator offset written in the first scan after the track became active used to be applied as a
+// step (the #236 ramp only ran while fbDerotator.Tracking), and the AX5206 raised F324. The offset now ramps from the scan in which
+// bTrackActive is TRUE: the setpoint of the derotator moves by at most fDerotatorOffsetRate * tCycle per scan (the sky drift of a
+// circumpolar target is far below it) and reaches the new offset.
+METHOD PRIVATE Derotator_Offset_Set_At_The_Start_Of_A_Track_Is_Ramped
+VAR_INST
+	rig			: FB_MonetRig;
+	nStep		: INT;
+	nCycles		: UINT;
+	sTest		: STRING(80);
+	fPrev		: LREAL;
+	fStart		: LREAL;
+	fStep		: LREAL;
+	fMaxStep	: LREAL;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Derotator_Offset_Set_At_The_Start_Of_A_Track_Is_Ramped');
+sTest := 'Derotator_Offset_Set_At_The_Start_Of_A_Track_Is_Ramped: ';
+IF nStep >= 90 THEN
+	RETURN;
+END_IF
+rig.Scan();
+nCycles := nCycles + 1;
+CASE nStep OF
+0:	// wait for the clock, then power on
+	IF rig.ClockValid THEN
+		rig.fbTel.Init();
+		nStep := 10;
+		nCycles := 0;
+	ELSIF nCycles > 2000 THEN
+		TEST_FINISHED();
+	END_IF
+10:	// online: track a circumpolar target
+	IF rig.Online THEN
+		rig.fbTel.Track(fRightAscension := 0.0, fDeclination := -85.0);
+		nStep := 20;
+		nCycles := 0;
+	ELSIF nCycles > 1500 THEN
+		AssertTrue(Condition := FALSE, Message := 'the mock telescope did not reach READY_STATE 1.0');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the mock telescope did not reach READY_STATE 1.0'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+20:	// the first scan in which the track is active: the offset request arrives now, between two scans (an ADS write or a client)
+	IF rig.fbTel.bTrackActive THEN
+		fStart := rig.fbDero.fPosition;
+		fPrev := fStart;
+		fMaxStep := 0.0;
+		rig.fbTel.SetDerotatorOffset(2.0);
+		nStep := 30;
+		nCycles := 0;
+	ELSIF nCycles > 800 THEN
+		AssertTrue(Condition := FALSE, Message := 'the track did not become active');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the track did not become active'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+30:	// the setpoint moves in ramp steps only
+	fStep := ABS(rig.fbDero.fPosition - fPrev);
+	fPrev := rig.fbDero.fPosition;
+	IF fStep > fMaxStep THEN
+		fMaxStep := fStep;
+	END_IF
+	IF nCycles >= 150 THEN
+		AssertTrue(Condition := fMaxStep < 0.01, Message := 'the derotator setpoint never moves by more than a ramp step per scan (no step)');
+		F_Note(bFailed := NOT (fMaxStep < 0.01), sText := CONCAT(sTest, 'the derotator setpoint moved by more than a ramp step in one scan'));
+		AssertTrue(Condition := ABS(fPrev - fStart) > 0.3, Message := 'the offset is on its way (ramping)');
+		F_Note(bFailed := NOT (ABS(fPrev - fStart) > 0.3), sText := CONCAT(sTest, 'the offset did not start to ramp'));
+		AssertTrue(Condition := NOT rig.fbTel.bError, Message := 'no error');
+		F_Note(bFailed := NOT (NOT rig.fbTel.bError), sText := CONCAT(sTest, 'no error'));
 		nStep := 99;
 		TEST_FINISHED();
 	END_IF
