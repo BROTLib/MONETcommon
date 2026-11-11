@@ -70,6 +70,20 @@ fbDero.nMockMoveScans := nScans;
 ]]></ST>
       </Implementation>
     </Method>
+    <Method Name="SetMoveLatchesTarget" Id="{6bd8caef-7020-4a79-98db-931b4c9b80ef}">
+      <Declaration><![CDATA[// 2026-11-11: TRUE = a move of the elevation/azimuth mock ends at the target of its start (MC_MoveAbsolute), not at the
+// target of the scan it ends in (default FALSE, the model of the older tests)
+METHOD SetMoveLatchesTarget
+VAR_INPUT
+	bValue	: BOOL;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[fbElev.bMockLatchTarget := bValue;
+fbAzim.bMockLatchTarget := bValue;
+]]></ST>
+      </Implementation>
+    </Method>
     <Method Name="SetStopScans" Id="{d676b49d-f214-4b42-a004-df2964ff2f3e}">
       <Declaration><![CDATA[// scans an MC_Stop takes on the three mock axes (default 3); a very large value is an axis that never reports standstill
 METHOD SetStopScans

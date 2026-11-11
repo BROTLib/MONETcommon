@@ -88,6 +88,9 @@
     <Compile Include="F_AzimuthOffsetOnAxis.TcPOU">
       <SubType>Code</SubType>
     </Compile>
+    <Compile Include="FB_OffsetRamp.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
     <Compile Include="FB_MonetTempSensor.TcPOU">
       <SubType>Code</SubType>
     </Compile>

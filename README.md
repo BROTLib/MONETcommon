@@ -52,6 +52,7 @@ were orphaned forks of HalfBROT's actively-maintained versions.
 | `FB_MonetPowerMonitoring` | Three-phase power-quality monitoring |
 | `FB_MonetPendantControl` covers | Selection 1-3 with the key on: hold-to-run open/close of all covers via `HalfBROT.FB_CoverControl` (one copy since 0.10.0, needs HalfBROT with `Stop()`) |
 | `FB_MonetMqttWatchdog` | Parks the telescope and closes the roof after 30 s without an MQTT broker connection (armed after the first connect) |
+| `FB_OffsetRamp` | Velocity- and acceleration-limited follower: ramps the elevation/azimuth pointing offsets during a track and blends the setpoint jump at the start of a track (`fOffsetAcceleration`, `fOffsetVelocity`, `fTrackStartBlendMax` of `FB_MonetTelescopeControl`; `fOffsetAcceleration := 0` restores the old steps) |
 | `FB_MonetDiagnostics` | `diagnostics/base/*` telemetry: telescope interrupted/ready/busy/stopped, per-axis error/error ID/enable, safety error/estop/state; on change plus a 30 s heartbeat |
 | `FB_MonetTelescopeTelemetry` | The `telescope/dome` telemetry record of `FB_MonetTelescopeControl` from an `ST_MonetTelemetry` snapshot (used internally) |
 
