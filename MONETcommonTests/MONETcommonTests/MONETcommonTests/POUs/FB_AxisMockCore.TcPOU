@@ -24,6 +24,9 @@ VAR_INPUT
 	nMoveScans		: UINT := 4;
 	nStopScans		: UINT := 3;
 	nDisableScans	: UINT := 1;	// scans MC_ExtSetPointGenDisable takes after bTracking fell
+	// 2026-11-11 (track-start blend): TRUE = a move ends at fTarget as it was at the start of the move (MC_MoveAbsolute takes the
+	// position on the rising Execute), FALSE (default, the model until 0.19.2) = at fTarget of the scan the move ends in
+	bLatchTarget	: BOOL;
 END_VAR
 VAR_OUTPUT
 	bReady			: BOOL;
@@ -50,6 +53,7 @@ VAR
 	rtStop			: R_TRIG;
 	bExtActive		: BOOL;		// the generator is on or still being disabled
 	nDisableCount	: UINT;
+	fMoveTarget		: LREAL;	// fTarget at the start of the move (bLatchTarget)
 END_VAR
 ]]></Declaration>
     <Implementation>
@@ -115,11 +119,12 @@ IF rtMove.Q AND bReady AND bCalibrated AND NOT bStopping THEN
 	bCoast := FALSE;
 	bInMotion := TRUE;
 	nMoveCount := 0;
+	fMoveTarget := fTarget;
 END_IF
 IF bInMotion THEN
 	nMoveCount := nMoveCount + 1;
 	IF nMoveCount >= nMoveScans THEN
-		fPosition := fTarget;
+		fPosition := SEL(bLatchTarget, fTarget, fMoveTarget);
 		bInMotion := FALSE;
 		bMoveDone := TRUE;
 	END_IF

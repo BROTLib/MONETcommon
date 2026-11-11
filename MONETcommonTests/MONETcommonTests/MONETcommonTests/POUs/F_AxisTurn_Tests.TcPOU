@@ -2,6 +2,8 @@
 <TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
   <POU Name="F_AxisTurn_Tests" Id="{6cff4d78-8be6-449c-b836-63b1f5df27f9}" SpecialFunc="None">
     <Declaration><![CDATA[// Tests for MONETcommon.F_AxisTurn, the turn of an azimuth/derotator target inside the axis limits (#2).
+// Also MONETcommon.FB_OffsetRamp (2026-11-11), the other helper of the tracking setpoint: here because no suite slot is free
+// (MONETcommonTests README, Things to know).
 FUNCTION_BLOCK F_AxisTurn_Tests EXTENDS TcUnit.FB_TestSuite
 VAR
 END_VAR
@@ -14,6 +16,10 @@ Longest_Track_Time_Wins();
 No_Velocity_Takes_The_Nearest_Turn();
 Margin_Shortens_The_Track_Time();
 Hold_Keeps_The_Turn_And_Stops_At_The_Margin();
+OffsetRamp_Step_Is_Ramped();
+OffsetRamp_Disabled_Follows_At_Once();
+OffsetRamp_Retarget_Keeps_The_Velocity_Continuous();
+OffsetRamp_SetValue_Blends_To_The_Target();
 ]]></ST>
     </Implementation>
     <Method Name="Site_Limits_Are_Respected" Id="{edd1381d-aa53-4055-8b95-4c2117652a2c}">
@@ -191,6 +197,150 @@ AssertEquals_LREAL(Expected := 269.5, Actual := fPos, Delta := 1.0E-9, Message :
 bOk := MONETcommon.F_AxisTurn(fTarget := 270.4, fVelocity := -0.01, fCurrent := -89.5, bHold := TRUE, fMin := -90.0, fMax := 360.0, fMargin := 1.0, fTrackTimeCap := 14400.0, fPosition => fPos);
 AssertFalse(Condition := bOk, Message := 'derotator 0.5 deg above fMin moving down');
 AssertEquals_LREAL(Expected := -89.6, Actual := fPos, Delta := 1.0E-9, Message := 'derotator 0.5 deg above fMin moving down, position');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="OffsetRamp_Step_Is_Ramped" Id="{5ecf93ab-46f8-4714-bd71-57c68eef0403}">
+      <Declaration><![CDATA[// FB_OffsetRamp (MONETN 2026-11-11, plan 2026-11-11-altaz-offset-ramp): a 0.01 deg step of the request (the offset step that
+// rang with 64-70 % overshoot on the MONETN elevation) reaches the applied value in about 0.43 s, at most 1.6 arcsec per 10 ms
+// scan, the velocity changes by at most about fAcceleration * tCycle per scan (no kick), no overshoot.
+METHOD PRIVATE OffsetRamp_Step_Is_Ramped
+VAR
+	fbRamp		: MONETcommon.FB_OffsetRamp;
+	i			: INT;
+	nDone		: INT;
+	fPrev		: LREAL;
+	fVel		: LREAL;
+	fPrevVel	: LREAL;
+	fMaxStep	: LREAL;
+	fMaxDv		: LREAL;
+	fMax		: LREAL;
+	fFirst		: LREAL;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('OffsetRamp_Step_Is_Ramped');
+FOR i := 1 TO 200 DO
+	fbRamp(fTarget := 0.01, bEnable := TRUE, fAcceleration := 0.2, fVelocity := 0.5, tCycle := T#10MS);
+	IF i = 1 THEN
+		fFirst := fbRamp.fValue;
+	END_IF
+	fVel := (fbRamp.fValue - fPrev) / 0.01;
+	fMaxStep := MAX(fMaxStep, ABS(fbRamp.fValue - fPrev));
+	fMaxDv := MAX(fMaxDv, ABS(fVel - fPrevVel));
+	fMax := MAX(fMax, fbRamp.fValue);
+	IF fbRamp.bDone AND nDone = 0 THEN
+		nDone := i;
+	END_IF
+	fPrev := fbRamp.fValue;
+	fPrevVel := fVel;
+END_FOR
+AssertTrue(Condition := fFirst < 0.0001, Message := 'the first scan moves the applied value by far less than the step');
+AssertTrue(Condition := fMaxStep < 0.0005, Message := 'at most 0.0005 deg (1.8 arcsec) per scan');
+AssertTrue(Condition := fMaxDv < 0.003, Message := 'the velocity changes by at most 0.003 deg/s per scan (a step is 1 deg/s)');
+AssertTrue(Condition := fMax <= 0.01 + 1.0E-12, Message := 'no overshoot');
+AssertTrue(Condition := nDone >= 30 AND nDone <= 50, Message := 'reaches 0.01 deg after 0.3..0.5 s');
+AssertEquals_LREAL(Expected := 0.01, Actual := fbRamp.fValue, Delta := 1.0E-12, Message := 'ends on the target');
+AssertEquals_LREAL(Expected := 0.0, Actual := fbRamp.fRate, Delta := 1.0E-12, Message := 'ends at rest');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="OffsetRamp_Disabled_Follows_At_Once" Id="{75829b9a-90df-4d21-93bf-8b717635c8df}">
+      <Declaration><![CDATA[// FB_OffsetRamp outside a track (bEnable FALSE) and with fAcceleration = 0 (the switch back to the old behaviour): the applied
+// value is the request in the same call.
+METHOD PRIVATE OffsetRamp_Disabled_Follows_At_Once
+VAR
+	fbRamp		: MONETcommon.FB_OffsetRamp;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('OffsetRamp_Disabled_Follows_At_Once');
+fbRamp(fTarget := 0.01, bEnable := FALSE, fAcceleration := 0.2, fVelocity := 0.5, tCycle := T#10MS);
+AssertEquals_LREAL(Expected := 0.01, Actual := fbRamp.fValue, Delta := 1.0E-12, Message := 'disabled: at once');
+AssertTrue(Condition := fbRamp.bDone, Message := 'disabled: done');
+fbRamp(fTarget := -0.02, bEnable := TRUE, fAcceleration := 0.0, fVelocity := 0.5, tCycle := T#10MS);
+AssertEquals_LREAL(Expected := -0.02, Actual := fbRamp.fValue, Delta := 1.0E-12, Message := 'fAcceleration 0: at once');
+fbRamp(fTarget := 0.03, bEnable := TRUE, fAcceleration := 0.2, fVelocity := 0.0, tCycle := T#10MS);
+AssertEquals_LREAL(Expected := 0.03, Actual := fbRamp.fValue, Delta := 1.0E-12, Message := 'fVelocity 0: at once');
+// enabled again at rest on the target: nothing moves
+fbRamp(fTarget := 0.03, bEnable := TRUE, fAcceleration := 0.2, fVelocity := 0.5, tCycle := T#10MS);
+AssertEquals_LREAL(Expected := 0.03, Actual := fbRamp.fValue, Delta := 1.0E-12, Message := 'enabled on the target: stays');
+AssertTrue(Condition := fbRamp.bDone, Message := 'enabled on the target: done');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="OffsetRamp_Retarget_Keeps_The_Velocity_Continuous" Id="{762aebe9-ead3-425a-a79a-12f5a73c19ae}">
+      <Declaration><![CDATA[// FB_OffsetRamp: a new request during a ramp (an MQTT offset, then the opposite one 0.15 s later) is taken from the current value
+// and velocity: no velocity step, no overshoot past the new target, ends on it. Also a large offset is capped at fVelocity.
+METHOD PRIVATE OffsetRamp_Retarget_Keeps_The_Velocity_Continuous
+VAR
+	fbRamp		: MONETcommon.FB_OffsetRamp;
+	fbBig		: MONETcommon.FB_OffsetRamp;
+	i			: INT;
+	fPrev		: LREAL;
+	fVel		: LREAL;
+	fPrevVel	: LREAL;
+	fMaxDv		: LREAL;
+	fMin		: LREAL;
+	fMaxVel		: LREAL;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('OffsetRamp_Retarget_Keeps_The_Velocity_Continuous');
+FOR i := 1 TO 300 DO
+	fbRamp(fTarget := SEL(i > 15, 0.01, -0.01), bEnable := TRUE, fAcceleration := 0.2, fVelocity := 0.5, tCycle := T#10MS);
+	fVel := (fbRamp.fValue - fPrev) / 0.01;
+	fMaxDv := MAX(fMaxDv, ABS(fVel - fPrevVel));
+	fMin := MIN(fMin, fbRamp.fValue);
+	fPrev := fbRamp.fValue;
+	fPrevVel := fVel;
+END_FOR
+AssertTrue(Condition := fMaxDv < 0.003, Message := 'retarget: the velocity changes by at most 0.003 deg/s per scan');
+AssertTrue(Condition := fMin >= -0.01 - 1.0E-12, Message := 'retarget: no overshoot past the new target');
+AssertEquals_LREAL(Expected := -0.01, Actual := fbRamp.fValue, Delta := 1.0E-12, Message := 'retarget: ends on the new target');
+AssertTrue(Condition := fbRamp.bDone, Message := 'retarget: done');
+// 2 deg: the velocity is capped at fVelocity
+fPrev := 0.0;
+FOR i := 1 TO 700 DO
+	fbBig(fTarget := 2.0, bEnable := TRUE, fAcceleration := 0.2, fVelocity := 0.5, tCycle := T#10MS);
+	fMaxVel := MAX(fMaxVel, ABS(fbBig.fValue - fPrev) / 0.01);
+	fPrev := fbBig.fValue;
+END_FOR
+AssertTrue(Condition := fMaxVel <= 0.5 + 1.0E-9, Message := '2 deg: at most fVelocity');
+AssertEquals_LREAL(Expected := 2.0, Actual := fbBig.fValue, Delta := 1.0E-12, Message := '2 deg: ends on the target (6.5 s)');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="OffsetRamp_SetValue_Blends_To_The_Target" Id="{f73c607f-f2f9-4c70-a5ed-349ec377a4b5}">
+      <Declaration><![CDATA[// FB_OffsetRamp.SetValue, the track-start blend of FB_MonetTelescopeControl: the blend starts at the gap between the axis and
+// the target (0.008 deg, the azimuth gap seen on MONETN after a slew into tracking) at rest and ramps it to 0 without crossing it.
+METHOD PRIVATE OffsetRamp_SetValue_Blends_To_The_Target
+VAR
+	fbRamp		: MONETcommon.FB_OffsetRamp;
+	i			: INT;
+	fMin		: LREAL := 1.0;
+	fFirst		: LREAL;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('OffsetRamp_SetValue_Blends_To_The_Target');
+fbRamp.SetValue(0.008);
+AssertEquals_LREAL(Expected := 0.008, Actual := fbRamp.fValue, Delta := 1.0E-12, Message := 'SetValue: the value at once');
+AssertFalse(Condition := fbRamp.bDone, Message := 'SetValue: not done');
+FOR i := 1 TO 100 DO
+	fbRamp(fTarget := 0.0, bEnable := TRUE, fAcceleration := 0.2, fVelocity := 0.5, tCycle := T#10MS);
+	IF i = 1 THEN
+		fFirst := fbRamp.fValue;
+	END_IF
+	fMin := MIN(fMin, fbRamp.fValue);
+END_FOR
+AssertTrue(Condition := ABS(fFirst - 0.008) < 0.0001, Message := 'the first blend scan stays next to the axis position');
+AssertTrue(Condition := fMin >= -1.0E-12, Message := 'the blend does not cross the target');
+AssertEquals_LREAL(Expected := 0.0, Actual := fbRamp.fValue, Delta := 1.0E-12, Message := 'blended out within 1 s');
 TEST_FINISHED();
 ]]></ST>
       </Implementation>

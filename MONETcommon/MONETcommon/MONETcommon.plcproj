@@ -19,7 +19,7 @@
     <Company>IAG</Company>
     <Released>false</Released>
     <Title>MONETcommon</Title>
-    <ProjectVersion>0.19.2</ProjectVersion>
+    <ProjectVersion>0.20.0</ProjectVersion>
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="E_CommandDecision.TcDUT">
@@ -86,6 +86,9 @@
       <SubType>Code</SubType>
     </Compile>
     <Compile Include="F_AzimuthOffsetOnAxis.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="FB_OffsetRamp.TcPOU">
       <SubType>Code</SubType>
     </Compile>
     <Compile Include="FB_MonetTempSensor.TcPOU">

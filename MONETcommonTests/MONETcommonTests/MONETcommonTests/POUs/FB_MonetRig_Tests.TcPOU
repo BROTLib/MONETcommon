@@ -41,6 +41,8 @@ Slew_Input_Falling_Does_Not_Abort_The_Slew();
 Slew_Method_And_Input_Edge_In_One_Scan_Count_Once();
 Repeated_Track_Retargets_And_Second_Stop_Works();
 Derotator_Offset_Set_At_The_Start_Of_A_Track_Is_Ramped();
+AltAz_Offsets_Set_During_A_Track_Are_Ramped();
+Track_Start_Setpoint_Begins_At_The_Axis_Position();
 Goto_Window_From_stMotion_Refuses_The_Pole();
 Slew_Window_Refuses_Low_And_High_Elevation();
 ]]></ST>
@@ -1001,6 +1003,210 @@ CASE nStep OF
 	ELSIF nCycles > 600 THEN
 		AssertTrue(Condition := FALSE, Message := 'elevation 2.5: the slew did not start');
 		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'elevation 2.5: the slew did not start'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+END_CASE
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="AltAz_Offsets_Set_During_A_Track_Are_Ramped" Id="{2126fd0f-ee3b-4b3e-8edd-a5514ecf48e8}">
+      <Declaration><![CDATA[// MONETN 2026-11-11 (plan 2026-11-11-altaz-offset-ramp): a 0.01 deg elevation/azimuth offset step during a track made the
+// elevation ring with 64-70 % overshoot (AX5125, mode 11). The offsets now reach the setpoint through FB_OffsetRamp: the setpoint
+// of each axis moves by far less than the offset per scan (the old code: the whole 0.01 deg in one scan) and has the whole
+// offset (azimuth: 0.01 / COS(elevation), F_AzimuthOffsetOnAxis) after 1.5 s; the telescope keeps tracking without an error.
+METHOD PRIVATE AltAz_Offsets_Set_During_A_Track_Are_Ramped
+VAR_INST
+	rig			: FB_MonetRig;
+	nStep		: INT;
+	nCycles		: UINT;
+	sTest		: STRING(80);
+	fElStart	: LREAL;
+	fAzStart	: LREAL;
+	fElPrev		: LREAL;
+	fAzPrev		: LREAL;
+	fElMax		: LREAL;
+	fAzMax		: LREAL;
+	fAzExpected	: LREAL;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('AltAz_Offsets_Set_During_A_Track_Are_Ramped');
+sTest := 'AltAz_Offsets_Set_During_A_Track_Are_Ramped: ';
+IF nStep >= 90 THEN
+	RETURN;
+END_IF
+rig.Scan();
+nCycles := nCycles + 1;
+CASE nStep OF
+0:	// wait for the clock, then power on
+	IF rig.ClockValid THEN
+		rig.fbTel.Init();
+		nStep := 10;
+		nCycles := 0;
+	ELSIF nCycles > 2000 THEN
+		TEST_FINISHED();
+	END_IF
+10:	// online: track a circumpolar target
+	IF rig.Online THEN
+		rig.fbTel.Track(fRightAscension := 0.0, fDeclination := -85.0);
+		nStep := 20;
+		nCycles := 0;
+	ELSIF nCycles > 1500 THEN
+		AssertTrue(Condition := FALSE, Message := 'the mock telescope did not reach READY_STATE 1.0');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the mock telescope did not reach READY_STATE 1.0'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+20:	// elevation and azimuth track
+	IF rig.fbElev.Tracking AND rig.fbAzim.Tracking THEN
+		nStep := 25;
+		nCycles := 0;
+	ELSIF nCycles > 800 THEN
+		AssertTrue(Condition := FALSE, Message := 'elevation and azimuth did not start to track');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'elevation and azimuth did not start to track'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+25:	// 1 s into the track (the track-start blend is over), then the offsets arrive (MQTT elevationoffset/azimuthoffset)
+	IF nCycles >= 100 THEN
+		fElStart := rig.fbElev.fPosition;
+		fAzStart := rig.fbAzim.fPosition;
+		fElPrev := fElStart;
+		fAzPrev := fAzStart;
+		fAzExpected := 0.01 / COS(fElStart * 0.017453292519943295);
+		rig.fbTel.SetAltitudeOffset(0.01);
+		rig.fbTel.SetAzimuthOffset(0.01);
+		nStep := 30;
+		nCycles := 0;
+	END_IF
+30:	// the setpoints move in ramp steps only
+	fElMax := MAX(fElMax, ABS(rig.fbElev.fPosition - fElPrev));
+	fAzMax := MAX(fAzMax, ABS(rig.fbAzim.fPosition - fAzPrev));
+	fElPrev := rig.fbElev.fPosition;
+	fAzPrev := rig.fbAzim.fPosition;
+	IF nCycles >= 150 THEN
+		AssertTrue(Condition := fElMax < 0.001, Message := 'the elevation setpoint moves by less than 0.001 deg per scan (no 0.01 deg step)');
+		F_Note(bFailed := NOT (fElMax < 0.001), sText := CONCAT(sTest, 'the elevation setpoint stepped'));
+		AssertTrue(Condition := fAzMax < 0.002, Message := 'the azimuth setpoint moves by less than 0.002 deg per scan (no step)');
+		F_Note(bFailed := NOT (fAzMax < 0.002), sText := CONCAT(sTest, 'the azimuth setpoint stepped'));
+		AssertTrue(Condition := ABS(fElPrev - fElStart - 0.01) < 0.002, Message := 'the elevation setpoint has the whole offset after 1.5 s');
+		F_Note(bFailed := NOT (ABS(fElPrev - fElStart - 0.01) < 0.002), sText := CONCAT(sTest, 'the elevation offset did not arrive'));
+		AssertTrue(Condition := ABS(fAzPrev - fAzStart - fAzExpected) < 0.002, Message := 'the azimuth setpoint has the whole offset (1/COS(el)) after 1.5 s');
+		F_Note(bFailed := NOT (ABS(fAzPrev - fAzStart - fAzExpected) < 0.002), sText := CONCAT(sTest, 'the azimuth offset did not arrive'));
+		AssertTrue(Condition := rig.fbTel.bTrackActive AND rig.fbElev.Tracking AND rig.fbAzim.Tracking, Message := 'still tracking');
+		F_Note(bFailed := NOT (rig.fbTel.bTrackActive AND rig.fbElev.Tracking AND rig.fbAzim.Tracking), sText := CONCAT(sTest, 'the track ended'));
+		AssertTrue(Condition := NOT rig.fbTel.bError, Message := 'no error');
+		F_Note(bFailed := rig.fbTel.bError, sText := CONCAT(sTest, 'error'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+END_CASE
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Track_Start_Setpoint_Begins_At_The_Axis_Position" Id="{c5d9493b-8a3e-428c-a834-2f041544bf15}">
+      <Declaration><![CDATA[// MONETN 2026-11-11 (plan 2026-11-11-altaz-offset-ramp): the move onto the track target ends where the target was when the move
+// started (MC_MoveAbsolute; the mock models it with SetMoveLatchesTarget), so the first tracking setpoint jumped by the drift of
+// the target since then (about 0.008 deg on the MONETN azimuth after a slew). Here the gap is made by offsets written while the
+// axes move onto the track (0.005 deg, azimuth 0.005 / COS(el)). The first tracking setpoint is now the axis position, the gap
+// is blended out in ramp steps (FB_OffsetRamp) and closed after 1.5 s.
+METHOD PRIVATE Track_Start_Setpoint_Begins_At_The_Axis_Position
+VAR_INST
+	rig			: FB_MonetRig;
+	nStep		: INT;
+	nCycles		: UINT;
+	sTest		: STRING(80);
+	bElSeen		: BOOL;
+	bAzSeen		: BOOL;
+	fElGap		: LREAL;
+	fAzGap		: LREAL;
+	fElStart	: LREAL;
+	fAzStart	: LREAL;
+	fElPrev		: LREAL;
+	fAzPrev		: LREAL;
+	fElMax		: LREAL;
+	fAzMax		: LREAL;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Track_Start_Setpoint_Begins_At_The_Axis_Position');
+sTest := 'Track_Start_Setpoint_Begins_At_The_Axis_Position: ';
+IF nStep >= 90 THEN
+	RETURN;
+END_IF
+rig.Scan();
+nCycles := nCycles + 1;
+CASE nStep OF
+0:	// wait for the clock, then power on; the elevation/azimuth mocks end a move at the target of its start, like the NC
+	IF rig.ClockValid THEN
+		rig.SetMoveLatchesTarget(TRUE);
+		rig.fbTel.Init();
+		nStep := 10;
+		nCycles := 0;
+	ELSIF nCycles > 2000 THEN
+		TEST_FINISHED();
+	END_IF
+10:	// online: track a circumpolar target
+	IF rig.Online THEN
+		rig.fbTel.Track(fRightAscension := 0.0, fDeclination := -85.0);
+		nStep := 15;
+		nCycles := 0;
+	ELSIF nCycles > 1500 THEN
+		AssertTrue(Condition := FALSE, Message := 'the mock telescope did not reach READY_STATE 1.0');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the mock telescope did not reach READY_STATE 1.0'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+15:	// the axes move onto the track target: the offsets arrive now, the moves keep the target of their start
+	IF rig.fbTel.bTrackActive AND rig.fbElev.Busy AND rig.fbAzim.Busy AND NOT rig.fbElev.Tracking AND NOT rig.fbAzim.Tracking THEN
+		rig.fbTel.SetAltitudeOffset(0.005);
+		rig.fbTel.SetAzimuthOffset(0.005);
+		nStep := 20;
+		nCycles := 0;
+	ELSIF nCycles > 800 THEN
+		AssertTrue(Condition := FALSE, Message := 'the axes did not move onto the track target');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the axes did not move onto the track target'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+20:	// the first tracking scan of each axis: the setpoint is the axis position
+	IF rig.fbElev.Tracking AND NOT bElSeen THEN
+		bElSeen := TRUE;
+		fElGap := rig.fbElev.fPosition - rig.fbElev.fActualPosition;
+		fElStart := rig.fbElev.fPosition;
+		fElPrev := fElStart;
+	END_IF
+	IF rig.fbAzim.Tracking AND NOT bAzSeen THEN
+		bAzSeen := TRUE;
+		fAzGap := rig.fbAzim.fPosition - rig.fbAzim.fActualPosition;
+		fAzStart := rig.fbAzim.fPosition;
+		fAzPrev := fAzStart;
+	END_IF
+	IF bElSeen THEN
+		fElMax := MAX(fElMax, ABS(rig.fbElev.fPosition - fElPrev));
+		fElPrev := rig.fbElev.fPosition;
+	END_IF
+	IF bAzSeen THEN
+		fAzMax := MAX(fAzMax, ABS(rig.fbAzim.fPosition - fAzPrev));
+		fAzPrev := rig.fbAzim.fPosition;
+	END_IF
+	IF bElSeen AND bAzSeen AND nCycles >= 250 THEN
+		AssertTrue(Condition := ABS(fElGap) < 1.0E-9, Message := 'elevation: the first tracking setpoint is the axis position');
+		F_Note(bFailed := NOT (ABS(fElGap) < 1.0E-9), sText := CONCAT(sTest, 'elevation: the first tracking setpoint jumped'));
+		AssertTrue(Condition := ABS(fAzGap) < 1.0E-9, Message := 'azimuth: the first tracking setpoint is the axis position');
+		F_Note(bFailed := NOT (ABS(fAzGap) < 1.0E-9), sText := CONCAT(sTest, 'azimuth: the first tracking setpoint jumped'));
+		AssertTrue(Condition := fElMax < 0.001 AND fAzMax < 0.001, Message := 'the gap is blended out in ramp steps (less than 0.001 deg per scan)');
+		F_Note(bFailed := NOT (fElMax < 0.001 AND fAzMax < 0.001), sText := CONCAT(sTest, 'the setpoint stepped after the track start'));
+		AssertTrue(Condition := ABS(fElPrev - fElStart) > 0.003 AND ABS(fAzPrev - fAzStart) > 0.003, Message := 'the gap (offsets of 0.005 deg) is closed');
+		F_Note(bFailed := NOT (ABS(fElPrev - fElStart) > 0.003 AND ABS(fAzPrev - fAzStart) > 0.003), sText := CONCAT(sTest, 'the gap was not closed (the offsets did not arrive during the move?)'));
+		AssertTrue(Condition := NOT rig.fbTel.bError, Message := 'no error');
+		F_Note(bFailed := rig.fbTel.bError, sText := CONCAT(sTest, 'error'));
+		nStep := 99;
+		TEST_FINISHED();
+	ELSIF nCycles > 1000 THEN
+		AssertTrue(Condition := FALSE, Message := 'elevation and azimuth did not start to track');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'elevation and azimuth did not start to track'));
 		nStep := 99;
 		TEST_FINISHED();
 	END_IF
