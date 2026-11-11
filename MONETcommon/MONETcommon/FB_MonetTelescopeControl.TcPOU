@@ -41,6 +41,10 @@ VAR_INPUT
 	// fRetargetDerotatorMax (default fDerotatorOffsetRate * tCycle, the step #236 allows per scan; the derotator has no blend until
 	// #252), leaves the scan without writing setpoints and takes the stop/goto/track path. fOffsetAcceleration = 0 disables the blend.
 	fRetargetDerotatorMax	: LREAL := 0.005;	// deg
+	// #251: the move onto the track keeps the target of its start. If the target moved by more than fTrackStartBlendMax while it
+	// ran (a direct RA/Dec write, the Visu), the move is started again (a new Execute edge latches the new target) instead of
+	// stepping the setpoint at MoveDone; at most nMoveRestartMax times per axis and track start, then the old step (and a log entry).
+	nMoveRestartMax			: UINT := 3;
 	tCycle					: TIME := T#10MS;	// PLC task cycle time (10 ms on MONETS and MONETN); _TaskInfo is not visible in a library
 
 	// #155: SafetyHandling.error, wired in MAIN. FALSE (default) means the safety block of the brake is not enforced.
@@ -185,6 +189,9 @@ VAR
 	fAzVelLast				: LREAL;
 	nLastRetarget			: USINT;	// 0 none, 1 blend, 2 move (stop/goto/track); for tests and the scope
 	nRetargetCount			: UDINT;
+	nElRestarts				: UINT;	// restarts of the move onto the track in this track start
+	nAzRestarts				: UINT;
+	nMoveRestartCount		: UDINT;	// all restarts, for tests and the scope
 	bKeepRunning			: BOOL;	// #251 phase B: _AcceptMove does not supersede the running track (only inside Track()/TrackRaDec())
 
 	// #24 step 3a: the stage of each stage machine (until 0.12.0 a bare USINT nStage in the VAR_INST of the method; here so
@@ -2656,10 +2663,16 @@ VAR
 	fDtScan	: LREAL;
 	fElGap	: LREAL;
 	fAzGap	: LREAL;
+	bElRestart	: BOOL;
+	bAzRestart	: BOOL;
 END_VAR
 ]]></Declaration>
       <Implementation>
-        <ST><![CDATA[// #251: a new RA/Dec written while tracking (not through Track(), which replaces the move) must not reach the axes as a step
+        <ST><![CDATA[IF nTrackScan + 1 <> nScan THEN
+	nElRestarts := 0;	// a new track start: _TrackTelescope was not called in the previous scan
+	nAzRestarts := 0;
+END_IF
+// #251: a new RA/Dec written while tracking (not through Track(), which replaces the move) must not reach the axes as a step
 IF fbElevation.Tracking AND fbAzimuth.Tracking AND nTrackScan + 1 = nScan
 	AND (ABS(fRightAscension - fRaTracked) > 1.0E-9 OR ABS(fDeclination - fDecTracked) > 1.0E-9) THEN
 	fDtScan := TIME_TO_LREAL(tCycle) * 0.001;
@@ -2710,6 +2723,18 @@ IF NOT fbElevation.Tracking THEN
 	fbElevation.MoveAxis := TRUE;
 	IF NOT fbElevation.Busy AND fbElevation.MoveDone THEN
 		fbElevation.MoveAxis := FALSE;
+		// #251: the target moved while the move ran: no Tracking yet, MoveAxis is TRUE again in the next scan (a new Execute edge
+		// latches the current target); the setpoint does not step
+		bElRestart := fOffsetAcceleration > 0.0 AND ABS(fbElevation.fActualPosition - fElevationCalc) > fTrackStartBlendMax
+			AND nElRestarts < nMoveRestartMax;
+		IF bElRestart THEN
+			nElRestarts := nElRestarts + 1;
+			nMoveRestartCount := nMoveRestartCount + 1;
+			ADSLOGSTR(ADSLOG_MSGTYPE_HINT, 'Track start: the Elevation target moved during the move, the move is started again (%s)', UINT_TO_STRING(nElRestarts));
+		ELSE
+		IF fOffsetAcceleration > 0.0 AND ABS(fbElevation.fActualPosition - fElevationCalc) > fTrackStartBlendMax THEN
+			ADSLOGSTR(ADSLOG_MSGTYPE_WARN OR ADSLOG_MSGTYPE_LOG, 'Track start: the Elevation target still moves after %s restarts, the gap is not blended', UINT_TO_STRING(nMoveRestartMax));
+		END_IF
 		IF fbElevation.isTracking THEN
 			fbElevation.Velocity := fElevationVelocity;
 		ELSE
@@ -2723,6 +2748,7 @@ IF NOT fbElevation.Tracking THEN
 			fbElevationTrackBlend.SetValue(0.0);
 		END_IF
 		fbElevation.Position := fElevationCalc + fbElevationTrackBlend.fValue;
+		END_IF
 	END_IF
 ELSE
 	fbElevationTrackBlend(fTarget := 0.0, bEnable := fOffsetAcceleration > 0.0,
@@ -2740,6 +2766,18 @@ IF NOT fbAzimuth.Tracking THEN
 	fbAzimuth.MoveAxis := TRUE;
 	IF NOT fbAzimuth.Busy AND fbAzimuth.MoveDone THEN
 		fbAzimuth.MoveAxis := FALSE;
+		// #251: the target moved while the move ran: no Tracking yet, MoveAxis is TRUE again in the next scan (a new Execute edge
+		// latches the current target); the setpoint does not step
+		bAzRestart := fOffsetAcceleration > 0.0 AND ABS(fbAzimuth.fActualPosition - fAzimuthCalc) > fTrackStartBlendMax
+			AND nAzRestarts < nMoveRestartMax;
+		IF bAzRestart THEN
+			nAzRestarts := nAzRestarts + 1;
+			nMoveRestartCount := nMoveRestartCount + 1;
+			ADSLOGSTR(ADSLOG_MSGTYPE_HINT, 'Track start: the Azimuth target moved during the move, the move is started again (%s)', UINT_TO_STRING(nAzRestarts));
+		ELSE
+		IF fOffsetAcceleration > 0.0 AND ABS(fbAzimuth.fActualPosition - fAzimuthCalc) > fTrackStartBlendMax THEN
+			ADSLOGSTR(ADSLOG_MSGTYPE_WARN OR ADSLOG_MSGTYPE_LOG, 'Track start: the Azimuth target still moves after %s restarts, the gap is not blended', UINT_TO_STRING(nMoveRestartMax));
+		END_IF
 		IF fbAzimuth.isTracking THEN
 			fbAzimuth.Velocity := fAzimuthVelocity;
 		ELSE
@@ -2753,6 +2791,7 @@ IF NOT fbAzimuth.Tracking THEN
 			fbAzimuthTrackBlend.SetValue(0.0);
 		END_IF
 		fbAzimuth.Position := fAzimuthCalc + fbAzimuthTrackBlend.fValue;
+		END_IF
 	END_IF
 ELSE
 	fbAzimuthTrackBlend(fTarget := 0.0, bEnable := fOffsetAcceleration > 0.0,
