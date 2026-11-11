@@ -140,3 +140,18 @@ position and following error, `eLastRetarget`, `Tracking`.
 4. `Stop` during a blend: normal stop, no NC error.
 5. A/B: `fOffsetAcceleration := 0` online = every retarget takes the move path (no blend). Pass for all: no drive or NC
    error, no one-scan set-position step, el/az following error settles within 1 s.
+
+## 7. Open questions (before implementation)
+
+1. **Scope.** Phase A only (direct RA/Dec write while tracking: detector, `Shift`, tests 1, 2, 3, 5), or also Phase B
+   (a small `Track()` stays tracking)? Proposal: A first.
+2. **Derotator guard.** With the default `fRetargetDerotatorMax` = 0.005 deg most small retargets still take the
+   stop-and-restart path until #252 gives the derotator a blend. Accept that, or raise the guard (risk: AX5206 F324)?
+3. **pyobs / brotgui.** Do they wait for a goto state after `track`? Phase B leaves `bGotoActive` FALSE for small
+   retargets. Read `FB_Comm_MQTT_Influx` and the pyobs driver before any Phase B code.
+4. **Mid-move `MoveDone` change** (up to 3 move restarts when the target changes during the move onto the track).
+   #250 kept that path on purpose. Proposal: separate PR, after A.
+5. **Confirm the premise.** Push test 1 alone to a branch; it must fail on the unchanged code (CI runs on push only,
+   nothing compiles locally). No hardware needed.
+6. **Order against BROTLib#167** (SetVelo sign flip, cause of the remaining offset overshoot). The hardware check in
+   section 6 will show that overshoot unless #167 is fixed first.
