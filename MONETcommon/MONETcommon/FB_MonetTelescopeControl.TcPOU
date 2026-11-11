@@ -36,11 +36,12 @@ VAR_INPUT
 	fOffsetAcceleration		: LREAL := 0.2;	// deg/s^2 (the azimuth value is the sky offset, before F_AzimuthOffsetOnAxis)
 	fOffsetVelocity			: LREAL := 0.5;	// deg/s
 	fTrackStartBlendMax		: LREAL := 0.5;	// deg; a larger gap at the start of a track is not blended (a turn or a fault, old behaviour)
-	// #251: a new fRightAscension/fDeclination written while tracking (Visu binding, ADS client) is blended into the el/az
+	// #251: a new fRightAscension/fDeclination written while tracking (Visu binding, ADS client) is blended into the el/az/derotator
 	// setpoints like the track start (gap <= fTrackStartBlendMax) instead of a one-scan step. A larger gap, or a derotator gap above
-	// fRetargetDerotatorMax (default fDerotatorOffsetRate * tCycle, the step #236 allows per scan; the derotator has no blend until
-	// #252), leaves the scan without writing setpoints and takes the stop/goto/track path. fOffsetAcceleration = 0 disables the blend.
-	fRetargetDerotatorMax	: LREAL := 0.005;	// deg
+	// fRetargetDerotatorMax, leaves the scan without writing setpoints and takes the stop/goto/track path. fOffsetAcceleration = 0
+	// disables the blend. #252: the derotator has the same track-start blend (ramp: acceleration fOffsetAcceleration, velocity
+	// at most fDerotatorOffsetRate), the offset hold of #246 (bDerotatorOffsetLocked) is unchanged.
+	fRetargetDerotatorMax	: LREAL := 0.5;	// deg; the derotator blends like elevation and azimuth since #252 (it was 0.005 before: a step it allows)
 	// #251: the move onto the track keeps the target of its start. If the target moved by more than fTrackStartBlendMax while it
 	// ran (a direct RA/Dec write, the Visu), the move is started again (a new Execute edge latches the new target) instead of
 	// stepping the setpoint at MoveDone; at most nMoveRestartMax times per axis and track start, then the old step (and a log entry).
@@ -176,6 +177,7 @@ VAR
 	// the track-start blend: axis setpoint minus target, set to (axis position - target) in the scan Tracking goes TRUE, then ramped to 0
 	fbElevationTrackBlend	: FB_OffsetRamp;
 	fbAzimuthTrackBlend		: FB_OffsetRamp;
+	fbDerotatorTrackBlend	: FB_OffsetRamp;	// #252
 	// #251 retarget detector: values of the last _TrackTelescope call; nTrackScan = nScan - 1 means "tracked in the previous scan"
 	// (stale values after a stop, park, suspend, reset or manual are never used, nothing to clear)
 	nScan					: UDINT;
@@ -185,6 +187,7 @@ VAR
 	fElSetLast				: LREAL;
 	fAzSetLast				: LREAL;
 	fDeroSetLast			: LREAL;
+	fDeroVelLast			: LREAL;
 	fElVelLast				: LREAL;
 	fAzVelLast				: LREAL;
 	nLastRetarget			: USINT;	// 0 none, 1 blend, 2 move (stop/goto/track); for tests and the scope
@@ -2663,6 +2666,8 @@ VAR
 	fDtScan	: LREAL;
 	fElGap	: LREAL;
 	fAzGap	: LREAL;
+	fDeroGap	: LREAL;
+	fDeroBlendVel	: LREAL;
 	bElRestart	: BOOL;
 	bAzRestart	: BOOL;
 END_VAR
@@ -2679,10 +2684,12 @@ IF fbElevation.Tracking AND fbAzimuth.Tracking AND nTrackScan + 1 = nScan
 	// the old setpoint carried on by one scan, so the sidereal velocity does not drop to 0 in the retarget scan
 	fElGap := (fElSetLast + fElVelLast * fDtScan) - fElevationCalc;
 	fAzGap := (fAzSetLast + fAzVelLast * fDtScan) - fAzimuthCalc;
+	fDeroGap := (fDeroSetLast + fDeroVelLast * fDtScan) - fDerotatorCalc;
 	IF fOffsetAcceleration > 0.0 AND ABS(fElGap) <= fTrackStartBlendMax AND ABS(fAzGap) <= fTrackStartBlendMax
-		AND ABS(fDeroSetLast - fDerotatorCalc) <= fRetargetDerotatorMax THEN
+		AND ABS(fDeroGap) <= fRetargetDerotatorMax THEN
 		fbElevationTrackBlend.Shift(fElGap);
 		fbAzimuthTrackBlend.Shift(fAzGap);
+		fbDerotatorTrackBlend.Shift(fDeroGap);
 		nLastRetarget := 1;
 		nRetargetCount := nRetargetCount + 1;
 	ELSIF _AcceptMove(E_TCSCommand.goto, E_TCSCommand.no_command) THEN
@@ -2697,6 +2704,7 @@ IF fbElevation.Tracking AND fbAzimuth.Tracking AND nTrackScan + 1 = nScan
 		// the replace was rejected (cannot happen while a move is active): blend, limited by the ramp velocity
 		fbElevationTrackBlend.Shift(fElGap);
 		fbAzimuthTrackBlend.Shift(fAzGap);
+		fbDerotatorTrackBlend.Shift(fDeroGap);
 		nLastRetarget := 1;
 	END_IF
 END_IF
@@ -2800,9 +2808,15 @@ ELSE
 	fbAzimuth.Velocity := fAzimuthVelocity;
 END_IF
 
-// Derotator
-fbDerotator.Position := fDerotatorCalc;
+// Derotator (#252: the track-start blend of elevation and azimuth, same ramp; the velocity of the ramp stays within the rate the
+// derotator offset already uses)
+IF fDerotatorOffsetRate > 0.0 THEN
+	fDeroBlendVel := MIN(fOffsetVelocity, fDerotatorOffsetRate);
+ELSE
+	fDeroBlendVel := fOffsetVelocity;
+END_IF
 IF NOT fbDerotator.Tracking THEN
+	fbDerotator.Position := fDerotatorCalc;
 	fbDerotator.Velocity := stMotionUsed.fDerotatorMoveVelocity;
 	fbDerotator.MoveAxis := TRUE;
 	IF NOT fbDerotator.Busy AND fbDerotator.MoveDone THEN
@@ -2814,8 +2828,17 @@ IF NOT fbDerotator.Tracking THEN
 		END_IF
 		fbDerotator.Velocity := fDerotatorVelocity;
 		fbDerotator.Tracking := TRUE;
+		IF fOffsetAcceleration > 0.0 AND ABS(fbDerotator.fActualPosition - fDerotatorCalc) <= fTrackStartBlendMax THEN
+			fbDerotatorTrackBlend.SetValue(fbDerotator.fActualPosition - fDerotatorCalc);
+		ELSE
+			fbDerotatorTrackBlend.SetValue(0.0);
+		END_IF
+		fbDerotator.Position := fDerotatorCalc + fbDerotatorTrackBlend.fValue;
 	END_IF
 ELSE
+	fbDerotatorTrackBlend(fTarget := 0.0, bEnable := fOffsetAcceleration > 0.0,
+		fAcceleration := fOffsetAcceleration, fVelocity := fDeroBlendVel, tCycle := tCycle);
+	fbDerotator.Position := fDerotatorCalc + fbDerotatorTrackBlend.fValue;
 	fbDerotator.Velocity := fDerotatorVelocity;
 END_IF
 
@@ -2825,6 +2848,7 @@ fDecTracked := fDeclination;
 fElSetLast := fbElevation.Position;
 fAzSetLast := fbAzimuth.Position;
 fDeroSetLast := fbDerotator.Position;
+fDeroVelLast := fbDerotator.Velocity;
 fElVelLast := fbElevation.Velocity;
 fAzVelLast := fbAzimuth.Velocity;
 nTrackScan := nScan;
