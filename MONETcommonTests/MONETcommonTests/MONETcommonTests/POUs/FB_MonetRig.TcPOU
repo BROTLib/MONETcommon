@@ -81,6 +81,7 @@ END_VAR
       <Implementation>
         <ST><![CDATA[fbElev.bMockLatchTarget := bValue;
 fbAzim.bMockLatchTarget := bValue;
+fbDero.bMockLatchTarget := bValue;
 ]]></ST>
       </Implementation>
     </Method>
@@ -351,6 +352,32 @@ END_VAR
 ]]></Declaration>
       <Implementation>
         <ST><![CDATA[fbAzim.SetPowerLost(bLost);
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="SetTargetDirect" Id="{6ca861a5-2b2b-43f7-84ea-69efe59eab8a}">
+      <Declaration><![CDATA[// #251: write the RA/Dec inputs of the telescope directly, like the Visu binding or an ADS client (not through Track()). A nested input cannot be written from a test (rig.fbTel.x).
+METHOD SetTargetDirect
+VAR_INPUT
+	fRa		: LREAL;
+	fDec	: LREAL;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[fbTel.fRightAscension := fRa;
+fbTel.fDeclination := fDec;
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="SetRetargetDerotatorMax" Id="{447a6f6b-55f7-4c2a-b1bf-373b727d9a02}">
+      <Declaration><![CDATA[// #251: the derotator guard of the retarget blend (default 0.005 deg)
+METHOD SetRetargetDerotatorMax
+VAR_INPUT
+	fValue	: LREAL;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[fbTel.fRetargetDerotatorMax := fValue;
 ]]></ST>
       </Implementation>
     </Method>

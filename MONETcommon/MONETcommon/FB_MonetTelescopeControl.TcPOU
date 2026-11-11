@@ -36,6 +36,16 @@ VAR_INPUT
 	fOffsetAcceleration		: LREAL := 0.2;	// deg/s^2 (the azimuth value is the sky offset, before F_AzimuthOffsetOnAxis)
 	fOffsetVelocity			: LREAL := 0.5;	// deg/s
 	fTrackStartBlendMax		: LREAL := 0.5;	// deg; a larger gap at the start of a track is not blended (a turn or a fault, old behaviour)
+	// #251: a new fRightAscension/fDeclination written while tracking (Visu binding, ADS client) is blended into the el/az/derotator
+	// setpoints like the track start (gap <= fTrackStartBlendMax) instead of a one-scan step. A larger gap, or a derotator gap above
+	// fRetargetDerotatorMax, leaves the scan without writing setpoints and takes the stop/goto/track path. fOffsetAcceleration = 0
+	// disables the blend. #252: the derotator has the same track-start blend (ramp: acceleration fOffsetAcceleration, velocity
+	// at most fDerotatorOffsetRate), the offset hold of #246 (bDerotatorOffsetLocked) is unchanged.
+	fRetargetDerotatorMax	: LREAL := 0.5;	// deg; the derotator blends like elevation and azimuth since #252 (it was 0.005 before: a step it allows)
+	// #251: the move onto the track keeps the target of its start. If the target moved by more than fTrackStartBlendMax while it
+	// ran (a direct RA/Dec write, the Visu), the move is started again (a new Execute edge latches the new target) instead of
+	// stepping the setpoint at MoveDone; at most nMoveRestartMax times per axis and track start, then the old step (and a log entry).
+	nMoveRestartMax			: UINT := 3;
 	tCycle					: TIME := T#10MS;	// PLC task cycle time (10 ms on MONETS and MONETN); _TaskInfo is not visible in a library
 
 	// #155: SafetyHandling.error, wired in MAIN. FALSE (default) means the safety block of the brake is not enforced.
@@ -167,6 +177,25 @@ VAR
 	// the track-start blend: axis setpoint minus target, set to (axis position - target) in the scan Tracking goes TRUE, then ramped to 0
 	fbElevationTrackBlend	: FB_OffsetRamp;
 	fbAzimuthTrackBlend		: FB_OffsetRamp;
+	fbDerotatorTrackBlend	: FB_OffsetRamp;	// #252
+	// #251 retarget detector: values of the last _TrackTelescope call; nTrackScan = nScan - 1 means "tracked in the previous scan"
+	// (stale values after a stop, park, suspend, reset or manual are never used, nothing to clear)
+	nScan					: UDINT;
+	nTrackScan				: UDINT;
+	fRaTracked				: LREAL;
+	fDecTracked				: LREAL;
+	fElSetLast				: LREAL;
+	fAzSetLast				: LREAL;
+	fDeroSetLast			: LREAL;
+	fDeroVelLast			: LREAL;
+	fElVelLast				: LREAL;
+	fAzVelLast				: LREAL;
+	nLastRetarget			: USINT;	// 0 none, 1 blend, 2 move (stop/goto/track); for tests and the scope
+	nRetargetCount			: UDINT;
+	nElRestarts				: UINT;	// restarts of the move onto the track in this track start
+	nAzRestarts				: UINT;
+	nMoveRestartCount		: UDINT;	// all restarts, for tests and the scope
+	bKeepRunning			: BOOL;	// #251 phase B: _AcceptMove does not supersede the running track (only inside Track()/TrackRaDec())
 
 	// #24 step 3a: the stage of each stage machine (until 0.12.0 a bare USINT nStage in the VAR_INST of the method; here so
 	// the read-only properties GotoStage, SlewStage, ParkStage and PowerOnStage can return it). The values are the old numbers.
@@ -362,7 +391,8 @@ SUPER^();
 METHOD PROTECTED _ScanBegin
 ]]></Declaration>
       <Implementation>
-        <ST><![CDATA[bSuspendStop := FALSE;	// #118: back in automatic the body owns a running stop again (it continues the same transaction)
+        <ST><![CDATA[nScan := nScan + 1;		// #251
+bSuspendStop := FALSE;	// #118: back in automatic the body owns a running stop again (it continues the same transaction)
 // revert fDut1 (set via the Dut1 property, e.g. from an external time bridge over MQTT) to its
 // safe 0.0 default if nothing fresh arrives for a while, instead of serving an arbitrarily
 // stale UT1-UTC correction forever. FB_AltAzTelescopeControl's own body is never called (this FB
@@ -2632,9 +2662,55 @@ _StopTelescope := FALSE;
       <Declaration><![CDATA[METHOD PRIVATE _TrackTelescope : BOOL
 VAR_INPUT
 END_VAR
+VAR
+	fDtScan	: LREAL;
+	fElGap	: LREAL;
+	fAzGap	: LREAL;
+	fDeroGap	: LREAL;
+	fDeroBlendVel	: LREAL;
+	bElRestart	: BOOL;
+	bAzRestart	: BOOL;
+END_VAR
 ]]></Declaration>
       <Implementation>
-        <ST><![CDATA[// Elevation
+        <ST><![CDATA[IF nTrackScan + 1 <> nScan THEN
+	nElRestarts := 0;	// a new track start: _TrackTelescope was not called in the previous scan
+	nAzRestarts := 0;
+END_IF
+// #251: a new RA/Dec written while tracking (not through Track(), which replaces the move) must not reach the axes as a step
+IF fbElevation.Tracking AND fbAzimuth.Tracking AND nTrackScan + 1 = nScan
+	AND (ABS(fRightAscension - fRaTracked) > 1.0E-9 OR ABS(fDeclination - fDecTracked) > 1.0E-9) THEN
+	fDtScan := TIME_TO_LREAL(tCycle) * 0.001;
+	// the old setpoint (it includes the running blend) carried on by one scan, so the sidereal velocity does not drop to 0 in the
+	// retarget scan. The blend becomes this gap: Shift adds to the running value, so it gets the gap minus the value.
+	fElGap := (fElSetLast + fElVelLast * fDtScan) - fElevationCalc;
+	fAzGap := (fAzSetLast + fAzVelLast * fDtScan) - fAzimuthCalc;
+	fDeroGap := (fDeroSetLast + fDeroVelLast * fDtScan) - fDerotatorCalc;
+	IF fOffsetAcceleration > 0.0 AND ABS(fElGap) <= fTrackStartBlendMax AND ABS(fAzGap) <= fTrackStartBlendMax
+		AND ABS(fDeroGap) <= fRetargetDerotatorMax THEN
+		fbElevationTrackBlend.Shift(fElGap - fbElevationTrackBlend.fValue);
+		fbAzimuthTrackBlend.Shift(fAzGap - fbAzimuthTrackBlend.fValue);
+		fbDerotatorTrackBlend.Shift(fDeroGap - fbDerotatorTrackBlend.fValue);
+		nLastRetarget := 1;
+		nRetargetCount := nRetargetCount + 1;
+	ELSIF _AcceptMove(E_TCSCommand.goto, E_TCSCommand.no_command) THEN
+		// large: no setpoint is written this scan (el, az and derotator keep the last one); the body replaces the track
+		bGotoActive := TRUE;
+		fRaTracked := fRightAscension;
+		fDecTracked := fDeclination;
+		nLastRetarget := 2;
+		nRetargetCount := nRetargetCount + 1;
+		RETURN;
+	ELSE
+		// the replace was rejected (cannot happen while a move is active): blend, limited by the ramp velocity
+		fbElevationTrackBlend.Shift(fElGap - fbElevationTrackBlend.fValue);
+		fbAzimuthTrackBlend.Shift(fAzGap - fbAzimuthTrackBlend.fValue);
+		fbDerotatorTrackBlend.Shift(fDeroGap - fbDerotatorTrackBlend.fValue);
+		nLastRetarget := 1;
+	END_IF
+END_IF
+
+// Elevation
 fDerotatorVelocity := F_Derotatorvelocity(fAzimuthCalc, fElevationCalc, telescopeConfig.latitude, fDerotatorSign);
 fElevationVelocity := F_Elevationvelocity(fAzimuthCalc, telescopeConfig.latitude);
 fAzimuthVelocity := F_Azimuthvelocity(fElevationCalc, fAzimuthCalc, telescopeConfig.latitude);
@@ -2656,6 +2732,18 @@ IF NOT fbElevation.Tracking THEN
 	fbElevation.MoveAxis := TRUE;
 	IF NOT fbElevation.Busy AND fbElevation.MoveDone THEN
 		fbElevation.MoveAxis := FALSE;
+		// #251: the target moved while the move ran: no Tracking yet, MoveAxis is TRUE again in the next scan (a new Execute edge
+		// latches the current target); the setpoint does not step
+		bElRestart := fOffsetAcceleration > 0.0 AND ABS(fbElevation.fActualPosition - fElevationCalc) > fTrackStartBlendMax
+			AND nElRestarts < nMoveRestartMax;
+		IF bElRestart THEN
+			nElRestarts := nElRestarts + 1;
+			nMoveRestartCount := nMoveRestartCount + 1;
+			ADSLOGSTR(ADSLOG_MSGTYPE_HINT, 'Track start: the Elevation target moved during the move, the move is started again (%s)', UINT_TO_STRING(nElRestarts));
+		ELSE
+		IF fOffsetAcceleration > 0.0 AND ABS(fbElevation.fActualPosition - fElevationCalc) > fTrackStartBlendMax THEN
+			ADSLOGSTR(ADSLOG_MSGTYPE_WARN OR ADSLOG_MSGTYPE_LOG, 'Track start: the Elevation target still moves after %s restarts, the gap is not blended', UINT_TO_STRING(nMoveRestartMax));
+		END_IF
 		IF fbElevation.isTracking THEN
 			fbElevation.Velocity := fElevationVelocity;
 		ELSE
@@ -2669,6 +2757,7 @@ IF NOT fbElevation.Tracking THEN
 			fbElevationTrackBlend.SetValue(0.0);
 		END_IF
 		fbElevation.Position := fElevationCalc + fbElevationTrackBlend.fValue;
+		END_IF
 	END_IF
 ELSE
 	fbElevationTrackBlend(fTarget := 0.0, bEnable := fOffsetAcceleration > 0.0,
@@ -2686,6 +2775,18 @@ IF NOT fbAzimuth.Tracking THEN
 	fbAzimuth.MoveAxis := TRUE;
 	IF NOT fbAzimuth.Busy AND fbAzimuth.MoveDone THEN
 		fbAzimuth.MoveAxis := FALSE;
+		// #251: the target moved while the move ran: no Tracking yet, MoveAxis is TRUE again in the next scan (a new Execute edge
+		// latches the current target); the setpoint does not step
+		bAzRestart := fOffsetAcceleration > 0.0 AND ABS(fbAzimuth.fActualPosition - fAzimuthCalc) > fTrackStartBlendMax
+			AND nAzRestarts < nMoveRestartMax;
+		IF bAzRestart THEN
+			nAzRestarts := nAzRestarts + 1;
+			nMoveRestartCount := nMoveRestartCount + 1;
+			ADSLOGSTR(ADSLOG_MSGTYPE_HINT, 'Track start: the Azimuth target moved during the move, the move is started again (%s)', UINT_TO_STRING(nAzRestarts));
+		ELSE
+		IF fOffsetAcceleration > 0.0 AND ABS(fbAzimuth.fActualPosition - fAzimuthCalc) > fTrackStartBlendMax THEN
+			ADSLOGSTR(ADSLOG_MSGTYPE_WARN OR ADSLOG_MSGTYPE_LOG, 'Track start: the Azimuth target still moves after %s restarts, the gap is not blended', UINT_TO_STRING(nMoveRestartMax));
+		END_IF
 		IF fbAzimuth.isTracking THEN
 			fbAzimuth.Velocity := fAzimuthVelocity;
 		ELSE
@@ -2699,6 +2800,7 @@ IF NOT fbAzimuth.Tracking THEN
 			fbAzimuthTrackBlend.SetValue(0.0);
 		END_IF
 		fbAzimuth.Position := fAzimuthCalc + fbAzimuthTrackBlend.fValue;
+		END_IF
 	END_IF
 ELSE
 	fbAzimuthTrackBlend(fTarget := 0.0, bEnable := fOffsetAcceleration > 0.0,
@@ -2707,9 +2809,15 @@ ELSE
 	fbAzimuth.Velocity := fAzimuthVelocity;
 END_IF
 
-// Derotator
-fbDerotator.Position := fDerotatorCalc;
+// Derotator (#252: the track-start blend of elevation and azimuth, same ramp; the velocity of the ramp stays within the rate the
+// derotator offset already uses)
+IF fDerotatorOffsetRate > 0.0 THEN
+	fDeroBlendVel := MIN(fOffsetVelocity, fDerotatorOffsetRate);
+ELSE
+	fDeroBlendVel := fOffsetVelocity;
+END_IF
 IF NOT fbDerotator.Tracking THEN
+	fbDerotator.Position := fDerotatorCalc;
 	fbDerotator.Velocity := stMotionUsed.fDerotatorMoveVelocity;
 	fbDerotator.MoveAxis := TRUE;
 	IF NOT fbDerotator.Busy AND fbDerotator.MoveDone THEN
@@ -2721,10 +2829,30 @@ IF NOT fbDerotator.Tracking THEN
 		END_IF
 		fbDerotator.Velocity := fDerotatorVelocity;
 		fbDerotator.Tracking := TRUE;
+		IF fOffsetAcceleration > 0.0 AND ABS(fbDerotator.fActualPosition - fDerotatorCalc) <= fTrackStartBlendMax THEN
+			fbDerotatorTrackBlend.SetValue(fbDerotator.fActualPosition - fDerotatorCalc);
+		ELSE
+			fbDerotatorTrackBlend.SetValue(0.0);
+		END_IF
+		fbDerotator.Position := fDerotatorCalc + fbDerotatorTrackBlend.fValue;
 	END_IF
 ELSE
+	fbDerotatorTrackBlend(fTarget := 0.0, bEnable := fOffsetAcceleration > 0.0,
+		fAcceleration := fOffsetAcceleration, fVelocity := fDeroBlendVel, tCycle := tCycle);
+	fbDerotator.Position := fDerotatorCalc + fbDerotatorTrackBlend.fValue;
 	fbDerotator.Velocity := fDerotatorVelocity;
 END_IF
+
+// #251: the state of this scan for the retarget detector of the next one
+fRaTracked := fRightAscension;
+fDecTracked := fDeclination;
+fElSetLast := fbElevation.Position;
+fAzSetLast := fbAzimuth.Position;
+fDeroSetLast := fbDerotator.Position;
+fDeroVelLast := fbDerotator.Velocity;
+fElVelLast := fbElevation.Velocity;
+fAzVelLast := fbAzimuth.Velocity;
+nTrackScan := nScan;
 ]]></ST>
       </Implementation>
     </Method>
@@ -3037,30 +3165,8 @@ VAR_INPUT
 	fRightAscension	: LREAL;
 	fDeclination	: LREAL;
 END_VAR
-]]></Declaration>
-      <Implementation>
-        <ST><![CDATA[// #24 step 5: decided here (accepted or rejected); a rising bGoto or bTrack input in the same scan is this command (a goto
-// that ends in tracking), not a second one
-bGotoChecked			:= TRUE;
-bTrackChecked			:= TRUE;
-// #83: decide first, see Slew
-IF NOT _AcceptMove(E_TCSCommand.goto, E_TCSCommand.no_command) THEN
-	RETURN;
-END_IF
-IF ABS(THIS^.fRightAscension - fRightAscension) > 1.0E-9 OR ABS(THIS^.fDeclination - fDeclination) > 1.0E-9 THEN
-	_ClearOffsets();	// #177
-END_IF
-THIS^.fRightAscension	:= fRightAscension;
-THIS^.fDeclination		:= fDeclination;
-//THIS^.bTrack			:= TRUE;
-THIS^.bGotoActive				:= TRUE;
-Track := TRUE;]]></ST>
-      </Implementation>
-    </Method>
-    <Method Name="TrackRaDec" Id="{f497d99f-36a3-42c8-ae9b-738903f3158c}">
-      <Declaration><![CDATA[METHOD TrackRaDec : BOOL
-VAR_INPUT
-	RaDec	: BROTLib.ST_RaDecCoordinate;
+VAR
+	bInPlace		: BOOL;
 END_VAR
 ]]></Declaration>
       <Implementation>
@@ -3069,16 +3175,58 @@ END_VAR
 bGotoChecked			:= TRUE;
 bTrackChecked			:= TRUE;
 // #83: decide first, see Slew
+// #251 phase B: a nearby target while the track runs stays in the track (the retarget blend of _TrackTelescope)
+bInPlace := _TrackInPlace(fNewRa := fRightAscension, fNewDec := fDeclination);
+bKeepRunning := bInPlace;
 IF NOT _AcceptMove(E_TCSCommand.goto, E_TCSCommand.no_command) THEN
+	bKeepRunning := FALSE;
 	RETURN;
 END_IF
+bKeepRunning := FALSE;
+IF ABS(THIS^.fRightAscension - fRightAscension) > 1.0E-9 OR ABS(THIS^.fDeclination - fDeclination) > 1.0E-9 THEN
+	_ClearOffsets();	// #177
+END_IF
+THIS^.fRightAscension	:= fRightAscension;
+THIS^.fDeclination		:= fDeclination;
+//THIS^.bTrack			:= TRUE;
+IF NOT bInPlace THEN
+	THIS^.bGotoActive			:= TRUE;
+END_IF
+Track := TRUE;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="TrackRaDec" Id="{f497d99f-36a3-42c8-ae9b-738903f3158c}">
+      <Declaration><![CDATA[METHOD TrackRaDec : BOOL
+VAR_INPUT
+	RaDec	: BROTLib.ST_RaDecCoordinate;
+END_VAR
+VAR
+	bInPlace		: BOOL;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[// #24 step 5: decided here (accepted or rejected); a rising bGoto or bTrack input in the same scan is this command (a goto
+// that ends in tracking), not a second one
+bGotoChecked			:= TRUE;
+bTrackChecked			:= TRUE;
+// #83: decide first, see Slew
+// #251 phase B: see Track
+bInPlace := _TrackInPlace(fNewRa := RaDec.RightAscension, fNewDec := RaDec.Declination);
+bKeepRunning := bInPlace;
+IF NOT _AcceptMove(E_TCSCommand.goto, E_TCSCommand.no_command) THEN
+	bKeepRunning := FALSE;
+	RETURN;
+END_IF
+bKeepRunning := FALSE;
 IF ABS(fRightAscension - RaDec.RightAscension) > 1.0E-9 OR ABS(fDeclination - RaDec.Declination) > 1.0E-9 THEN
 	_ClearOffsets();	// #177
 END_IF
 fRightAscension	:= RaDec.RightAscension;
 fDeclination		:= RaDec.Declination;
 //bTrack			:= TRUE;
-THIS^.bGotoActive				:= TRUE;
+IF NOT bInPlace THEN
+	THIS^.bGotoActive			:= TRUE;
+END_IF
 TrackRaDec := TRUE;]]></ST>
       </Implementation>
     </Method>
@@ -3143,12 +3291,43 @@ CASE eDecision OF
 		_NoteRejected(eCommand := eCommand, eReason := eReason);
 		_AcceptMove := FALSE;
 	E_CommandDecision.replace:
-		bSupersedeRequest := TRUE;
-		eSupersedeKeep := eCommand;
+		IF NOT bKeepRunning THEN	// #251 phase B: set by Track()/TrackRaDec() around the call (the interface is the one of the base block)
+			bSupersedeRequest := TRUE;
+			eSupersedeKeep := eCommand;
+		END_IF
 		_AcceptMove := TRUE;
 ELSE
 	_AcceptMove := TRUE;
 END_CASE]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="_TrackInPlace" Id="{e45a96ff-af4e-47ed-8654-1c630fc2dfff}" FolderPath="internal methods\">
+      <Declaration><![CDATA[// #251 phase B: TRUE if a Track()/TrackRaDec() to (fNewRa, fNewDec) may stay in the running track: the three axes track under
+// the track command, no stop or abort runs, the blend is on, and the new target is within fTrackStartBlendMax (sky separation).
+// _TrackTelescope then decides with the exact axis gaps whether the retarget is blended or takes the stop/goto/track path.
+METHOD PRIVATE _TrackInPlace : BOOL
+VAR_INPUT
+	fNewRa	: LREAL;	// deg
+	fNewDec	: LREAL;	// deg
+END_VAR
+VAR
+	fDRa	: LREAL;
+	fDDec	: LREAL;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF TCS_command <> E_TCSCommand.track OR NOT bTrackActive OR bGotoActive OR bSlewActive OR bMoveAbortPending OR bStopActive
+	OR fOffsetAcceleration <= 0.0 OR NOT (fbElevation.Tracking AND fbAzimuth.Tracking AND fbDerotator.Tracking) THEN
+	_TrackInPlace := FALSE;
+	RETURN;
+END_IF
+fDRa := ABS(fNewRa - fRightAscension);
+IF fDRa > 180.0 THEN
+	fDRa := 360.0 - fDRa;
+END_IF
+fDDec := fNewDec - fDeclination;
+_TrackInPlace := SQRT(EXPT(fDRa * COS(fNewDec * 0.017453292519943295), 2) + fDDec * fDDec) <= fTrackStartBlendMax;
+]]></ST>
       </Implementation>
     </Method>
     <Method Name="_ClearOffsets" Id="{7d2e9b40-1c6a-4f83-b5d7-3a9e0c8f1a62}" FolderPath="internal methods\">
