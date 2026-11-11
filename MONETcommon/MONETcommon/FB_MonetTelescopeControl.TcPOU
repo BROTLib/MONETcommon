@@ -185,6 +185,7 @@ VAR
 	fAzVelLast				: LREAL;
 	nLastRetarget			: USINT;	// 0 none, 1 blend, 2 move (stop/goto/track); for tests and the scope
 	nRetargetCount			: UDINT;
+	bKeepRunning			: BOOL;	// #251 phase B: _AcceptMove does not supersede the running track (only inside Track()/TrackRaDec())
 
 	// #24 step 3a: the stage of each stage machine (until 0.12.0 a bare USINT nStage in the VAR_INST of the method; here so
 	// the read-only properties GotoStage, SlewStage, ParkStage and PowerOnStage can return it). The values are the old numbers.
@@ -3100,30 +3101,8 @@ VAR_INPUT
 	fRightAscension	: LREAL;
 	fDeclination	: LREAL;
 END_VAR
-]]></Declaration>
-      <Implementation>
-        <ST><![CDATA[// #24 step 5: decided here (accepted or rejected); a rising bGoto or bTrack input in the same scan is this command (a goto
-// that ends in tracking), not a second one
-bGotoChecked			:= TRUE;
-bTrackChecked			:= TRUE;
-// #83: decide first, see Slew
-IF NOT _AcceptMove(E_TCSCommand.goto, E_TCSCommand.no_command) THEN
-	RETURN;
-END_IF
-IF ABS(THIS^.fRightAscension - fRightAscension) > 1.0E-9 OR ABS(THIS^.fDeclination - fDeclination) > 1.0E-9 THEN
-	_ClearOffsets();	// #177
-END_IF
-THIS^.fRightAscension	:= fRightAscension;
-THIS^.fDeclination		:= fDeclination;
-//THIS^.bTrack			:= TRUE;
-THIS^.bGotoActive				:= TRUE;
-Track := TRUE;]]></ST>
-      </Implementation>
-    </Method>
-    <Method Name="TrackRaDec" Id="{f497d99f-36a3-42c8-ae9b-738903f3158c}">
-      <Declaration><![CDATA[METHOD TrackRaDec : BOOL
-VAR_INPUT
-	RaDec	: BROTLib.ST_RaDecCoordinate;
+VAR
+	bInPlace		: BOOL;
 END_VAR
 ]]></Declaration>
       <Implementation>
@@ -3132,16 +3111,58 @@ END_VAR
 bGotoChecked			:= TRUE;
 bTrackChecked			:= TRUE;
 // #83: decide first, see Slew
+// #251 phase B: a nearby target while the track runs stays in the track (the retarget blend of _TrackTelescope)
+bInPlace := _TrackInPlace(fNewRa := fRightAscension, fNewDec := fDeclination);
+bKeepRunning := bInPlace;
 IF NOT _AcceptMove(E_TCSCommand.goto, E_TCSCommand.no_command) THEN
+	bKeepRunning := FALSE;
 	RETURN;
 END_IF
+bKeepRunning := FALSE;
+IF ABS(THIS^.fRightAscension - fRightAscension) > 1.0E-9 OR ABS(THIS^.fDeclination - fDeclination) > 1.0E-9 THEN
+	_ClearOffsets();	// #177
+END_IF
+THIS^.fRightAscension	:= fRightAscension;
+THIS^.fDeclination		:= fDeclination;
+//THIS^.bTrack			:= TRUE;
+IF NOT bInPlace THEN
+	THIS^.bGotoActive			:= TRUE;
+END_IF
+Track := TRUE;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="TrackRaDec" Id="{f497d99f-36a3-42c8-ae9b-738903f3158c}">
+      <Declaration><![CDATA[METHOD TrackRaDec : BOOL
+VAR_INPUT
+	RaDec	: BROTLib.ST_RaDecCoordinate;
+END_VAR
+VAR
+	bInPlace		: BOOL;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[// #24 step 5: decided here (accepted or rejected); a rising bGoto or bTrack input in the same scan is this command (a goto
+// that ends in tracking), not a second one
+bGotoChecked			:= TRUE;
+bTrackChecked			:= TRUE;
+// #83: decide first, see Slew
+// #251 phase B: see Track
+bInPlace := _TrackInPlace(fNewRa := RaDec.RightAscension, fNewDec := RaDec.Declination);
+bKeepRunning := bInPlace;
+IF NOT _AcceptMove(E_TCSCommand.goto, E_TCSCommand.no_command) THEN
+	bKeepRunning := FALSE;
+	RETURN;
+END_IF
+bKeepRunning := FALSE;
 IF ABS(fRightAscension - RaDec.RightAscension) > 1.0E-9 OR ABS(fDeclination - RaDec.Declination) > 1.0E-9 THEN
 	_ClearOffsets();	// #177
 END_IF
 fRightAscension	:= RaDec.RightAscension;
 fDeclination		:= RaDec.Declination;
 //bTrack			:= TRUE;
-THIS^.bGotoActive				:= TRUE;
+IF NOT bInPlace THEN
+	THIS^.bGotoActive			:= TRUE;
+END_IF
 TrackRaDec := TRUE;]]></ST>
       </Implementation>
     </Method>
@@ -3206,12 +3227,43 @@ CASE eDecision OF
 		_NoteRejected(eCommand := eCommand, eReason := eReason);
 		_AcceptMove := FALSE;
 	E_CommandDecision.replace:
-		bSupersedeRequest := TRUE;
-		eSupersedeKeep := eCommand;
+		IF NOT bKeepRunning THEN	// #251 phase B: set by Track()/TrackRaDec() around the call (the interface is the one of the base block)
+			bSupersedeRequest := TRUE;
+			eSupersedeKeep := eCommand;
+		END_IF
 		_AcceptMove := TRUE;
 ELSE
 	_AcceptMove := TRUE;
 END_CASE]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="_TrackInPlace" Id="{e45a96ff-af4e-47ed-8654-1c630fc2dfff}" FolderPath="internal methods\">
+      <Declaration><![CDATA[// #251 phase B: TRUE if a Track()/TrackRaDec() to (fNewRa, fNewDec) may stay in the running track: the three axes track under
+// the track command, no stop or abort runs, the blend is on, and the new target is within fTrackStartBlendMax (sky separation).
+// _TrackTelescope then decides with the exact axis gaps whether the retarget is blended or takes the stop/goto/track path.
+METHOD PRIVATE _TrackInPlace : BOOL
+VAR_INPUT
+	fNewRa	: LREAL;	// deg
+	fNewDec	: LREAL;	// deg
+END_VAR
+VAR
+	fDRa	: LREAL;
+	fDDec	: LREAL;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF TCS_command <> E_TCSCommand.track OR NOT bTrackActive OR bGotoActive OR bSlewActive OR bMoveAbortPending OR bStopActive
+	OR fOffsetAcceleration <= 0.0 OR NOT (fbElevation.Tracking AND fbAzimuth.Tracking AND fbDerotator.Tracking) THEN
+	_TrackInPlace := FALSE;
+	RETURN;
+END_IF
+fDRa := ABS(fNewRa - fRightAscension);
+IF fDRa > 180.0 THEN
+	fDRa := 360.0 - fDRa;
+END_IF
+fDDec := fNewDec - fDeclination;
+_TrackInPlace := SQRT(EXPT(fDRa * COS(fNewDec * 0.017453292519943295), 2) + fDDec * fDDec) <= fTrackStartBlendMax;
+]]></ST>
       </Implementation>
     </Method>
     <Method Name="_ClearOffsets" Id="{7d2e9b40-1c6a-4f83-b5d7-3a9e0c8f1a62}" FolderPath="internal methods\">
