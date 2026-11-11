@@ -1782,7 +1782,8 @@ END_CASE
     </Method>
     <Method Name="Retarget_During_The_Move_Onto_The_Track" Id="{a81c593e-2385-4b72-ad31-cf121c6110af}">
       <Declaration><![CDATA[// #251: the target is written directly (Visu binding, ADS client) while the axes still move onto the track. The move keeps the target
-// of its start, so the gap at MoveDone is about 1 deg (Dec -85 to -84). The moves are started again and the first tracking
+// of its start, so the gap at MoveDone is up to 2 deg (Dec -85 to -83). The clock is real: how the 2 deg split between elevation and azimuth
+// depends on the time of day, so at least one axis (not both) has a gap over fTrackStartBlendMax and restarts. The moves are started again and the first tracking
 // setpoint is the axis position (no step), as in Track_Start_Setpoint_Begins_At_The_Axis_Position.
 METHOD PRIVATE Retarget_During_The_Move_Onto_The_Track
 VAR_INST
@@ -1830,7 +1831,7 @@ CASE nStep OF
 	END_IF
 15:	// the axes move onto the track target: the target changes now, the moves keep the target of their start
 	IF rig.fbTel.bTrackActive AND rig.fbElev.Busy AND rig.fbAzim.Busy AND NOT rig.fbElev.Tracking AND NOT rig.fbAzim.Tracking THEN
-		rig.SetTargetDirect(0.0, -84.0);
+		rig.SetTargetDirect(0.0, -83.0);
 		nStep := 20;
 		nCycles := 0;
 	ELSIF nCycles > 800 THEN
@@ -1853,8 +1854,8 @@ CASE nStep OF
 		F_Note(bFailed := NOT (ABS(fElGap) < 1.0E-9), sText := CONCAT(sTest, 'elevation: the first tracking setpoint jumped'));
 		AssertTrue(Condition := ABS(fAzGap) < 1.0E-9, Message := 'azimuth: the first tracking setpoint is the axis position');
 		F_Note(bFailed := NOT (ABS(fAzGap) < 1.0E-9), sText := CONCAT(sTest, 'azimuth: the first tracking setpoint jumped'));
-		AssertTrue(Condition := rig.fbTel.nMoveRestartCount >= 2, Message := 'the moves of both axes were started again');
-		F_Note(bFailed := NOT (rig.fbTel.nMoveRestartCount >= 2), sText := CONCAT(sTest, 'the moves were not started again'));
+		AssertTrue(Condition := rig.fbTel.nMoveRestartCount >= 1, Message := 'the move of at least one axis was started again');
+		F_Note(bFailed := NOT (rig.fbTel.nMoveRestartCount >= 1), sText := CONCAT(sTest, 'no move was started again'));
 		AssertTrue(Condition := NOT rig.fbTel.bError, Message := 'no error');
 		F_Note(bFailed := rig.fbTel.bError, sText := CONCAT(sTest, 'error'));
 		nStep := 99;
