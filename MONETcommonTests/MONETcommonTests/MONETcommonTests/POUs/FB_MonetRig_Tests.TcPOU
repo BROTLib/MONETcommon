@@ -1299,8 +1299,8 @@ CASE nStep OF
 	END_IF
 	IF nTracking >= 100 THEN
 		nRejects0 := rig.fbTel.nCommandRejectCount;
-		rig.fbTel.fRetargetDerotatorMax := 1.0;
-		rig.fbTel.fDeclination := -85.02;
+		rig.SetRetargetDerotatorMax(1.0);
+		rig.SetTargetDirect(0.0, -85.02);
 		bObserve := TRUE;
 		nStep := 20;
 		nCycles := 0;
@@ -1407,8 +1407,7 @@ CASE nStep OF
 	END_IF
 	IF nTracking >= 100 THEN
 		nRejects0 := rig.fbTel.nCommandRejectCount;
-		rig.fbTel.fRightAscension := 180.0;
-		rig.fbTel.fDeclination := -80.0;
+		rig.SetTargetDirect(180.0, -80.0);
 		bObserve := TRUE;
 		nStep := 20;
 		nCycles := 0;
@@ -1518,8 +1517,8 @@ CASE nStep OF
 	END_IF
 	IF nTracking >= 100 THEN
 		nRejects0 := rig.fbTel.nCommandRejectCount;
-		rig.fbTel.fRetargetDerotatorMax := 1.0;
-		rig.fbTel.fDeclination := -85.02;
+		rig.SetRetargetDerotatorMax(1.0);
+		rig.SetTargetDirect(0.0, -85.02);
 		bObserve := TRUE;
 		nStep := 20;
 		nCycles := 0;
@@ -1530,7 +1529,7 @@ CASE nStep OF
 		TEST_FINISHED();
 	END_IF
 20:	IF nCycles >= 30 THEN
-		rig.fbTel.fDeclination := -85.0;
+		rig.SetTargetDirect(0.0, -85.0);
 		nStep := 21;
 		nCycles := 0;
 	END_IF
@@ -1630,8 +1629,8 @@ CASE nStep OF
 	END_IF
 	IF nTracking >= 100 THEN
 		nRejects0 := rig.fbTel.nCommandRejectCount;
-		rig.fbTel.fRetargetDerotatorMax := 1.0;
-		rig.fbTel.fDeclination := -85.02;
+		rig.SetRetargetDerotatorMax(1.0);
+		rig.SetTargetDirect(0.0, -85.02);
 		bObserve := TRUE;
 		nStep := 20;
 		nCycles := 0;
