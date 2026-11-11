@@ -28,6 +28,14 @@ VAR_INPUT
 	// external setpoint generator takes the AX5206 down (F324 excessive position command value deviation, seen with a 2 deg step
 	// on MONET/S, MS-165). The pendant nudges (5 arcsec tap, up to 60 arcsec/s) stay far below. 0 = no limit (old behaviour).
 	fDerotatorOffsetRate	: LREAL := 0.5;
+	// MONETN 2026-11-11 (specs/plans/2026-11-11-altaz-offset-ramp.md): during a track the elevation/azimuth pointing offsets reach
+	// the axis setpoint through FB_OffsetRamp (velocity <= fOffsetVelocity, change of velocity <= fOffsetAcceleration per s), not as
+	// a one-scan step: with the AX5125 in mode 11 (lag-less) a 0.01 deg step rang with 50-70 % overshoot. 0.01 deg takes about
+	// 0.43 s, a 5 arcsec pendant tap 0.15 s, 10 arcmin 1.8 s. The same ramp blends the jump at the start of a track (the setpoint
+	// starts at the axis position, up to fTrackStartBlendMax). fOffsetAcceleration = 0 restores the old steps (both).
+	fOffsetAcceleration		: LREAL := 0.2;	// deg/s^2 (the azimuth value is the sky offset, before F_AzimuthOffsetOnAxis)
+	fOffsetVelocity			: LREAL := 0.5;	// deg/s
+	fTrackStartBlendMax		: LREAL := 0.5;	// deg; a larger gap at the start of a track is not blended (a turn or a fault, old behaviour)
 	tCycle					: TIME := T#10MS;	// PLC task cycle time (10 ms on MONETS and MONETN); _TaskInfo is not visible in a library
 
 	// #155: SafetyHandling.error, wired in MAIN. FALSE (default) means the safety block of the brake is not enforced.
@@ -149,6 +157,16 @@ VAR
 	// the track (bDerotatorOffsetLocked, #246) and then ramps at fDerotatorOffsetRate.
 	fDerotatorOffsetApplied	: LREAL;
 	bDerotatorOffsetLocked	: BOOL;	// #246: the derotator has locked on the current track once (isTracking); the offset ramp waits for it
+
+	// 2026-11-11 offset ramp (see fOffsetAcceleration): the elevation/azimuth offsets as applied to the target (fElevationOffset,
+	// fAzimuthOffset are the requested ones). Follow the request at once while the axis does not track (goto, slew, at rest).
+	fbElevationOffsetRamp	: FB_OffsetRamp;
+	fbAzimuthOffsetRamp		: FB_OffsetRamp;
+	fElevationOffsetApplied	: LREAL;
+	fAzimuthOffsetApplied	: LREAL;	// sky frame, like fAzimuthOffset
+	// the track-start blend: axis setpoint minus target, set to (axis position - target) in the scan Tracking goes TRUE, then ramped to 0
+	fbElevationTrackBlend	: FB_OffsetRamp;
+	fbAzimuthTrackBlend		: FB_OffsetRamp;
 
 	// #24 step 3a: the stage of each stage machine (until 0.12.0 a bare USINT nStage in the VAR_INST of the method; here so
 	// the read-only properties GotoStage, SlewStage, ParkStage and PowerOnStage can return it). The values are the old numbers.
@@ -2353,9 +2371,15 @@ fbPointing(
 	fAzimuthOffset		=> fAzimuthPointingOffset,
 	fElevationOffset	=> fElevationPointingOffset
 );
-fElevationCalc := fElevationCalc + fElevationPointingOffset + fElevationOffset;
+// 2026-11-11 offset ramp: while an axis tracks (or a track is requested) a new offset is ramped (FB_OffsetRamp), otherwise
+// applied at once. The ramp of the elevation offset also smooths the 1/COS factor of the azimuth offset below.
+fbElevationOffsetRamp(fTarget := fElevationOffset, bEnable := bTrackActive OR fbElevation.Tracking,
+	fAcceleration := fOffsetAcceleration, fVelocity := fOffsetVelocity, tCycle := tCycle, fValue => fElevationOffsetApplied);
+fbAzimuthOffsetRamp(fTarget := fAzimuthOffset, bEnable := bTrackActive OR fbAzimuth.Tracking,
+	fAcceleration := fOffsetAcceleration, fVelocity := fOffsetVelocity, tCycle := tCycle, fValue => fAzimuthOffsetApplied);
+fElevationCalc := fElevationCalc + fElevationPointingOffset + fElevationOffsetApplied;
 // F_AzimuthOffsetOnAxis: fAzimuthOffset / COS(elevation), bounded near the zenith (BROTLib#27)
-fAzimuthCalc := fAzimuthCalc + fAzimuthPointingOffset + F_AzimuthOffsetOnAxis(fAzimuthOffset, fElevationCalc);
+fAzimuthCalc := fAzimuthCalc + fAzimuthPointingOffset + F_AzimuthOffsetOnAxis(fAzimuthOffsetApplied, fElevationCalc);
 
 // #94: evaluated here, before the arbitration and the Goto/Track dispatch below can clear bGoto/bTrack (error 0x15)
 // in the same scan. Only a requested goto/track makes the RA/Dec target relevant.
@@ -2421,9 +2445,10 @@ fElevationCurrentSky := fElevationCurrent - fElevationPointingOffset2;
 //fElevationCurrent := fElevationCurrentSky - fElevationOffset;
 //fAzimuthCurrent := fAzimuthCurrentSky - fAzimuthOffset / COS(fElevationCalc * d2r);
 
-// calculate equatorial coordinates
-hor2eq(alt := fElevationCurrentSky - fElevationOffset,
-		az := fAzimuthCurrentSky - F_AzimuthOffsetOnAxis(fAzimuthOffset, fElevationCurrent),	// M7: was fElevationCalc
+// calculate equatorial coordinates (2026-11-11: minus the applied offsets, which the axes actually carry; equal to the requested
+// ones except during an offset ramp)
+hor2eq(alt := fElevationCurrentSky - fElevationOffsetApplied,
+		az := fAzimuthCurrentSky - F_AzimuthOffsetOnAxis(fAzimuthOffsetApplied, fElevationCurrent),	// M7: was fElevationCalc
 		jd := fJd,
 		dut1 := fDut1,
 		lat := telescopeConfig.latitude,
@@ -2622,8 +2647,11 @@ IF NOT bAzimuthTurnOK OR NOT bDerotatorTurnOK THEN
 	bTrackActive := FALSE;
 END_IF
 
-fbElevation.Position := fElevationCalc;
+// Elevation (2026-11-11 track-start blend): the move onto the track target ends where the target was when the move started; the
+// target has drifted since (about 0.008 deg on the MONETN azimuth after a slew). The setpoint of the first tracking scan is the
+// axis position, the gap is ramped out by fbElevationTrackBlend (FB_OffsetRamp) instead of a one-scan step.
 IF NOT fbElevation.Tracking THEN
+	fbElevation.Position := fElevationCalc;
 	fbElevation.Velocity := stMotionUsed.fElevationMoveVelocity;
 	fbElevation.MoveAxis := TRUE;
 	IF NOT fbElevation.Busy AND fbElevation.MoveDone THEN
@@ -2635,14 +2663,25 @@ IF NOT fbElevation.Tracking THEN
 		END_IF
 		fbElevation.Velocity := fElevationVelocity;
 		fbElevation.Tracking := TRUE;
+		IF fOffsetAcceleration > 0.0 AND ABS(fbElevation.fActualPosition - fElevationCalc) <= fTrackStartBlendMax THEN
+			fbElevationTrackBlend.SetValue(fbElevation.fActualPosition - fElevationCalc);
+		ELSE
+			fbElevationTrackBlend.SetValue(0.0);
+		END_IF
+		fbElevation.Position := fElevationCalc + fbElevationTrackBlend.fValue;
 	END_IF
 ELSE
+	fbElevationTrackBlend(fTarget := 0.0, bEnable := fOffsetAcceleration > 0.0,
+		fAcceleration := fOffsetAcceleration, fVelocity := fOffsetVelocity, tCycle := tCycle);
+	fbElevation.Position := fElevationCalc + fbElevationTrackBlend.fValue;
 	fbElevation.Velocity := fElevationVelocity;
 END_IF
 
-// Azimuth
-fbAzimuth.Position := fAzimuthCalc;
+// Azimuth (2026-11-11 track-start blend): the move onto the track target ends where the target was when the move started; the
+// target has drifted since (about 0.008 deg on the MONETN azimuth after a slew). The setpoint of the first tracking scan is the
+// axis position, the gap is ramped out by fbAzimuthTrackBlend (FB_OffsetRamp) instead of a one-scan step.
 IF NOT fbAzimuth.Tracking THEN
+	fbAzimuth.Position := fAzimuthCalc;
 	fbAzimuth.Velocity := stMotionUsed.fAzimuthMoveVelocity;
 	fbAzimuth.MoveAxis := TRUE;
 	IF NOT fbAzimuth.Busy AND fbAzimuth.MoveDone THEN
@@ -2654,8 +2693,17 @@ IF NOT fbAzimuth.Tracking THEN
 		END_IF
 		fbAzimuth.Velocity := fAzimuthVelocity;
 		fbAzimuth.Tracking := TRUE;
+		IF fOffsetAcceleration > 0.0 AND ABS(fbAzimuth.fActualPosition - fAzimuthCalc) <= fTrackStartBlendMax THEN
+			fbAzimuthTrackBlend.SetValue(fbAzimuth.fActualPosition - fAzimuthCalc);
+		ELSE
+			fbAzimuthTrackBlend.SetValue(0.0);
+		END_IF
+		fbAzimuth.Position := fAzimuthCalc + fbAzimuthTrackBlend.fValue;
 	END_IF
 ELSE
+	fbAzimuthTrackBlend(fTarget := 0.0, bEnable := fOffsetAcceleration > 0.0,
+		fAcceleration := fOffsetAcceleration, fVelocity := fOffsetVelocity, tCycle := tCycle);
+	fbAzimuth.Position := fAzimuthCalc + fbAzimuthTrackBlend.fValue;
 	fbAzimuth.Velocity := fAzimuthVelocity;
 END_IF
 

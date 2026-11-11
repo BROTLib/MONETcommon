@@ -1,0 +1,89 @@
+<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="FB_OffsetRamp" Id="{4c0d271c-7fd2-4147-a27f-5bfbc27077ad}" SpecialFunc="None">
+    <Declaration><![CDATA[// Smooth follower of a requested value (MONETN 2026-11-11, specs/plans/2026-11-11-altaz-offset-ramp.md): fValue moves to fTarget
+// with the velocity limited to fVelocity and the change of velocity limited to fAcceleration (a time-optimal bang-bang profile,
+// discrete braking law). The velocity of fValue is continuous: it changes by at most fAcceleration * tCycle per call, so a step
+// of the request does not become a velocity kick in a drive with velocity feedforward (AX5000 mode 11, position control lag-less).
+// A new target during a ramp is taken from the current value and velocity (no restart, no velocity step). With bEnable FALSE or
+// fAcceleration <= 0 or fVelocity <= 0 fValue follows fTarget at once (the old step behaviour). One call per PLC scan.
+// Used by FB_MonetTelescopeControl for the elevation/azimuth pointing offsets and the track-start blend.
+FUNCTION_BLOCK FB_OffsetRamp
+VAR_INPUT
+	fTarget			: LREAL;		// the requested value
+	bEnable			: BOOL;			// ramp; FALSE = fValue follows fTarget at once
+	fAcceleration	: LREAL;		// units/s^2, > 0
+	fVelocity		: LREAL;		// units/s, > 0
+	tCycle			: TIME := T#10MS;	// time between two calls (PLC task cycle)
+END_VAR
+VAR_OUTPUT
+	fValue			: LREAL;		// the applied value
+	fRate			: LREAL;		// its velocity (units/s) in this call
+	bDone			: BOOL := TRUE;	// fValue = fTarget and at rest
+END_VAR
+VAR
+	fDt				: LREAL;
+	fError			: LREAL;
+	fDv				: LREAL;
+	fRateWanted		: LREAL;
+	fStep			: LREAL;
+END_VAR
+VAR CONSTANT
+	EPS				: LREAL := 1.0E-12;
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[fDt := MAX(TIME_TO_LREAL(tCycle) * 0.001, 1.0E-6);
+
+IF NOT bEnable OR fAcceleration <= 0.0 OR fVelocity <= 0.0 THEN
+	fValue := fTarget;
+	fRate := 0.0;
+	bDone := TRUE;
+	RETURN;
+END_IF
+
+fError := fTarget - fValue;
+fDv := fAcceleration * fDt;		// the largest change of velocity in one call
+IF ABS(fError) <= EPS AND ABS(fRate) <= fDv THEN
+	fValue := fTarget;
+	fRate := 0.0;
+	bDone := TRUE;
+	RETURN;
+END_IF
+bDone := FALSE;
+
+// the velocity from which braking at fAcceleration in steps of fDt ends exactly at the target (discrete form of SQRT(2*a*|e|),
+// it does not overshoot by the last step), capped at fVelocity
+fRateWanted := MIN(fVelocity, fDv * (SQRT(0.25 + 2.0 * ABS(fError) / (fDv * fDt)) - 0.5));
+IF fError < 0.0 THEN
+	fRateWanted := -fRateWanted;
+END_IF
+fRate := fRate + LIMIT(-fDv, fRateWanted - fRate, fDv);
+fStep := fRate * fDt;
+
+// the last step lands on the target (the velocity left is at most about fDv)
+IF (fError > 0.0 AND fStep >= fError) OR (fError < 0.0 AND fStep <= fError) THEN
+	fValue := fTarget;
+	fRate := 0.0;
+	bDone := TRUE;
+ELSE
+	fValue := fValue + fStep;
+END_IF
+]]></ST>
+    </Implementation>
+    <Method Name="SetValue" Id="{4828257b-4569-4a39-9854-066b9e086340}">
+      <Declaration><![CDATA[// Put the applied value to fNew at rest (velocity 0), e.g. the start of a blend. The next call ramps from there to fTarget.
+METHOD SetValue
+VAR_INPUT
+	fNew	: LREAL;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[fValue := fNew;
+fRate := 0.0;
+bDone := FALSE;
+]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>
