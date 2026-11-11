@@ -47,6 +47,10 @@ VAR_INPUT
 	// stepping the setpoint at MoveDone; at most nMoveRestartMax times per axis and track start, then the old step (and a log entry).
 	nMoveRestartMax			: UINT := 3;
 	tCycle					: TIME := T#10MS;	// PLC task cycle time (10 ms on MONETS and MONETN); _TaskInfo is not visible in a library
+	// BROTLib#167 (needs BROTLib 0.21.1: FB_BaseAxis.SetFeedFromPosition): TRUE feeds the NC setpoint generator of elevation and azimuth with the velocity and acceleration
+	// of the fed position (FB_Axis.FeedFromPosition, CycleTime = tCycle) instead of the fixed values that follow the lag. FALSE (default)
+	// keeps the old feed. Not for the derotator (its drive and the F324 history are different; not part of #167).
+	bFeedFromPosition		: BOOL := FALSE;
 
 	// #155: SafetyHandling.error, wired in MAIN. FALSE (default) means the safety block of the brake is not enforced.
 	bSafetyError		: BOOL;
@@ -419,6 +423,10 @@ METHOD PROTECTED _ReadInputs
       <Implementation>
         <ST><![CDATA[// #24 step 2c: the motion limits of this scan (stMotion, deprecated aliases, F_MotionConfigValid), before anything uses them
 _MotionConfig();
+
+// BROTLib#167: the feed of the el/az setpoint generators, written every scan (an online change of bFeedFromPosition takes effect at once)
+fbElevation.SetFeedFromPosition(bFeedFromPosition := bFeedFromPosition, fCycleTime := MAX(TIME_TO_LREAL(tCycle) * 0.001, 1.0E-6));
+fbAzimuth.SetFeedFromPosition(bFeedFromPosition := bFeedFromPosition, fCycleTime := MAX(TIME_TO_LREAL(tCycle) * 0.001, 1.0E-6));
 
 _ReadAxes();
 // #96: axis state for the stop transaction (the state of the last axis cycle, like bStopped below)

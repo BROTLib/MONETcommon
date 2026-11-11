@@ -381,5 +381,17 @@ END_VAR
 ]]></ST>
       </Implementation>
     </Method>
+    <Method Name="SetFeedFromPosition" Id="{05e47d2a-3fd2-4173-8991-5a2fb09bc14d}">
+      <Declaration><![CDATA[// BROTLib#167: bFeedFromPosition of the telescope
+METHOD SetFeedFromPosition
+VAR_INPUT
+	bValue	: BOOL;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[fbTel.bFeedFromPosition := bValue;
+]]></ST>
+      </Implementation>
+    </Method>
   </POU>
 </TcPlcObject>
