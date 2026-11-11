@@ -47,6 +47,7 @@ Retarget_By_Direct_RaDec_Write_Is_Blended();
 Retarget_During_The_Move_Onto_The_Track();
 Feed_From_Position_Is_Passed_To_Elevation_And_Azimuth();
 Derotator_Track_Start_Setpoint_Begins_At_The_Axis_Position();
+Derotator_Large_Gap_At_Track_Start_Restarts_The_Move();
 Small_Track_Retarget_Stays_Tracking();
 Large_Retarget_By_Direct_Write_Goes_Through_The_Move();
 Retarget_Mid_Blend_Keeps_The_Velocity();
@@ -1955,6 +1956,101 @@ CASE nStep OF
 		nStep := 99;
 		TEST_FINISHED();
 	ELSIF nCycles > 1500 THEN
+		AssertTrue(Condition := FALSE, Message := 'the derotator did not start to track');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the derotator did not start to track'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+END_CASE
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Derotator_Large_Gap_At_Track_Start_Restarts_The_Move" Id="{587f0318-7019-4c04-8ea6-2a864afea09d}">
+      <Declaration><![CDATA[// #264: the RA is written directly while the axes move onto the track, by 3 deg at Dec -85: the sky moves by about 0.26 deg (el/az
+// blend), the derotator target by more than fTrackStartBlendMax. MONET/N 2026-11-11 (checklist 4b.5): the derotator setpoint stepped by
+// 1.11 deg at MoveDone, F324 on the AX5206. Now the derotator move is started again, its first tracking setpoint is the axis position and
+// the setpoint moves in ramp steps only.
+METHOD PRIVATE Derotator_Large_Gap_At_Track_Start_Restarts_The_Move
+VAR_INST
+	rig			: FB_MonetRig;
+	nStep		: INT;
+	nCycles		: UINT;
+	sTest		: STRING(80);
+	bSeen		: BOOL;
+	fGap		: LREAL;
+	fPrev		: LREAL;
+	fMaxStep	: LREAL;
+	fMaxSource	: LREAL;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Derotator_Large_Gap_At_Track_Start_Restarts_The_Move');
+sTest := 'Derotator_Large_Gap_At_Track_Start_Restarts_The_Move: ';
+IF nStep >= 90 THEN
+	RETURN;
+END_IF
+rig.Scan();
+nCycles := nCycles + 1;
+CASE nStep OF
+0:	// wait for the clock, then power on; the mocks end a move at the target of its start, like the NC
+	IF rig.ClockValid THEN
+		rig.SetMoveLatchesTarget(TRUE);
+		rig.fbTel.Init();
+		nStep := 10;
+		nCycles := 0;
+	ELSIF nCycles > 2000 THEN
+		AssertTrue(Condition := FALSE, Message := 'the astronomical clock never became valid');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the astronomical clock never became valid'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+10:	// online: track a circumpolar target
+	IF rig.Online THEN
+		rig.fbTel.Track(fRightAscension := 0.0, fDeclination := -85.0);
+		nStep := 15;
+		nCycles := 0;
+	ELSIF nCycles > 1500 THEN
+		AssertTrue(Condition := FALSE, Message := 'the mock telescope did not reach READY_STATE 1.0');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the mock telescope did not reach READY_STATE 1.0'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+15:	// the derotator moves onto the track target: the target moves now by a large derotator angle
+	IF rig.fbTel.bTrackActive AND rig.fbDero.Busy AND NOT rig.fbDero.Tracking THEN
+		rig.SetTargetDirect(3.0, -85.0);
+		nStep := 20;
+		nCycles := 0;
+	ELSIF nCycles > 800 THEN
+		AssertTrue(Condition := FALSE, Message := 'the derotator did not move onto the track target');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the derotator did not move onto the track target'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+20:	// until the derotator tracks: the largest gap target - axis; then the first setpoint and the steps after it
+	IF NOT rig.fbDero.Tracking THEN
+		fMaxSource := MAX(fMaxSource, ABS(rig.fbTel.fDerotatorCalc - rig.fbDero.fActualPosition));
+	ELSIF NOT bSeen THEN
+		bSeen := TRUE;
+		fGap := rig.fbDero.fPosition - rig.fbDero.fActualPosition;
+		fPrev := rig.fbDero.fPosition;
+	ELSE
+		fMaxStep := MAX(fMaxStep, ABS(rig.fbDero.fPosition - fPrev));
+		fPrev := rig.fbDero.fPosition;
+	END_IF
+	IF bSeen AND nCycles >= 250 THEN
+		AssertTrue(Condition := fMaxSource > rig.fbTel.fTrackStartBlendMax, Message := 'the derotator target moved by more than fTrackStartBlendMax (the test sees a large gap)');
+		F_Note(bFailed := NOT (fMaxSource > rig.fbTel.fTrackStartBlendMax), sText := CONCAT(sTest, 'no large derotator gap at the track start'));
+		AssertTrue(Condition := rig.fbTel.nDeroRestarts >= 1, Message := 'the derotator move was started again');
+		F_Note(bFailed := NOT (rig.fbTel.nDeroRestarts >= 1), sText := CONCAT(sTest, 'the derotator move was not started again'));
+		AssertTrue(Condition := ABS(fGap) < 1.0E-9, Message := 'derotator: the first tracking setpoint is the axis position');
+		F_Note(bFailed := NOT (ABS(fGap) < 1.0E-9), sText := CONCAT(sTest, 'derotator: the first tracking setpoint jumped'));
+		AssertTrue(Condition := fMaxStep < rig.fbTel.fOffsetVelocity * 0.01 + 0.0005, Message := 'the derotator setpoint moves in ramp steps');
+		F_Note(bFailed := NOT (fMaxStep < rig.fbTel.fOffsetVelocity * 0.01 + 0.0005), sText := CONCAT(sTest, 'the derotator setpoint stepped after the track start'));
+		AssertTrue(Condition := NOT rig.fbTel.bError, Message := 'no error');
+		F_Note(bFailed := rig.fbTel.bError, sText := CONCAT(sTest, 'error'));
+		nStep := 99;
+		TEST_FINISHED();
+	ELSIF nCycles > 3000 THEN
 		AssertTrue(Condition := FALSE, Message := 'the derotator did not start to track');
 		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the derotator did not start to track'));
 		nStep := 99;
