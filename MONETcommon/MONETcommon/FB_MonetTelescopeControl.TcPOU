@@ -36,6 +36,11 @@ VAR_INPUT
 	fOffsetAcceleration		: LREAL := 0.2;	// deg/s^2 (the azimuth value is the sky offset, before F_AzimuthOffsetOnAxis)
 	fOffsetVelocity			: LREAL := 0.5;	// deg/s
 	fTrackStartBlendMax		: LREAL := 0.5;	// deg; a larger gap at the start of a track is not blended (a turn or a fault, old behaviour)
+	// #251: a new fRightAscension/fDeclination written while tracking (Visu binding, ADS client) is blended into the el/az
+	// setpoints like the track start (gap <= fTrackStartBlendMax) instead of a one-scan step. A larger gap, or a derotator gap above
+	// fRetargetDerotatorMax (default fDerotatorOffsetRate * tCycle, the step #236 allows per scan; the derotator has no blend until
+	// #252), leaves the scan without writing setpoints and takes the stop/goto/track path. fOffsetAcceleration = 0 disables the blend.
+	fRetargetDerotatorMax	: LREAL := 0.005;	// deg
 	tCycle					: TIME := T#10MS;	// PLC task cycle time (10 ms on MONETS and MONETN); _TaskInfo is not visible in a library
 
 	// #155: SafetyHandling.error, wired in MAIN. FALSE (default) means the safety block of the brake is not enforced.
@@ -167,6 +172,19 @@ VAR
 	// the track-start blend: axis setpoint minus target, set to (axis position - target) in the scan Tracking goes TRUE, then ramped to 0
 	fbElevationTrackBlend	: FB_OffsetRamp;
 	fbAzimuthTrackBlend		: FB_OffsetRamp;
+	// #251 retarget detector: values of the last _TrackTelescope call; nTrackScan = nScan - 1 means "tracked in the previous scan"
+	// (stale values after a stop, park, suspend, reset or manual are never used, nothing to clear)
+	nScan					: UDINT;
+	nTrackScan				: UDINT;
+	fRaTracked				: LREAL;
+	fDecTracked				: LREAL;
+	fElSetLast				: LREAL;
+	fAzSetLast				: LREAL;
+	fDeroSetLast			: LREAL;
+	fElVelLast				: LREAL;
+	fAzVelLast				: LREAL;
+	nLastRetarget			: USINT;	// 0 none, 1 blend, 2 move (stop/goto/track); for tests and the scope
+	nRetargetCount			: UDINT;
 
 	// #24 step 3a: the stage of each stage machine (until 0.12.0 a bare USINT nStage in the VAR_INST of the method; here so
 	// the read-only properties GotoStage, SlewStage, ParkStage and PowerOnStage can return it). The values are the old numbers.
@@ -362,7 +380,8 @@ SUPER^();
 METHOD PROTECTED _ScanBegin
 ]]></Declaration>
       <Implementation>
-        <ST><![CDATA[bSuspendStop := FALSE;	// #118: back in automatic the body owns a running stop again (it continues the same transaction)
+        <ST><![CDATA[nScan := nScan + 1;		// #251
+bSuspendStop := FALSE;	// #118: back in automatic the body owns a running stop again (it continues the same transaction)
 // revert fDut1 (set via the Dut1 property, e.g. from an external time bridge over MQTT) to its
 // safe 0.0 default if nothing fresh arrives for a while, instead of serving an arbitrarily
 // stale UT1-UTC correction forever. FB_AltAzTelescopeControl's own body is never called (this FB
@@ -2632,9 +2651,43 @@ _StopTelescope := FALSE;
       <Declaration><![CDATA[METHOD PRIVATE _TrackTelescope : BOOL
 VAR_INPUT
 END_VAR
+VAR
+	fDtScan	: LREAL;
+	fElGap	: LREAL;
+	fAzGap	: LREAL;
+END_VAR
 ]]></Declaration>
       <Implementation>
-        <ST><![CDATA[// Elevation
+        <ST><![CDATA[// #251: a new RA/Dec written while tracking (not through Track(), which replaces the move) must not reach the axes as a step
+IF fbElevation.Tracking AND fbAzimuth.Tracking AND nTrackScan + 1 = nScan
+	AND (ABS(fRightAscension - fRaTracked) > 1.0E-9 OR ABS(fDeclination - fDecTracked) > 1.0E-9) THEN
+	fDtScan := TIME_TO_LREAL(tCycle) * 0.001;
+	// the old setpoint carried on by one scan, so the sidereal velocity does not drop to 0 in the retarget scan
+	fElGap := (fElSetLast + fElVelLast * fDtScan) - fElevationCalc;
+	fAzGap := (fAzSetLast + fAzVelLast * fDtScan) - fAzimuthCalc;
+	IF fOffsetAcceleration > 0.0 AND ABS(fElGap) <= fTrackStartBlendMax AND ABS(fAzGap) <= fTrackStartBlendMax
+		AND ABS(fDeroSetLast - fDerotatorCalc) <= fRetargetDerotatorMax THEN
+		fbElevationTrackBlend.Shift(fElGap);
+		fbAzimuthTrackBlend.Shift(fAzGap);
+		nLastRetarget := 1;
+		nRetargetCount := nRetargetCount + 1;
+	ELSIF _AcceptMove(E_TCSCommand.goto, E_TCSCommand.no_command) THEN
+		// large: no setpoint is written this scan (el, az and derotator keep the last one); the body replaces the track
+		bGotoActive := TRUE;
+		fRaTracked := fRightAscension;
+		fDecTracked := fDeclination;
+		nLastRetarget := 2;
+		nRetargetCount := nRetargetCount + 1;
+		RETURN;
+	ELSE
+		// the replace was rejected (cannot happen while a move is active): blend, limited by the ramp velocity
+		fbElevationTrackBlend.Shift(fElGap);
+		fbAzimuthTrackBlend.Shift(fAzGap);
+		nLastRetarget := 1;
+	END_IF
+END_IF
+
+// Elevation
 fDerotatorVelocity := F_Derotatorvelocity(fAzimuthCalc, fElevationCalc, telescopeConfig.latitude, fDerotatorSign);
 fElevationVelocity := F_Elevationvelocity(fAzimuthCalc, telescopeConfig.latitude);
 fAzimuthVelocity := F_Azimuthvelocity(fElevationCalc, fAzimuthCalc, telescopeConfig.latitude);
@@ -2725,6 +2778,16 @@ IF NOT fbDerotator.Tracking THEN
 ELSE
 	fbDerotator.Velocity := fDerotatorVelocity;
 END_IF
+
+// #251: the state of this scan for the retarget detector of the next one
+fRaTracked := fRightAscension;
+fDecTracked := fDeclination;
+fElSetLast := fbElevation.Position;
+fAzSetLast := fbAzimuth.Position;
+fDeroSetLast := fbDerotator.Position;
+fElVelLast := fbElevation.Velocity;
+fAzVelLast := fbAzimuth.Velocity;
+nTrackScan := nScan;
 ]]></ST>
       </Implementation>
     </Method>

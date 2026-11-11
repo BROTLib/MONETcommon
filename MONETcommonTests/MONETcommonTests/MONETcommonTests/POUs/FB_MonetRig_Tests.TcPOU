@@ -43,6 +43,10 @@ Repeated_Track_Retargets_And_Second_Stop_Works();
 Derotator_Offset_Set_At_The_Start_Of_A_Track_Is_Ramped();
 AltAz_Offsets_Set_During_A_Track_Are_Ramped();
 Track_Start_Setpoint_Begins_At_The_Axis_Position();
+Retarget_By_Direct_RaDec_Write_Is_Blended();
+Large_Retarget_By_Direct_Write_Goes_Through_The_Move();
+Retarget_Mid_Blend_Keeps_The_Velocity();
+Stop_During_A_Retarget_Blend_Settles();
 Goto_Window_From_stMotion_Refuses_The_Pole();
 Slew_Window_Refuses_Low_And_High_Elevation();
 ]]></ST>
@@ -1207,6 +1211,451 @@ CASE nStep OF
 	ELSIF nCycles > 1000 THEN
 		AssertTrue(Condition := FALSE, Message := 'elevation and azimuth did not start to track');
 		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'elevation and azimuth did not start to track'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+END_CASE
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Retarget_By_Direct_RaDec_Write_Is_Blended" Id="{29318149-86a1-4e73-91f3-c6a45c895f84}">
+      <Declaration><![CDATA[// #251: RA/Dec written directly while tracking (Visu binding, ADS client) reached the axes as a one-scan step (a velocity kick on the
+// AX5125 in mode 11). A 0.02 deg retarget is now blended: the el/az setpoints stay continuous (step below fOffsetVelocity * dt,
+// velocity change below 0.01 deg/s per scan), the axes keep tracking, the blend is closed after a few seconds. The derotator guard
+// is opened (fRetargetDerotatorMax), the derotator has no blend until #252.
+METHOD PRIVATE Retarget_By_Direct_RaDec_Write_Is_Blended
+VAR_INST
+	rig			: FB_MonetRig;
+	nStep		: INT;
+	nCycles		: UINT;
+	sTest		: STRING(80);
+	nTracking	: UINT;
+	nHist		: UINT;
+	bObserve	: BOOL;
+	bDropped	: BOOL;
+	elP1		: LREAL;
+	elP2		: LREAL;
+	azP1		: LREAL;
+	azP2		: LREAL;
+	fMaxD1		: LREAL;
+	fMaxD2		: LREAL;
+	nRejects0	: UDINT;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Retarget_By_Direct_RaDec_Write_Is_Blended');
+sTest := 'Retarget_By_Direct_RaDec_Write_Is_Blended: ';
+IF nStep >= 90 THEN
+	RETURN;
+END_IF
+rig.Scan();
+nCycles := nCycles + 1;
+// the setpoints of the el/az axes (mock fPosition) per scan: step d1 and change of the step d2 while both track
+IF rig.fbElev.Tracking AND rig.fbAzim.Tracking THEN
+	nHist := nHist + 1;
+	IF bObserve AND nHist >= 3 THEN
+		fMaxD1 := MAX(fMaxD1, MAX(ABS(rig.fbElev.fPosition - elP1), ABS(rig.fbAzim.fPosition - azP1)));
+		fMaxD2 := MAX(fMaxD2, MAX(ABS(rig.fbElev.fPosition - 2.0 * elP1 + elP2), ABS(rig.fbAzim.fPosition - 2.0 * azP1 + azP2)));
+	END_IF
+ELSE
+	nHist := 0;
+	IF bObserve THEN
+		bDropped := TRUE;
+	END_IF
+END_IF
+elP2 := elP1;
+elP1 := rig.fbElev.fPosition;
+azP2 := azP1;
+azP1 := rig.fbAzim.fPosition;
+CASE nStep OF
+0:	// wait for the clock, then power on; the el/az mocks end a move at the target of its start, like the NC
+	IF rig.ClockValid THEN
+		rig.SetMoveLatchesTarget(TRUE);
+		rig.fbTel.Init();
+		nStep := 10;
+		nCycles := 0;
+	ELSIF nCycles > 2000 THEN
+		AssertTrue(Condition := FALSE, Message := 'the astronomical clock never became valid');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the astronomical clock never became valid'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+10:	// online: track a circumpolar target
+	IF rig.Online THEN
+		rig.fbTel.Track(fRightAscension := 0.0, fDeclination := -85.0);
+		nStep := 15;
+		nCycles := 0;
+	ELSIF nCycles > 1500 THEN
+		AssertTrue(Condition := FALSE, Message := 'the mock telescope did not reach READY_STATE 1.0');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the mock telescope did not reach READY_STATE 1.0'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+15:	// tracking for 1 s, then the direct write of the target (Visu binding, ADS client)
+	IF rig.fbAzim.Tracking AND rig.fbElev.Tracking AND rig.fbDero.Tracking THEN
+		nTracking := nTracking + 1;
+	ELSE
+		nTracking := 0;
+	END_IF
+	IF nTracking >= 100 THEN
+		nRejects0 := rig.fbTel.nCommandRejectCount;
+		rig.fbTel.fRetargetDerotatorMax := 1.0;
+		rig.fbTel.fDeclination := -85.02;
+		bObserve := TRUE;
+		nStep := 20;
+		nCycles := 0;
+	ELSIF nCycles > 1500 THEN
+		AssertTrue(Condition := FALSE, Message := 'the telescope did not start tracking');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the telescope did not start tracking'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+20:	IF nCycles >= 300 THEN
+		AssertTrue(Condition := NOT bDropped, Message := 'the axes kept tracking');
+		F_Note(bFailed := NOT (NOT bDropped), sText := CONCAT(sTest, 'the axes kept tracking'));
+		AssertTrue(Condition := fMaxD1 < rig.fbTel.fOffsetVelocity * 0.01 + 0.0005 AND fMaxD2 < 0.0001, Message := 'the el/az setpoints stayed continuous');
+		F_Note(bFailed := NOT (fMaxD1 < rig.fbTel.fOffsetVelocity * 0.01 + 0.0005 AND fMaxD2 < 0.0001), sText := CONCAT(sTest, 'the el/az setpoints stayed continuous'));
+		AssertTrue(Condition := rig.fbTel.nLastRetarget = 1 AND rig.fbTel.nRetargetCount = 1, Message := 'the retarget was blended once');
+		F_Note(bFailed := NOT (rig.fbTel.nLastRetarget = 1 AND rig.fbTel.nRetargetCount = 1), sText := CONCAT(sTest, 'the retarget was blended once'));
+		AssertTrue(Condition := rig.fbElev.Tracking AND rig.fbAzim.Tracking AND ABS(rig.fbTel.fbElevationTrackBlend.fValue) < 0.0001 AND ABS(rig.fbTel.fbAzimuthTrackBlend.fValue) < 0.0001, Message := 'the blend is closed');
+		F_Note(bFailed := NOT (rig.fbElev.Tracking AND rig.fbAzim.Tracking AND ABS(rig.fbTel.fbElevationTrackBlend.fValue) < 0.0001 AND ABS(rig.fbTel.fbAzimuthTrackBlend.fValue) < 0.0001), sText := CONCAT(sTest, 'the blend is closed'));
+		AssertTrue(Condition := NOT rig.fbTel.bError, Message := 'no error');
+		F_Note(bFailed := NOT (NOT rig.fbTel.bError), sText := CONCAT(sTest, 'no error'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+END_CASE
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Large_Retarget_By_Direct_Write_Goes_Through_The_Move" Id="{b6e089e6-31ab-445a-af01-195ef51e91f8}">
+      <Declaration><![CDATA[// #251: a direct RA/Dec write far from the track (here 5 deg) is not blended: the scan writes no setpoint, the telescope stops, goes
+// to the new target and tracks it. Every scan in which both axes track is smooth (no step), nothing is rejected.
+METHOD PRIVATE Large_Retarget_By_Direct_Write_Goes_Through_The_Move
+VAR_INST
+	rig			: FB_MonetRig;
+	nStep		: INT;
+	nCycles		: UINT;
+	sTest		: STRING(80);
+	nTracking	: UINT;
+	nHist		: UINT;
+	bObserve	: BOOL;
+	bDropped	: BOOL;
+	elP1		: LREAL;
+	elP2		: LREAL;
+	azP1		: LREAL;
+	azP2		: LREAL;
+	fMaxD1		: LREAL;
+	fMaxD2		: LREAL;
+	nRejects0	: UDINT;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Large_Retarget_By_Direct_Write_Goes_Through_The_Move');
+sTest := 'Large_Retarget_By_Direct_Write_Goes_Through_The_Move: ';
+IF nStep >= 90 THEN
+	RETURN;
+END_IF
+rig.Scan();
+nCycles := nCycles + 1;
+// the setpoints of the el/az axes (mock fPosition) per scan: step d1 and change of the step d2 while both track
+IF rig.fbElev.Tracking AND rig.fbAzim.Tracking THEN
+	nHist := nHist + 1;
+	IF bObserve AND nHist >= 3 THEN
+		fMaxD1 := MAX(fMaxD1, MAX(ABS(rig.fbElev.fPosition - elP1), ABS(rig.fbAzim.fPosition - azP1)));
+		fMaxD2 := MAX(fMaxD2, MAX(ABS(rig.fbElev.fPosition - 2.0 * elP1 + elP2), ABS(rig.fbAzim.fPosition - 2.0 * azP1 + azP2)));
+	END_IF
+ELSE
+	nHist := 0;
+	IF bObserve THEN
+		bDropped := TRUE;
+	END_IF
+END_IF
+elP2 := elP1;
+elP1 := rig.fbElev.fPosition;
+azP2 := azP1;
+azP1 := rig.fbAzim.fPosition;
+CASE nStep OF
+0:	// wait for the clock, then power on; the el/az mocks end a move at the target of its start, like the NC
+	IF rig.ClockValid THEN
+		rig.SetMoveLatchesTarget(TRUE);
+		rig.fbTel.Init();
+		nStep := 10;
+		nCycles := 0;
+	ELSIF nCycles > 2000 THEN
+		AssertTrue(Condition := FALSE, Message := 'the astronomical clock never became valid');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the astronomical clock never became valid'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+10:	// online: track a circumpolar target
+	IF rig.Online THEN
+		rig.fbTel.Track(fRightAscension := 0.0, fDeclination := -85.0);
+		nStep := 15;
+		nCycles := 0;
+	ELSIF nCycles > 1500 THEN
+		AssertTrue(Condition := FALSE, Message := 'the mock telescope did not reach READY_STATE 1.0');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the mock telescope did not reach READY_STATE 1.0'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+15:	// tracking for 1 s, then the direct write of the target (Visu binding, ADS client)
+	IF rig.fbAzim.Tracking AND rig.fbElev.Tracking AND rig.fbDero.Tracking THEN
+		nTracking := nTracking + 1;
+	ELSE
+		nTracking := 0;
+	END_IF
+	IF nTracking >= 100 THEN
+		nRejects0 := rig.fbTel.nCommandRejectCount;
+		rig.fbTel.fRightAscension := 180.0;
+		rig.fbTel.fDeclination := -80.0;
+		bObserve := TRUE;
+		nStep := 20;
+		nCycles := 0;
+	ELSIF nCycles > 1500 THEN
+		AssertTrue(Condition := FALSE, Message := 'the telescope did not start tracking');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the telescope did not start tracking'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+20:	IF bDropped AND nHist >= 200 THEN
+		AssertTrue(Condition := rig.fbTel.nLastRetarget = 2 AND rig.fbTel.nRetargetCount = 1, Message := 'the retarget took the stop/goto/track path');
+		F_Note(bFailed := NOT (rig.fbTel.nLastRetarget = 2 AND rig.fbTel.nRetargetCount = 1), sText := CONCAT(sTest, 'the retarget took the stop/goto/track path'));
+		AssertTrue(Condition := fMaxD1 < rig.fbTel.fOffsetVelocity * 0.01 + 0.0005 AND fMaxD2 < 0.0001, Message := 'every tracking scan is smooth');
+		F_Note(bFailed := NOT (fMaxD1 < rig.fbTel.fOffsetVelocity * 0.01 + 0.0005 AND fMaxD2 < 0.0001), sText := CONCAT(sTest, 'every tracking scan is smooth'));
+		AssertTrue(Condition := rig.fbTel.nCommandRejectCount = nRejects0, Message := 'nothing rejected');
+		F_Note(bFailed := NOT (rig.fbTel.nCommandRejectCount = nRejects0), sText := CONCAT(sTest, 'nothing rejected'));
+		AssertTrue(Condition := NOT rig.fbTel.bError, Message := 'no error');
+		F_Note(bFailed := NOT (NOT rig.fbTel.bError), sText := CONCAT(sTest, 'no error'));
+		nStep := 99;
+		TEST_FINISHED();
+	ELSIF nCycles > 3000 THEN
+		AssertTrue(Condition := FALSE, Message := 'the new target was not tracked');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the new target was not tracked'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+END_CASE
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Retarget_Mid_Blend_Keeps_The_Velocity" Id="{d6910426-803b-4040-a0b4-9b82aa32b3bc}">
+      <Declaration><![CDATA[// #251: a second retarget while the first blend runs adds to the running blend (FB_OffsetRamp.Shift keeps the velocity): no
+// velocity step across the second retarget, the blend ends at the new target.
+METHOD PRIVATE Retarget_Mid_Blend_Keeps_The_Velocity
+VAR_INST
+	rig			: FB_MonetRig;
+	nStep		: INT;
+	nCycles		: UINT;
+	sTest		: STRING(80);
+	nTracking	: UINT;
+	nHist		: UINT;
+	bObserve	: BOOL;
+	bDropped	: BOOL;
+	elP1		: LREAL;
+	elP2		: LREAL;
+	azP1		: LREAL;
+	azP2		: LREAL;
+	fMaxD1		: LREAL;
+	fMaxD2		: LREAL;
+	nRejects0	: UDINT;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Retarget_Mid_Blend_Keeps_The_Velocity');
+sTest := 'Retarget_Mid_Blend_Keeps_The_Velocity: ';
+IF nStep >= 90 THEN
+	RETURN;
+END_IF
+rig.Scan();
+nCycles := nCycles + 1;
+// the setpoints of the el/az axes (mock fPosition) per scan: step d1 and change of the step d2 while both track
+IF rig.fbElev.Tracking AND rig.fbAzim.Tracking THEN
+	nHist := nHist + 1;
+	IF bObserve AND nHist >= 3 THEN
+		fMaxD1 := MAX(fMaxD1, MAX(ABS(rig.fbElev.fPosition - elP1), ABS(rig.fbAzim.fPosition - azP1)));
+		fMaxD2 := MAX(fMaxD2, MAX(ABS(rig.fbElev.fPosition - 2.0 * elP1 + elP2), ABS(rig.fbAzim.fPosition - 2.0 * azP1 + azP2)));
+	END_IF
+ELSE
+	nHist := 0;
+	IF bObserve THEN
+		bDropped := TRUE;
+	END_IF
+END_IF
+elP2 := elP1;
+elP1 := rig.fbElev.fPosition;
+azP2 := azP1;
+azP1 := rig.fbAzim.fPosition;
+CASE nStep OF
+0:	// wait for the clock, then power on; the el/az mocks end a move at the target of its start, like the NC
+	IF rig.ClockValid THEN
+		rig.SetMoveLatchesTarget(TRUE);
+		rig.fbTel.Init();
+		nStep := 10;
+		nCycles := 0;
+	ELSIF nCycles > 2000 THEN
+		AssertTrue(Condition := FALSE, Message := 'the astronomical clock never became valid');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the astronomical clock never became valid'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+10:	// online: track a circumpolar target
+	IF rig.Online THEN
+		rig.fbTel.Track(fRightAscension := 0.0, fDeclination := -85.0);
+		nStep := 15;
+		nCycles := 0;
+	ELSIF nCycles > 1500 THEN
+		AssertTrue(Condition := FALSE, Message := 'the mock telescope did not reach READY_STATE 1.0');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the mock telescope did not reach READY_STATE 1.0'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+15:	// tracking for 1 s, then the direct write of the target (Visu binding, ADS client)
+	IF rig.fbAzim.Tracking AND rig.fbElev.Tracking AND rig.fbDero.Tracking THEN
+		nTracking := nTracking + 1;
+	ELSE
+		nTracking := 0;
+	END_IF
+	IF nTracking >= 100 THEN
+		nRejects0 := rig.fbTel.nCommandRejectCount;
+		rig.fbTel.fRetargetDerotatorMax := 1.0;
+		rig.fbTel.fDeclination := -85.02;
+		bObserve := TRUE;
+		nStep := 20;
+		nCycles := 0;
+	ELSIF nCycles > 1500 THEN
+		AssertTrue(Condition := FALSE, Message := 'the telescope did not start tracking');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the telescope did not start tracking'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+20:	IF nCycles >= 30 THEN
+		rig.fbTel.fDeclination := -85.0;
+		nStep := 21;
+		nCycles := 0;
+	END_IF
+21:	IF nCycles >= 400 THEN
+		AssertTrue(Condition := NOT bDropped, Message := 'the axes kept tracking');
+		F_Note(bFailed := NOT (NOT bDropped), sText := CONCAT(sTest, 'the axes kept tracking'));
+		AssertTrue(Condition := fMaxD1 < rig.fbTel.fOffsetVelocity * 0.01 + 0.0005 AND fMaxD2 < 0.0001, Message := 'the setpoints stayed continuous across both retargets');
+		F_Note(bFailed := NOT (fMaxD1 < rig.fbTel.fOffsetVelocity * 0.01 + 0.0005 AND fMaxD2 < 0.0001), sText := CONCAT(sTest, 'the setpoints stayed continuous across both retargets'));
+		AssertTrue(Condition := rig.fbTel.nRetargetCount = 2 AND rig.fbTel.nLastRetarget = 1, Message := 'both retargets were blended');
+		F_Note(bFailed := NOT (rig.fbTel.nRetargetCount = 2 AND rig.fbTel.nLastRetarget = 1), sText := CONCAT(sTest, 'both retargets were blended'));
+		AssertTrue(Condition := ABS(rig.fbTel.fbElevationTrackBlend.fValue) < 0.0001 AND ABS(rig.fbTel.fbAzimuthTrackBlend.fValue) < 0.0001, Message := 'the blend is closed');
+		F_Note(bFailed := NOT (ABS(rig.fbTel.fbElevationTrackBlend.fValue) < 0.0001 AND ABS(rig.fbTel.fbAzimuthTrackBlend.fValue) < 0.0001), sText := CONCAT(sTest, 'the blend is closed'));
+		AssertTrue(Condition := NOT rig.fbTel.bError, Message := 'no error');
+		F_Note(bFailed := NOT (NOT rig.fbTel.bError), sText := CONCAT(sTest, 'no error'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+END_CASE
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Stop_During_A_Retarget_Blend_Settles" Id="{e78ee59c-2b31-4c99-9b51-59d899ebaf1c}">
+      <Declaration><![CDATA[// #251: Stop() 0.2 s into a retarget blend is a normal stop from tracking: it settles, nothing tracks, no error.
+METHOD PRIVATE Stop_During_A_Retarget_Blend_Settles
+VAR_INST
+	rig			: FB_MonetRig;
+	nStep		: INT;
+	nCycles		: UINT;
+	sTest		: STRING(80);
+	nTracking	: UINT;
+	nHist		: UINT;
+	bObserve	: BOOL;
+	bDropped	: BOOL;
+	elP1		: LREAL;
+	elP2		: LREAL;
+	azP1		: LREAL;
+	azP2		: LREAL;
+	fMaxD1		: LREAL;
+	fMaxD2		: LREAL;
+	nRejects0	: UDINT;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Stop_During_A_Retarget_Blend_Settles');
+sTest := 'Stop_During_A_Retarget_Blend_Settles: ';
+IF nStep >= 90 THEN
+	RETURN;
+END_IF
+rig.Scan();
+nCycles := nCycles + 1;
+// the setpoints of the el/az axes (mock fPosition) per scan: step d1 and change of the step d2 while both track
+IF rig.fbElev.Tracking AND rig.fbAzim.Tracking THEN
+	nHist := nHist + 1;
+	IF bObserve AND nHist >= 3 THEN
+		fMaxD1 := MAX(fMaxD1, MAX(ABS(rig.fbElev.fPosition - elP1), ABS(rig.fbAzim.fPosition - azP1)));
+		fMaxD2 := MAX(fMaxD2, MAX(ABS(rig.fbElev.fPosition - 2.0 * elP1 + elP2), ABS(rig.fbAzim.fPosition - 2.0 * azP1 + azP2)));
+	END_IF
+ELSE
+	nHist := 0;
+	IF bObserve THEN
+		bDropped := TRUE;
+	END_IF
+END_IF
+elP2 := elP1;
+elP1 := rig.fbElev.fPosition;
+azP2 := azP1;
+azP1 := rig.fbAzim.fPosition;
+CASE nStep OF
+0:	// wait for the clock, then power on; the el/az mocks end a move at the target of its start, like the NC
+	IF rig.ClockValid THEN
+		rig.SetMoveLatchesTarget(TRUE);
+		rig.fbTel.Init();
+		nStep := 10;
+		nCycles := 0;
+	ELSIF nCycles > 2000 THEN
+		AssertTrue(Condition := FALSE, Message := 'the astronomical clock never became valid');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the astronomical clock never became valid'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+10:	// online: track a circumpolar target
+	IF rig.Online THEN
+		rig.fbTel.Track(fRightAscension := 0.0, fDeclination := -85.0);
+		nStep := 15;
+		nCycles := 0;
+	ELSIF nCycles > 1500 THEN
+		AssertTrue(Condition := FALSE, Message := 'the mock telescope did not reach READY_STATE 1.0');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the mock telescope did not reach READY_STATE 1.0'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+15:	// tracking for 1 s, then the direct write of the target (Visu binding, ADS client)
+	IF rig.fbAzim.Tracking AND rig.fbElev.Tracking AND rig.fbDero.Tracking THEN
+		nTracking := nTracking + 1;
+	ELSE
+		nTracking := 0;
+	END_IF
+	IF nTracking >= 100 THEN
+		nRejects0 := rig.fbTel.nCommandRejectCount;
+		rig.fbTel.fRetargetDerotatorMax := 1.0;
+		rig.fbTel.fDeclination := -85.02;
+		bObserve := TRUE;
+		nStep := 20;
+		nCycles := 0;
+	ELSIF nCycles > 1500 THEN
+		AssertTrue(Condition := FALSE, Message := 'the telescope did not start tracking');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the telescope did not start tracking'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+20:	IF nCycles >= 20 THEN
+		rig.fbTel.Stop();
+		nStep := 21;
+		nCycles := 0;
+	END_IF
+21:	IF nCycles > 5 AND NOT rig.fbTel.bStopActive AND rig.fbTel.bStopped THEN
+		AssertTrue(Condition := NOT rig.fbTel.bTrackActive AND NOT rig.fbAzim.Tracking AND NOT rig.fbElev.Tracking AND NOT rig.fbDero.Tracking, Message := 'the stop settled, nothing tracks');
+		F_Note(bFailed := NOT (NOT rig.fbTel.bTrackActive AND NOT rig.fbAzim.Tracking AND NOT rig.fbElev.Tracking AND NOT rig.fbDero.Tracking), sText := CONCAT(sTest, 'the stop settled, nothing tracks'));
+		AssertTrue(Condition := NOT rig.fbTel.bError, Message := 'no error');
+		F_Note(bFailed := NOT (NOT rig.fbTel.bError), sText := CONCAT(sTest, 'no error'));
+		nStep := 99;
+		TEST_FINISHED();
+	ELSIF nCycles > 400 THEN
+		AssertTrue(Condition := FALSE, Message := 'the stop did not settle');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the stop did not settle'));
 		nStep := 99;
 		TEST_FINISHED();
 	END_IF
