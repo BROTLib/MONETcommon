@@ -185,6 +185,7 @@ VAR
 	fAzVelLast				: LREAL;
 	nLastRetarget			: USINT;	// 0 none, 1 blend, 2 move (stop/goto/track); for tests and the scope
 	nRetargetCount			: UDINT;
+	bKeepRunning			: BOOL;	// #251 phase B: _AcceptMove does not supersede the running track (only inside Track()/TrackRaDec())
 
 	// #24 step 3a: the stage of each stage machine (until 0.12.0 a bare USINT nStage in the VAR_INST of the method; here so
 	// the read-only properties GotoStage, SlewStage, ParkStage and PowerOnStage can return it). The values are the old numbers.
@@ -3112,9 +3113,12 @@ bTrackChecked			:= TRUE;
 // #83: decide first, see Slew
 // #251 phase B: a nearby target while the track runs stays in the track (the retarget blend of _TrackTelescope)
 bInPlace := _TrackInPlace(fNewRa := fRightAscension, fNewDec := fDeclination);
-IF NOT _AcceptMove(E_TCSCommand.goto, E_TCSCommand.no_command, bInPlace) THEN
+bKeepRunning := bInPlace;
+IF NOT _AcceptMove(E_TCSCommand.goto, E_TCSCommand.no_command) THEN
+	bKeepRunning := FALSE;
 	RETURN;
 END_IF
+bKeepRunning := FALSE;
 IF ABS(THIS^.fRightAscension - fRightAscension) > 1.0E-9 OR ABS(THIS^.fDeclination - fDeclination) > 1.0E-9 THEN
 	_ClearOffsets();	// #177
 END_IF
@@ -3144,9 +3148,12 @@ bTrackChecked			:= TRUE;
 // #83: decide first, see Slew
 // #251 phase B: see Track
 bInPlace := _TrackInPlace(fNewRa := RaDec.RightAscension, fNewDec := RaDec.Declination);
-IF NOT _AcceptMove(E_TCSCommand.goto, E_TCSCommand.no_command, bInPlace) THEN
+bKeepRunning := bInPlace;
+IF NOT _AcceptMove(E_TCSCommand.goto, E_TCSCommand.no_command) THEN
+	bKeepRunning := FALSE;
 	RETURN;
 END_IF
+bKeepRunning := FALSE;
 IF ABS(fRightAscension - RaDec.RightAscension) > 1.0E-9 OR ABS(fDeclination - RaDec.Declination) > 1.0E-9 THEN
 	_ClearOffsets();	// #177
 END_IF
@@ -3207,7 +3214,6 @@ METHOD PROTECTED _AcceptMove : BOOL
 VAR_INPUT
 	eCommand	: E_TCSCommand;
 	eExcludeOwn	: E_TCSCommand;
-	bKeepRunning	: BOOL;	// #251 phase B: a replace does not supersede the running track (the retarget blend takes the new target)
 END_VAR
 VAR
 	eReason		: E_CommandRejectReason;
@@ -3221,7 +3227,7 @@ CASE eDecision OF
 		_NoteRejected(eCommand := eCommand, eReason := eReason);
 		_AcceptMove := FALSE;
 	E_CommandDecision.replace:
-		IF NOT bKeepRunning THEN
+		IF NOT bKeepRunning THEN	// #251 phase B: set by Track()/TrackRaDec() around the call (the interface is the one of the base block)
 			bSupersedeRequest := TRUE;
 			eSupersedeKeep := eCommand;
 		END_IF
