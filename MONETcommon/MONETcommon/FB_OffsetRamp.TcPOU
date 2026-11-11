@@ -85,5 +85,18 @@ bDone := FALSE;
 ]]></ST>
       </Implementation>
     </Method>
+    <Method Name="Shift" Id="{9d3b6c1e-5a47-4e08-8f2b-61c7a0d4e935}">
+      <Declaration><![CDATA[// #251: add fDelta to the applied value and KEEP its velocity (SetValue zeroes it, a velocity step mid-blend). At rest identical to SetValue(fValue + fDelta).
+METHOD Shift
+VAR_INPUT
+	fDelta	: LREAL;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[fValue := fValue + fDelta;
+bDone := FALSE;
+]]></ST>
+      </Implementation>
+    </Method>
   </POU>
 </TcPlcObject>
