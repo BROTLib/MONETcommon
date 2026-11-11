@@ -6,6 +6,7 @@ FUNCTION_BLOCK FB_DerotatorMock EXTENDS HalfBROT.FB_DerotatorControl
 VAR_INPUT
 	nMockMoveScans	: UINT := 60;	// scans a move takes (the telescope sees Busy meanwhile)
 	bMockLatchTarget	: BOOL;	// #252: a move ends at the target of its start (like MC_MoveAbsolute), not at the current one
+	fMockFollowingError	: LREAL;	// #267: deg the encoder lags the NC set position (ActualPosition = SetPosition - this); 0 = none
 	nMockStopScans	: UINT := 3;	// scans an MC_Stop takes until Done
 	nMockHomeScans	: UINT := 3;	// scans a homing takes
 	nMockDisableScans	: UINT := 1;	// scans MC_ExtSetPointGenDisable takes (BROTLib#101)
@@ -44,11 +45,12 @@ pBool := ADR(fbAxis.MoveDone);		pBool^ := fbCore.bMoveDone;
 pBool := ADR(fbAxis.Stopping);		pBool^ := fbCore.bStopping;
 pBool := ADR(fbAxis.StopDone);		pBool^ := fbCore.bStopDone;
 pBool := ADR(fbAxis.Busy);			pBool^ := fbCore.bInMotion OR fbCore.bHoming;
-pLreal := ADR(fbAxis.ActualPosition);	pLreal^ := fbCore.fPosition;
+pLreal := ADR(fbAxis.ActualPosition);	pLreal^ := fbCore.fPosition - fMockFollowingError;
+pLreal := ADR(fbAxis.SetPosition);		pLreal^ := fbCore.fPosition;	// the model position is the NC set position (#267)
 
 bReady := fbCore.bReady AND fbCore.bStandStill;
 bCalibrated := fbCore.bCalibrated;
-fActualPosition := fbCore.fPosition;
+fActualPosition := fbCore.fPosition - fMockFollowingError;
 nStopEdges := fbCore.nStopEdges;
 nExtErrors := fbCore.nExtErrors;
 IF fbCore.bExtError THEN

@@ -42,11 +42,11 @@ Slew_Method_And_Input_Edge_In_One_Scan_Count_Once();
 Repeated_Track_Retargets_And_Second_Stop_Works();
 Derotator_Offset_Set_At_The_Start_Of_A_Track_Is_Ramped();
 AltAz_Offsets_Set_During_A_Track_Are_Ramped();
-Track_Start_Setpoint_Begins_At_The_Axis_Position();
+Track_Start_Setpoint_Begins_At_The_Set_Position();
 Retarget_By_Direct_RaDec_Write_Is_Blended();
 Retarget_During_The_Move_Onto_The_Track();
 Feed_From_Position_Is_Passed_To_Elevation_And_Azimuth();
-Derotator_Track_Start_Setpoint_Begins_At_The_Axis_Position();
+Derotator_Track_Start_Setpoint_Begins_At_The_Set_Position();
 Derotator_Large_Gap_At_Track_Start_Restarts_The_Move();
 Small_Track_Retarget_Stays_Tracking();
 Large_Retarget_By_Direct_Write_Goes_Through_The_Move();
@@ -1114,13 +1114,15 @@ END_CASE
 ]]></ST>
       </Implementation>
     </Method>
-    <Method Name="Track_Start_Setpoint_Begins_At_The_Axis_Position" Id="{c5d9493b-8a3e-428c-a834-2f041544bf15}">
+    <Method Name="Track_Start_Setpoint_Begins_At_The_Set_Position" Id="{c5d9493b-8a3e-428c-a834-2f041544bf15}">
       <Declaration><![CDATA[// MONETN 2026-11-11 (plan 2026-11-11-altaz-offset-ramp): the move onto the track target ends where the target was when the move
 // started (MC_MoveAbsolute; the mock models it with SetMoveLatchesTarget), so the first tracking setpoint jumped by the drift of
 // the target since then (about 0.008 deg on the MONETN azimuth after a slew). Here the gap is made by offsets written while the
 // axes move onto the track (0.005 deg, azimuth 0.005 / COS(el)). The first tracking setpoint is now the axis position, the gap
 // is blended out in ramp steps (FB_OffsetRamp) and closed after 1.5 s.
-METHOD PRIVATE Track_Start_Setpoint_Begins_At_The_Axis_Position
+// #267: "the axis position" is the NC set position. The encoders lag it by a following error here (el 0.002, az -0.003 deg, like
+// MONET/N at MoveDone); a blend from the encoder stepped the setpoint by that much.
+METHOD PRIVATE Track_Start_Setpoint_Begins_At_The_Set_Position
 VAR_INST
 	rig			: FB_MonetRig;
 	nStep		: INT;
@@ -1136,20 +1138,24 @@ VAR_INST
 	fAzPrev		: LREAL;
 	fElMax		: LREAL;
 	fAzMax		: LREAL;
+	fElLag		: LREAL;
+	fAzLag		: LREAL;
 END_VAR
 ]]></Declaration>
       <Implementation>
-        <ST><![CDATA[TEST('Track_Start_Setpoint_Begins_At_The_Axis_Position');
-sTest := 'Track_Start_Setpoint_Begins_At_The_Axis_Position: ';
+        <ST><![CDATA[TEST('Track_Start_Setpoint_Begins_At_The_Set_Position');
+sTest := 'Track_Start_Setpoint_Begins_At_The_Set_Position: ';
 IF nStep >= 90 THEN
 	RETURN;
 END_IF
 rig.Scan();
 nCycles := nCycles + 1;
 CASE nStep OF
-0:	// wait for the clock, then power on; the elevation/azimuth mocks end a move at the target of its start, like the NC
+0:	// wait for the clock, then power on; the elevation/azimuth mocks end a move at the target of its start, like the NC, and their
+	// encoders lag the set position (#267)
 	IF rig.ClockValid THEN
 		rig.SetMoveLatchesTarget(TRUE);
+		rig.SetFollowingError(fElevation := 0.002, fAzimuth := -0.003, fDerotator := 0.0);
 		rig.fbTel.Init();
 		nStep := 10;
 		nCycles := 0;
@@ -1179,16 +1185,18 @@ CASE nStep OF
 		nStep := 99;
 		TEST_FINISHED();
 	END_IF
-20:	// the first tracking scan of each axis: the setpoint is the axis position
+20:	// the first tracking scan of each axis: the setpoint is the NC set position, not the encoder (#267)
 	IF rig.fbElev.Tracking AND NOT bElSeen THEN
 		bElSeen := TRUE;
-		fElGap := rig.fbElev.fPosition - rig.fbElev.fActualPosition;
+		fElGap := rig.fbElev.fPosition - rig.fbElev.SetPosition;
+		fElLag := rig.fbElev.SetPosition - rig.fbElev.fActualPosition;
 		fElStart := rig.fbElev.fPosition;
 		fElPrev := fElStart;
 	END_IF
 	IF rig.fbAzim.Tracking AND NOT bAzSeen THEN
 		bAzSeen := TRUE;
-		fAzGap := rig.fbAzim.fPosition - rig.fbAzim.fActualPosition;
+		fAzGap := rig.fbAzim.fPosition - rig.fbAzim.SetPosition;
+		fAzLag := rig.fbAzim.SetPosition - rig.fbAzim.fActualPosition;
 		fAzStart := rig.fbAzim.fPosition;
 		fAzPrev := fAzStart;
 	END_IF
@@ -1201,10 +1209,14 @@ CASE nStep OF
 		fAzPrev := rig.fbAzim.fPosition;
 	END_IF
 	IF bElSeen AND bAzSeen AND nCycles >= 250 THEN
-		AssertTrue(Condition := ABS(fElGap) < 1.0E-9, Message := 'elevation: the first tracking setpoint is the axis position');
+		AssertTrue(Condition := ABS(fElGap) < 1.0E-9, Message := 'elevation: the first tracking setpoint is the NC set position');
 		F_Note(bFailed := NOT (ABS(fElGap) < 1.0E-9), sText := CONCAT(sTest, 'elevation: the first tracking setpoint jumped'));
-		AssertTrue(Condition := ABS(fAzGap) < 1.0E-9, Message := 'azimuth: the first tracking setpoint is the axis position');
+		AssertTrue(Condition := ABS(fAzGap) < 1.0E-9, Message := 'azimuth: the first tracking setpoint is the NC set position');
 		F_Note(bFailed := NOT (ABS(fAzGap) < 1.0E-9), sText := CONCAT(sTest, 'azimuth: the first tracking setpoint jumped'));
+		AssertEquals_LREAL(Expected := 0.002, Actual := fElLag, Delta := 1.0E-9, Message := 'elevation: the encoder lagged the set position (the test sees a following error)');
+		F_Note(bFailed := NOT (ABS(fElLag - 0.002) < 1.0E-9), sText := CONCAT(sTest, 'elevation: no following error at the track start'));
+		AssertEquals_LREAL(Expected := -0.003, Actual := fAzLag, Delta := 1.0E-9, Message := 'azimuth: the encoder lagged the set position (the test sees a following error)');
+		F_Note(bFailed := NOT (ABS(fAzLag + 0.003) < 1.0E-9), sText := CONCAT(sTest, 'azimuth: no following error at the track start'));
 		AssertTrue(Condition := fElMax < 0.001 AND fAzMax < 0.001, Message := 'the gap is blended out in ramp steps (less than 0.001 deg per scan)');
 		F_Note(bFailed := NOT (fElMax < 0.001 AND fAzMax < 0.001), sText := CONCAT(sTest, 'the setpoint stepped after the track start'));
 		AssertTrue(Condition := ABS(fElPrev - fElStart) > 0.003 AND ABS(fAzPrev - fAzStart) > 0.003, Message := 'the gap (offsets of 0.005 deg) is closed');
@@ -1786,7 +1798,7 @@ END_CASE
       <Declaration><![CDATA[// #251: the target is written directly (Visu binding, ADS client) while the axes still move onto the track. The move keeps the target
 // of its start, so the gap at MoveDone is up to 2 deg (Dec -85 to -83). The clock is real: how the 2 deg split between elevation and azimuth
 // depends on the time of day, so at least one axis (not both) has a gap over fTrackStartBlendMax and restarts. The moves are started again and the first tracking
-// setpoint is the axis position (no step), as in Track_Start_Setpoint_Begins_At_The_Axis_Position.
+// setpoint is the NC set position (no step), as in Track_Start_Setpoint_Begins_At_The_Set_Position.
 METHOD PRIVATE Retarget_During_The_Move_Onto_The_Track
 VAR_INST
 	rig			: FB_MonetRig;
@@ -1842,19 +1854,19 @@ CASE nStep OF
 		nStep := 99;
 		TEST_FINISHED();
 	END_IF
-20:	// the first tracking scan of each axis: the setpoint is the axis position
+20:	// the first tracking scan of each axis: the setpoint is the NC set position
 	IF rig.fbElev.Tracking AND NOT bElSeen THEN
 		bElSeen := TRUE;
-		fElGap := rig.fbElev.fPosition - rig.fbElev.fActualPosition;
+		fElGap := rig.fbElev.fPosition - rig.fbElev.SetPosition;
 	END_IF
 	IF rig.fbAzim.Tracking AND NOT bAzSeen THEN
 		bAzSeen := TRUE;
-		fAzGap := rig.fbAzim.fPosition - rig.fbAzim.fActualPosition;
+		fAzGap := rig.fbAzim.fPosition - rig.fbAzim.SetPosition;
 	END_IF
 	IF bElSeen AND bAzSeen AND nCycles >= 250 THEN
-		AssertTrue(Condition := ABS(fElGap) < 1.0E-9, Message := 'elevation: the first tracking setpoint is the axis position');
+		AssertTrue(Condition := ABS(fElGap) < 1.0E-9, Message := 'elevation: the first tracking setpoint is the NC set position');
 		F_Note(bFailed := NOT (ABS(fElGap) < 1.0E-9), sText := CONCAT(sTest, 'elevation: the first tracking setpoint jumped'));
-		AssertTrue(Condition := ABS(fAzGap) < 1.0E-9, Message := 'azimuth: the first tracking setpoint is the axis position');
+		AssertTrue(Condition := ABS(fAzGap) < 1.0E-9, Message := 'azimuth: the first tracking setpoint is the NC set position');
 		F_Note(bFailed := NOT (ABS(fAzGap) < 1.0E-9), sText := CONCAT(sTest, 'azimuth: the first tracking setpoint jumped'));
 		AssertTrue(Condition := rig.fbTel.nMoveRestartCount >= 1, Message := 'the move of at least one axis was started again');
 		F_Note(bFailed := NOT (rig.fbTel.nMoveRestartCount >= 1), sText := CONCAT(sTest, 'no move was started again'));
@@ -1872,11 +1884,12 @@ END_CASE
 ]]></ST>
       </Implementation>
     </Method>
-    <Method Name="Derotator_Track_Start_Setpoint_Begins_At_The_Axis_Position" Id="{ac0827d8-dbf2-4a10-a0bb-e575e2ecfcff}">
+    <Method Name="Derotator_Track_Start_Setpoint_Begins_At_The_Set_Position" Id="{ac0827d8-dbf2-4a10-a0bb-e575e2ecfcff}">
       <Declaration><![CDATA[// #252: the move onto the track ends where the target was when the move started (the mocks model it with SetMoveLatchesTarget). The
 // derotator target moved since (here: RA written during the move, 0.3 deg), so its first tracking setpoint used to step by that
 // gap. Now the first tracking setpoint is the axis position and the gap is blended out in ramp steps (like elevation and azimuth).
-METHOD PRIVATE Derotator_Track_Start_Setpoint_Begins_At_The_Axis_Position
+// #267: the NC set position; the encoder lags it by 0.001 deg here.
+METHOD PRIVATE Derotator_Track_Start_Setpoint_Begins_At_The_Set_Position
 VAR_INST
 	rig			: FB_MonetRig;
 	nStep		: INT;
@@ -1888,20 +1901,23 @@ VAR_INST
 	fStart		: LREAL;
 	fPrev		: LREAL;
 	fMaxStep	: LREAL;
+	fLag		: LREAL;
 END_VAR
 ]]></Declaration>
       <Implementation>
-        <ST><![CDATA[TEST('Derotator_Track_Start_Setpoint_Begins_At_The_Axis_Position');
-sTest := 'Derotator_Track_Start_Setpoint_Begins_At_The_Axis_Position: ';
+        <ST><![CDATA[TEST('Derotator_Track_Start_Setpoint_Begins_At_The_Set_Position');
+sTest := 'Derotator_Track_Start_Setpoint_Begins_At_The_Set_Position: ';
 IF nStep >= 90 THEN
 	RETURN;
 END_IF
 rig.Scan();
 nCycles := nCycles + 1;
 CASE nStep OF
-0:	// wait for the clock, then power on; the mocks end a move at the target of its start, like the NC
+0:	// wait for the clock, then power on; the mocks end a move at the target of its start, like the NC, and the derotator encoder
+	// lags the set position (#267)
 	IF rig.ClockValid THEN
 		rig.SetMoveLatchesTarget(TRUE);
+		rig.SetFollowingError(fElevation := 0.0, fAzimuth := 0.0, fDerotator := 0.001);
 		rig.fbTel.Init();
 		nStep := 10;
 		nCycles := 0;
@@ -1933,10 +1949,11 @@ CASE nStep OF
 		nStep := 99;
 		TEST_FINISHED();
 	END_IF
-20:	// the first tracking scan of the derotator: the setpoint is the axis position
+20:	// the first tracking scan of the derotator: the setpoint is the NC set position, not the encoder (#267)
 	IF rig.fbDero.Tracking AND NOT bSeen THEN
 		bSeen := TRUE;
-		fGap := rig.fbDero.fPosition - rig.fbDero.fActualPosition;
+		fGap := rig.fbDero.fPosition - rig.fbDero.SetPosition;
+		fLag := rig.fbDero.SetPosition - rig.fbDero.fActualPosition;
 		fSource := rig.fbTel.fDerotatorCalc - rig.fbDero.fActualPosition;
 		fStart := rig.fbDero.fPosition;
 		fPrev := fStart;
@@ -1945,8 +1962,10 @@ CASE nStep OF
 		fPrev := rig.fbDero.fPosition;
 	END_IF
 	IF bSeen AND nCycles >= 250 THEN
-		AssertTrue(Condition := ABS(fGap) < 1.0E-9, Message := 'derotator: the first tracking setpoint is the axis position');
+		AssertTrue(Condition := ABS(fGap) < 1.0E-9, Message := 'derotator: the first tracking setpoint is the NC set position');
 		F_Note(bFailed := NOT (ABS(fGap) < 1.0E-9), sText := CONCAT(sTest, 'derotator: the first tracking setpoint jumped'));
+		AssertEquals_LREAL(Expected := 0.001, Actual := fLag, Delta := 1.0E-9, Message := 'derotator: the encoder lagged the set position (the test sees a following error)');
+		F_Note(bFailed := NOT (ABS(fLag - 0.001) < 1.0E-9), sText := CONCAT(sTest, 'derotator: no following error at the track start'));
 		AssertTrue(Condition := ABS(fSource) > 0.001, Message := 'the target had moved away from the axis during the move (the test sees a gap)');
 		F_Note(bFailed := NOT (ABS(fSource) > 0.001), sText := CONCAT(sTest, 'no gap between the target and the derotator at the track start'));
 		AssertTrue(Condition := fMaxStep < rig.fbTel.fOffsetVelocity * 0.01 + 0.0005, Message := 'the gap is blended out in ramp steps');
@@ -2031,7 +2050,7 @@ CASE nStep OF
 		fMaxSource := MAX(fMaxSource, ABS(rig.fbTel.fDerotatorCalc - rig.fbDero.fActualPosition));
 	ELSIF NOT bSeen THEN
 		bSeen := TRUE;
-		fGap := rig.fbDero.fPosition - rig.fbDero.fActualPosition;
+		fGap := rig.fbDero.fPosition - rig.fbDero.SetPosition;
 		fPrev := rig.fbDero.fPosition;
 	ELSE
 		fMaxStep := MAX(fMaxStep, ABS(rig.fbDero.fPosition - fPrev));
@@ -2042,7 +2061,7 @@ CASE nStep OF
 		F_Note(bFailed := NOT (fMaxSource > rig.fbTel.fTrackStartBlendMax), sText := CONCAT(sTest, 'no large derotator gap at the track start'));
 		AssertTrue(Condition := rig.fbTel.nDeroRestarts >= 1, Message := 'the derotator move was started again');
 		F_Note(bFailed := NOT (rig.fbTel.nDeroRestarts >= 1), sText := CONCAT(sTest, 'the derotator move was not started again'));
-		AssertTrue(Condition := ABS(fGap) < 1.0E-9, Message := 'derotator: the first tracking setpoint is the axis position');
+		AssertTrue(Condition := ABS(fGap) < 1.0E-9, Message := 'derotator: the first tracking setpoint is the NC set position');
 		F_Note(bFailed := NOT (ABS(fGap) < 1.0E-9), sText := CONCAT(sTest, 'derotator: the first tracking setpoint jumped'));
 		AssertTrue(Condition := fMaxStep < rig.fbTel.fOffsetVelocity * 0.01 + 0.0005, Message := 'the derotator setpoint moves in ramp steps');
 		F_Note(bFailed := NOT (fMaxStep < rig.fbTel.fOffsetVelocity * 0.01 + 0.0005), sText := CONCAT(sTest, 'the derotator setpoint stepped after the track start'));
