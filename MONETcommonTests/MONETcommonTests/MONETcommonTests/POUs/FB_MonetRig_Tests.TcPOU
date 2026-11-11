@@ -1976,10 +1976,10 @@ END_VAR
 rig.Scan();
 AssertFalse(Condition := rig.fbElev.fbAxis.FeedFromPosition OR rig.fbAzim.fbAxis.FeedFromPosition, Message := 'default: the old feed');
 AssertTrue(Condition := ABS(rig.fbElev.fbAxis.CycleTime - 0.01) < 1.0E-9 AND ABS(rig.fbAzim.fbAxis.CycleTime - 0.01) < 1.0E-9, Message := 'CycleTime is tCycle (10 ms)');
-rig.fbTel.bFeedFromPosition := TRUE;
+rig.SetFeedFromPosition(TRUE);
 rig.Scan();
 AssertTrue(Condition := rig.fbElev.fbAxis.FeedFromPosition AND rig.fbAzim.fbAxis.FeedFromPosition, Message := 'elevation and azimuth take the feed from the position');
-rig.fbTel.bFeedFromPosition := FALSE;
+rig.SetFeedFromPosition(FALSE);
 rig.Scan();
 AssertFalse(Condition := rig.fbElev.fbAxis.FeedFromPosition OR rig.fbAzim.fbAxis.FeedFromPosition, Message := 'switched off again');
 TEST_FINISHED();
