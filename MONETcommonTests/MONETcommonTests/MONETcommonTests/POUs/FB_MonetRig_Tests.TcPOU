@@ -45,6 +45,7 @@ AltAz_Offsets_Set_During_A_Track_Are_Ramped();
 Track_Start_Setpoint_Begins_At_The_Axis_Position();
 Retarget_By_Direct_RaDec_Write_Is_Blended();
 Retarget_During_The_Move_Onto_The_Track();
+Feed_From_Position_Is_Passed_To_Elevation_And_Azimuth();
 Derotator_Track_Start_Setpoint_Begins_At_The_Axis_Position();
 Small_Track_Retarget_Stays_Tracking();
 Large_Retarget_By_Direct_Write_Goes_Through_The_Move();
@@ -1960,6 +1961,28 @@ CASE nStep OF
 		TEST_FINISHED();
 	END_IF
 END_CASE
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Feed_From_Position_Is_Passed_To_Elevation_And_Azimuth" Id="{fb6a6370-df2a-4e5f-ad16-e462ca87cbba}">
+      <Declaration><![CDATA[// BROTLib#167: bFeedFromPosition (default FALSE) reaches FB_Axis.FeedFromPosition of elevation and azimuth, CycleTime is tCycle in s.
+METHOD PRIVATE Feed_From_Position_Is_Passed_To_Elevation_And_Azimuth
+VAR_INST
+	rig		: FB_MonetRig;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Feed_From_Position_Is_Passed_To_Elevation_And_Azimuth');
+rig.Scan();
+AssertFalse(Condition := rig.fbElev.fbAxis.FeedFromPosition OR rig.fbAzim.fbAxis.FeedFromPosition, Message := 'default: the old feed');
+AssertTrue(Condition := ABS(rig.fbElev.fbAxis.CycleTime - 0.01) < 1.0E-9 AND ABS(rig.fbAzim.fbAxis.CycleTime - 0.01) < 1.0E-9, Message := 'CycleTime is tCycle (10 ms)');
+rig.fbTel.bFeedFromPosition := TRUE;
+rig.Scan();
+AssertTrue(Condition := rig.fbElev.fbAxis.FeedFromPosition AND rig.fbAzim.fbAxis.FeedFromPosition, Message := 'elevation and azimuth take the feed from the position');
+rig.fbTel.bFeedFromPosition := FALSE;
+rig.Scan();
+AssertFalse(Condition := rig.fbElev.fbAxis.FeedFromPosition OR rig.fbAzim.fbAxis.FeedFromPosition, Message := 'switched off again');
+TEST_FINISHED();
 ]]></ST>
       </Implementation>
     </Method>
