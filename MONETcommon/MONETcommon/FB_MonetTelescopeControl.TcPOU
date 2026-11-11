@@ -45,6 +45,7 @@ VAR_INPUT
 	// #251: the move onto the track keeps the target of its start. If the target moved by more than fTrackStartBlendMax while it
 	// ran (a direct RA/Dec write, the Visu), the move is started again (a new Execute edge latches the new target) instead of
 	// stepping the setpoint at MoveDone; at most nMoveRestartMax times per axis and track start, then the old step (and a log entry).
+	// #264: the derotator restarts too, and after nMoveRestartMax it ramps the gap out instead of the step (a step faults its drive).
 	nMoveRestartMax			: UINT := 3;
 	tCycle					: TIME := T#10MS;	// PLC task cycle time (10 ms on MONETS and MONETN); _TaskInfo is not visible in a library
 	// BROTLib#167 (needs BROTLib 0.21.1: FB_BaseAxis.SetFeedFromPosition): TRUE feeds the NC setpoint generator of elevation and azimuth with the velocity and acceleration
@@ -198,6 +199,7 @@ VAR
 	nRetargetCount			: UDINT;
 	nElRestarts				: UINT;	// restarts of the move onto the track in this track start
 	nAzRestarts				: UINT;
+	nDeroRestarts			: UINT;	// #264
 	nMoveRestartCount		: UDINT;	// all restarts, for tests and the scope
 	bKeepRunning			: BOOL;	// #251 phase B: _AcceptMove does not supersede the running track (only inside Track()/TrackRaDec())
 
@@ -2678,12 +2680,14 @@ VAR
 	fDeroBlendVel	: LREAL;
 	bElRestart	: BOOL;
 	bAzRestart	: BOOL;
+	bDeroRestart	: BOOL;
 END_VAR
 ]]></Declaration>
       <Implementation>
         <ST><![CDATA[IF nTrackScan + 1 <> nScan THEN
 	nElRestarts := 0;	// a new track start: _TrackTelescope was not called in the previous scan
 	nAzRestarts := 0;
+	nDeroRestarts := 0;
 END_IF
 // #251: a new RA/Dec written while tracking (not through Track(), which replaces the move) must not reach the axes as a step
 IF fbElevation.Tracking AND fbAzimuth.Tracking AND nTrackScan + 1 = nScan
@@ -2830,19 +2834,30 @@ IF NOT fbDerotator.Tracking THEN
 	fbDerotator.MoveAxis := TRUE;
 	IF NOT fbDerotator.Busy AND fbDerotator.MoveDone THEN
 		fbDerotator.MoveAxis := FALSE;
-		IF fbDerotator.isTracking THEN
-			fbDerotator.Velocity := fDerotatorVelocity;
+		// #264: the restart of #251 for the derotator too. A gap above fTrackStartBlendMax at MoveDone was a one-scan step of the
+		// setpoint (SetValue(0.0)); 1.11 deg took the AX5206 down on MONET/N (F324, NC 0x4650, emergency park).
+		bDeroRestart := fOffsetAcceleration > 0.0 AND ABS(fbDerotator.fActualPosition - fDerotatorCalc) > fTrackStartBlendMax
+			AND nDeroRestarts < nMoveRestartMax;
+		IF bDeroRestart THEN
+			nDeroRestarts := nDeroRestarts + 1;
+			nMoveRestartCount := nMoveRestartCount + 1;
+			ADSLOGSTR(ADSLOG_MSGTYPE_HINT, 'Track start: the Derotator target moved during the move, the move is started again (%s)', UINT_TO_STRING(nDeroRestarts));
 		ELSE
-			fbDerotator.Velocity := 3.0*fDerotatorVelocity;
-		END_IF
 		fbDerotator.Velocity := fDerotatorVelocity;
 		fbDerotator.Tracking := TRUE;
-		IF fOffsetAcceleration > 0.0 AND ABS(fbDerotator.fActualPosition - fDerotatorCalc) <= fTrackStartBlendMax THEN
+		// #264: unlike elevation and azimuth, a gap still above fTrackStartBlendMax after the restarts is blended too (velocity at
+		// most fDeroBlendVel = fDerotatorOffsetRate), never stepped: a step faults the derotator drive. Only fOffsetAcceleration = 0
+		// keeps the old step.
+		IF fOffsetAcceleration > 0.0 THEN
+			IF ABS(fbDerotator.fActualPosition - fDerotatorCalc) > fTrackStartBlendMax THEN
+				ADSLOGSTR(ADSLOG_MSGTYPE_WARN OR ADSLOG_MSGTYPE_LOG, 'Track start: the Derotator target still moves after %s restarts, the gap is ramped out', UINT_TO_STRING(nMoveRestartMax));
+			END_IF
 			fbDerotatorTrackBlend.SetValue(fbDerotator.fActualPosition - fDerotatorCalc);
 		ELSE
 			fbDerotatorTrackBlend.SetValue(0.0);
 		END_IF
 		fbDerotator.Position := fDerotatorCalc + fbDerotatorTrackBlend.fValue;
+		END_IF
 	END_IF
 ELSE
 	fbDerotatorTrackBlend(fTarget := 0.0, bEnable := fOffsetAcceleration > 0.0,
