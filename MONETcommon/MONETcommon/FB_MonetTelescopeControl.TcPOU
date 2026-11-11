@@ -2681,15 +2681,16 @@ END_IF
 IF fbElevation.Tracking AND fbAzimuth.Tracking AND nTrackScan + 1 = nScan
 	AND (ABS(fRightAscension - fRaTracked) > 1.0E-9 OR ABS(fDeclination - fDecTracked) > 1.0E-9) THEN
 	fDtScan := TIME_TO_LREAL(tCycle) * 0.001;
-	// the old setpoint carried on by one scan, so the sidereal velocity does not drop to 0 in the retarget scan
+	// the old setpoint (it includes the running blend) carried on by one scan, so the sidereal velocity does not drop to 0 in the
+	// retarget scan. The blend becomes this gap: Shift adds to the running value, so it gets the gap minus the value.
 	fElGap := (fElSetLast + fElVelLast * fDtScan) - fElevationCalc;
 	fAzGap := (fAzSetLast + fAzVelLast * fDtScan) - fAzimuthCalc;
 	fDeroGap := (fDeroSetLast + fDeroVelLast * fDtScan) - fDerotatorCalc;
 	IF fOffsetAcceleration > 0.0 AND ABS(fElGap) <= fTrackStartBlendMax AND ABS(fAzGap) <= fTrackStartBlendMax
 		AND ABS(fDeroGap) <= fRetargetDerotatorMax THEN
-		fbElevationTrackBlend.Shift(fElGap);
-		fbAzimuthTrackBlend.Shift(fAzGap);
-		fbDerotatorTrackBlend.Shift(fDeroGap);
+		fbElevationTrackBlend.Shift(fElGap - fbElevationTrackBlend.fValue);
+		fbAzimuthTrackBlend.Shift(fAzGap - fbAzimuthTrackBlend.fValue);
+		fbDerotatorTrackBlend.Shift(fDeroGap - fbDerotatorTrackBlend.fValue);
 		nLastRetarget := 1;
 		nRetargetCount := nRetargetCount + 1;
 	ELSIF _AcceptMove(E_TCSCommand.goto, E_TCSCommand.no_command) THEN
@@ -2702,9 +2703,9 @@ IF fbElevation.Tracking AND fbAzimuth.Tracking AND nTrackScan + 1 = nScan
 		RETURN;
 	ELSE
 		// the replace was rejected (cannot happen while a move is active): blend, limited by the ramp velocity
-		fbElevationTrackBlend.Shift(fElGap);
-		fbAzimuthTrackBlend.Shift(fAzGap);
-		fbDerotatorTrackBlend.Shift(fDeroGap);
+		fbElevationTrackBlend.Shift(fElGap - fbElevationTrackBlend.fValue);
+		fbAzimuthTrackBlend.Shift(fAzGap - fbAzimuthTrackBlend.fValue);
+		fbDerotatorTrackBlend.Shift(fDeroGap - fbDerotatorTrackBlend.fValue);
 		nLastRetarget := 1;
 	END_IF
 END_IF
