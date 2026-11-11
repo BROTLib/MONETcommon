@@ -81,6 +81,7 @@ END_VAR
       <Implementation>
         <ST><![CDATA[fbElev.bMockLatchTarget := bValue;
 fbAzim.bMockLatchTarget := bValue;
+fbDero.bMockLatchTarget := bValue;
 ]]></ST>
       </Implementation>
     </Method>
