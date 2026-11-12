@@ -32,7 +32,7 @@ VAR_INPUT
 	// the axis setpoint through FB_OffsetRamp (velocity <= fOffsetVelocity, change of velocity <= fOffsetAcceleration per s), not as
 	// a one-scan step: with the AX5125 in mode 11 (lag-less) a 0.01 deg step rang with 50-70 % overshoot. 0.01 deg takes about
 	// 0.43 s, a 5 arcsec pendant tap 0.15 s, 10 arcmin 1.8 s. The same ramp blends the jump at the start of a track (the setpoint
-	// starts at the axis position, up to fTrackStartBlendMax). fOffsetAcceleration = 0 restores the old steps (both).
+	// starts at the NC set position of the axis (#267), up to fTrackStartBlendMax). fOffsetAcceleration = 0 restores the old steps (both).
 	fOffsetAcceleration		: LREAL := 0.2;	// deg/s^2 (the azimuth value is the sky offset, before F_AzimuthOffsetOnAxis)
 	fOffsetVelocity			: LREAL := 0.5;	// deg/s
 	fTrackStartBlendMax		: LREAL := 0.5;	// deg; a larger gap at the start of a track is not blended (a turn or a fault, old behaviour)
@@ -2737,7 +2737,9 @@ END_IF
 
 // Elevation (2026-11-11 track-start blend): the move onto the track target ends where the target was when the move started; the
 // target has drifted since (about 0.008 deg on the MONETN azimuth after a slew). The setpoint of the first tracking scan is the
-// axis position, the gap is ramped out by fbElevationTrackBlend (FB_OffsetRamp) instead of a one-scan step.
+// NC set position of the axis, the gap is ramped out by fbElevationTrackBlend (FB_OffsetRamp) instead of a one-scan step. #267: the set
+// position, not the encoder (fActualPosition): they differ by the following error (1-3 mdeg on MONET/N at MoveDone), which was a
+// one-scan step of the setpoint. The checks against fTrackStartBlendMax (restart, blend or not) stay on the encoder.
 IF NOT fbElevation.Tracking THEN
 	fbElevation.Position := fElevationCalc;
 	fbElevation.Velocity := stMotionUsed.fElevationMoveVelocity;
@@ -2764,7 +2766,7 @@ IF NOT fbElevation.Tracking THEN
 		fbElevation.Velocity := fElevationVelocity;
 		fbElevation.Tracking := TRUE;
 		IF fOffsetAcceleration > 0.0 AND ABS(fbElevation.fActualPosition - fElevationCalc) <= fTrackStartBlendMax THEN
-			fbElevationTrackBlend.SetValue(fbElevation.fActualPosition - fElevationCalc);
+			fbElevationTrackBlend.SetValue(fbElevation.SetPosition - fElevationCalc);	// #267
 		ELSE
 			fbElevationTrackBlend.SetValue(0.0);
 		END_IF
@@ -2780,7 +2782,9 @@ END_IF
 
 // Azimuth (2026-11-11 track-start blend): the move onto the track target ends where the target was when the move started; the
 // target has drifted since (about 0.008 deg on the MONETN azimuth after a slew). The setpoint of the first tracking scan is the
-// axis position, the gap is ramped out by fbAzimuthTrackBlend (FB_OffsetRamp) instead of a one-scan step.
+// NC set position of the axis, the gap is ramped out by fbAzimuthTrackBlend (FB_OffsetRamp) instead of a one-scan step. #267: the set
+// position, not the encoder (fActualPosition): they differ by the following error (1-3 mdeg on MONET/N at MoveDone), which was a
+// one-scan step of the setpoint. The checks against fTrackStartBlendMax (restart, blend or not) stay on the encoder.
 IF NOT fbAzimuth.Tracking THEN
 	fbAzimuth.Position := fAzimuthCalc;
 	fbAzimuth.Velocity := stMotionUsed.fAzimuthMoveVelocity;
@@ -2807,7 +2811,7 @@ IF NOT fbAzimuth.Tracking THEN
 		fbAzimuth.Velocity := fAzimuthVelocity;
 		fbAzimuth.Tracking := TRUE;
 		IF fOffsetAcceleration > 0.0 AND ABS(fbAzimuth.fActualPosition - fAzimuthCalc) <= fTrackStartBlendMax THEN
-			fbAzimuthTrackBlend.SetValue(fbAzimuth.fActualPosition - fAzimuthCalc);
+			fbAzimuthTrackBlend.SetValue(fbAzimuth.SetPosition - fAzimuthCalc);	// #267
 		ELSE
 			fbAzimuthTrackBlend.SetValue(0.0);
 		END_IF
@@ -2847,12 +2851,12 @@ IF NOT fbDerotator.Tracking THEN
 		fbDerotator.Tracking := TRUE;
 		// #264: unlike elevation and azimuth, a gap still above fTrackStartBlendMax after the restarts is blended too (velocity at
 		// most fDeroBlendVel = fDerotatorOffsetRate), never stepped: a step faults the derotator drive. Only fOffsetAcceleration = 0
-		// keeps the old step.
+		// keeps the old step. #267: the blend starts at the NC set position, like elevation and azimuth.
 		IF fOffsetAcceleration > 0.0 THEN
 			IF ABS(fbDerotator.fActualPosition - fDerotatorCalc) > fTrackStartBlendMax THEN
 				ADSLOGSTR(ADSLOG_MSGTYPE_WARN OR ADSLOG_MSGTYPE_LOG, 'Track start: the Derotator target still moves after %s restarts, the gap is ramped out', UINT_TO_STRING(nMoveRestartMax));
 			END_IF
-			fbDerotatorTrackBlend.SetValue(fbDerotator.fActualPosition - fDerotatorCalc);
+			fbDerotatorTrackBlend.SetValue(fbDerotator.SetPosition - fDerotatorCalc);	// #267
 		ELSE
 			fbDerotatorTrackBlend.SetValue(0.0);
 		END_IF
