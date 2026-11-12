@@ -333,6 +333,25 @@ VAR
 	bWindowRamp				: BOOL;	// the controlled stop of a window error is running, the error branch does not disable the axes
 	bWindowRampStarted		: BOOL;	// one scan, logged
 	WindowRampEvent			: FB_EventLog;
+	// #272: an axis error (fbElevation.Error, fbAzimuth.bError, fbDerotator.bError) while a healthy axis moves. The brake is one
+	// hydraulic circuit for all axes and clamps on its own when the hydraulics go off. Until 0.23.x the error branch disabled all
+	// three axes in the scan of the error, so the healthy ones lost their drive under motion and the brake alone stopped them
+	// (MONET/N 2026-11-12, el error during a slew: az ran on 20.4 deg in 11 s from 6 deg/s). Now only the faulty axis is disabled;
+	// the healthy ones get the stop (bStop, stop transaction #96) at the fast-stop dynamics of stMotionUsed (BROTLib
+	// SetStopDynamics, 0.0 = the NC parameters) and stay enabled until it has settled. An elevation or azimuth fault has no drive,
+	// so the shared brake is closed at once and the healthy drives stop alongside it; a derotator fault alone leaves the brake open.
+	// The emergency park is queued behind the stop (bParkAfterStop) and parks in place at rest, so the hydraulics stay on until then.
+	// It ends when the stop has settled, when a further axis faults, when the axis error is gone (reset), on an E-stop, a safety
+	// error, a pressure loss or the stop timeout; the error branch then disables the axes as before.
+	bAxisError				: BOOL;	// an axis reports an error in this scan
+	bAxisErrorLast			: BOOL;	// its value of the last automatic scan (edge memory)
+	abAxisFaulty			: ARRAY[1..3] OF BOOL;	// the faulty axes of this scan, 1 az, 2 el, 3 dero (the fbStopTx order)
+	abAxisFaultyAtStart		: ARRAY[1..3] OF BOOL;	// the faulty axes when the ramp started
+	bAxisErrorCanRamp		: BOOL;	// the healthy drives may ramp in this scan
+	bAxisErrorRamp			: BOOL;	// the controlled stop of the healthy axes is running, the error branch disables only the faulty ones
+	bAxisErrorRampStarted	: BOOL;	// one scan, logged
+	AxisErrorRampEvent		: FB_EventLog;
+	nAxisRamp				: INT;
 	// #24 step 7 PR 8 (plan D8, specs/design/monetcommon-safe-states.md row "Focus error"): only the focus is faulty, the axes are
 	// healthy. On the edge of the emergency park (#86), if the axes can drive (F_ParkAxesCanMove, oil pressure there), the park drives
 	// to the park position instead of parking in place: an enabled axis that moves gets the controlled stop first (bStop, #96, the
@@ -625,6 +644,55 @@ IF bHwError AND NOT bHwErrorLast AND bFocusErrorOnly AND NOT bIsParked AND fbHyd
 	END_IF
 END_IF
 
+// #272: an axis error under motion stops the healthy axes with their drives (see the declaration of bAxisErrorRamp). After the
+// focus block, which ends its own park on an axis error in this scan.
+abAxisFaulty[1] := fbAzimuth.bError;
+abAxisFaulty[2] := fbElevation.Error;
+abAxisFaulty[3] := fbDerotator.bError;
+bAxisError := abAxisFaulty[1] OR abAxisFaulty[2] OR abAxisFaulty[3];
+bAxisErrorCanRamp := fbHydraulics.OilPressureOK AND NOT bEstopTriggered AND NOT bSafetyError;
+IF bAxisErrorRamp AND (NOT bAxisError OR NOT bAxisErrorCanRamp OR NOT bStopActive OR
+		(abAxisFaulty[1] AND NOT abAxisFaultyAtStart[1]) OR (abAxisFaulty[2] AND NOT abAxisFaultyAtStart[2]) OR
+		(abAxisFaulty[3] AND NOT abAxisFaultyAtStart[3]) OR
+		(tonCommandTimeout.Q AND TCS_command = E_TCSCommand.stop)) THEN
+	bAxisErrorRamp := FALSE;
+END_IF
+IF NOT bAxisErrorRamp THEN
+	// the normal stop again (0.0: the NC parameters); a running MC_Stop keeps the dynamics it started with
+	fbAzimuth.SetStopDynamics(fDeceleration := 0.0, fJerk := 0.0);
+	fbElevation.SetStopDynamics(fDeceleration := 0.0, fJerk := 0.0);
+	fbDerotator.SetStopDynamics(fDeceleration := 0.0, fJerk := 0.0);
+END_IF
+// on the rising edge only, with the brake still open (it is open under motion) and a healthy enabled axis that moves (also
+// homing or tracking); with no healthy axis moving the disable is the stop, as before. Not during the first power-on after a PLC
+// start: its Az/El error is the expected Wake&Shake fault (#113, #155), handled as before
+IF bAxisError AND NOT bAxisErrorLast AND bAxisErrorCanRamp AND fbBrake.BrakeOpen AND
+		NOT (bFirstPowerOnPending AND (bPowerActive OR fbStartup.Initializing)) AND
+		((NOT abAxisFaulty[1] AND fbStopTx.abEnabled[1] AND (fbStopTx.abMoving[1] OR aAxis[1].bTracking)) OR
+		 (NOT abAxisFaulty[2] AND fbStopTx.abEnabled[2] AND (fbStopTx.abMoving[2] OR aAxis[2].bTracking)) OR
+		 (NOT abAxisFaulty[3] AND fbStopTx.abEnabled[3] AND (fbStopTx.abMoving[3] OR aAxis[3].bTracking))) THEN
+	bAxisErrorRamp := TRUE;
+	bAxisErrorRampStarted := TRUE;
+	FOR nAxisRamp := 1 TO 3 DO
+		abAxisFaultyAtStart[nAxisRamp] := abAxisFaulty[nAxisRamp];
+	END_FOR
+	fbAzimuth.SetStopDynamics(fDeceleration := stMotionUsed.fAzimuthFastStopDeceleration, fJerk := stMotionUsed.fAzimuthFastStopJerk);
+	fbElevation.SetStopDynamics(fDeceleration := stMotionUsed.fElevationFastStopDeceleration, fJerk := stMotionUsed.fElevationFastStopJerk);
+	fbDerotator.SetStopDynamics(fDeceleration := stMotionUsed.fDerotatorFastStopDeceleration, fJerk := stMotionUsed.fDerotatorFastStopJerk);
+	bStopActive := TRUE;
+	// a park that was driving (e.g. the focus-error park) would be dropped by the stop: queue it behind the stop (bParkAfterStop),
+	// it parks in place there. A new emergency park is queued by _ParkRequests in this scan.
+	IF bParkActive THEN
+		Park();
+	END_IF
+	// a faulty elevation or azimuth has no drive: only the brake holds it. The brake is shared, so the healthy axes are braked
+	// too; their fast stop works with it. An elevation error has its own close in _ApplyError (#155, once on the edge).
+	IF abAxisFaulty[1] THEN
+		fbBrake.CloseBrake();
+	END_IF
+END_IF
+bAxisErrorLast := bAxisError;
+
 // #24 step 7 PR 1 (D9): the roof close request, from the serious classes only (not bError: the focus error and the software
 // errors are recoverable; not bPowerFailure, a power-on failure; power failure is NOT bMainReady, the phase monitor). Latched
 // on the rising edge, so a cause that is gone again (a short E-stop, a phase dip) still requests the close; bReset (held while
@@ -664,11 +732,21 @@ METHOD PROTECTED _ApplyError
 		// park of a timeout (bTimeoutPark, only without a hardware error, E-stop or safety error). PR 7: nor during the ramp of a power failure.
 		// PR 8: nor during the ramp and the drive of the focus-error park (bFocusErrorPark, only while the focus error is the only error);
 		// its park disables them
-		IF NOT bHydraulicsRamp AND NOT bTimeoutPark AND NOT bMainPowerRamp AND NOT bFocusErrorPark AND NOT bWindowRamp THEN
+		// #272: nor during the stop of the healthy axes after an axis error (bAxisErrorRamp): only the faulty axes are disabled below
+		IF NOT bHydraulicsRamp AND NOT bTimeoutPark AND NOT bMainPowerRamp AND NOT bFocusErrorPark AND NOT bWindowRamp AND
+				NOT bAxisErrorRamp THEN
 			fbElevation.Enable := FALSE;
 			fbAzimuth.Enable := FALSE;
 			fbDerotator.Enable := FALSE;
 		END_IF
+END_IF
+IF bAxisErrorRamp THEN
+	IF abAxisFaulty[1] THEN
+		fbAzimuth.Enable := FALSE;
+	END_IF
+	IF abAxisFaulty[3] THEN
+		fbDerotator.Enable := FALSE;
+	END_IF
 END_IF
 
 // #155: the brake is closed once when the elevation error appears, not in every scan: a level close would undo the
@@ -676,8 +754,10 @@ END_IF
 rtrigElevationError(CLK := fbElevation.bError);
 IF fbElevation.bError THEN
 	fbElevation.Enable := FALSE;
-	fbAzimuth.Enable := FALSE;
-	fbDerotator.Enable := FALSE;
+	IF NOT bAxisErrorRamp THEN	// #272: during its ramp the healthy axes stay enabled for their stop
+		fbAzimuth.Enable := FALSE;
+		fbDerotator.Enable := FALSE;
+	END_IF
 	IF rtrigElevationError.Q THEN
 		fbBrake.CloseBrake();
 	END_IF
@@ -1381,8 +1461,7 @@ CASE eParkStage OF
 			IF NOT bSafetyStop THEN
 				fbCovers.Close();
 			END_IF
-			bParkedInPlace := TRUE;
-			bParkedInPlaceLogged := TRUE;
+			bParkedInPlace := TRUE;	// logged in stage parked (#272: at rest, not where the axes were when the park began)
 			eParkStage := E_ParkStage.secure;
 		ELSE
 			bParkedInPlace := FALSE;
@@ -1460,6 +1539,11 @@ CASE eParkStage OF
 			eParkStage := E_ParkStage.parked;
 		END_IF
 	E_ParkStage.parked:
+			// #272: the position of a park in place once the axes are disabled and braked; logged in stage prepare until 0.23.x,
+			// where a disabled axis could still run on under the brake (MONET/N 2026-11-12: el 7 deg, az 20 deg further on)
+			IF bParkedInPlace THEN
+				bParkedInPlaceLogged := TRUE;
+			END_IF
 			bIsParked := TRUE;
 			bParkActive := FALSE;
 			_ParkTelescope := 100;
@@ -1683,7 +1767,8 @@ IF __ISVALIDREF(fbAzimuth) AND __ISVALIDREF(fbElevation) AND __ISVALIDREF(fbDero
         // #24 step 7 PR 8: also during the ramp or the drive of the focus-error park; after manual mode that park parks in place
         // (the pendant may have moved or disabled the axes), so it is given up here
         bSuspendStop := BROTLib.F_SuspendStop(	// #24 step 6: BROTLib's copy, the three axes OR-ed here
-            bError := bError AND NOT bHydraulicsRamp AND NOT bTimeoutPark AND NOT bMainPowerRamp AND NOT bFocusErrorPark AND NOT bWindowRamp,
+            bError := bError AND NOT bHydraulicsRamp AND NOT bTimeoutPark AND NOT bMainPowerRamp AND NOT bFocusErrorPark AND NOT bWindowRamp
+                AND NOT bAxisErrorRamp,	// #272
             bStopRunning := TCS_command = E_TCSCommand.stop AND (bStopActive OR bMoveAbortPending),
             bAnyAxisMoving := (fbStopTx.abEnabled[1] AND fbStopTx.abMoving[1])
                 OR (fbStopTx.abEnabled[2] AND fbStopTx.abMoving[2])
@@ -2103,6 +2188,12 @@ WindowRampEvent(	Trigger := bWindowRampStarted,
 				OnMessage := 'goto target outside the elevation window while moving: controlled stop of the axes, no park',
 				Comm := fbComm);
 bWindowRampStarted := FALSE;
+AxisErrorRampEvent(	Trigger := bAxisErrorRampStarted,
+				Level := ADSLOG_MSGTYPE_WARN,
+				FormatString := '%s',
+				OnMessage := 'axis error while moving: fast stop of the healthy axes, then park in place',
+				Comm := fbComm);
+bAxisErrorRampStarted := FALSE;
 FocusErrorParkEvent(	Trigger := bFocusErrorParkStarted,
 				Level := ADSLOG_MSGTYPE_WARN,
 				FormatString := '%s',

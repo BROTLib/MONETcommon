@@ -33,6 +33,10 @@ Focus_Error_With_An_Axis_Error_Parks_In_Place();
 Axis_Error_During_The_Focus_Error_Park_Parks_In_Place();
 Stuck_Focus_Does_Not_Hold_The_Focus_Error_Park();
 Focus_Error_Park_Recovers_With_Reset_And_Power_On();
+Elevation_Error_During_A_Slew_Fast_Stops_The_Healthy_Axes();
+Azimuth_Error_During_A_Slew_Closes_The_Brake_At_Once();
+Derotator_Error_During_A_Slew_Keeps_The_Brake_Open_For_The_Ramp();
+Second_Axis_Error_During_The_Ramp_Disables_All_Axes();
 ]]></ST>
     </Implementation>
     <Method Name="Elevation_Error_Starts_The_Emergency_Park" Id="{6190de19-41df-490b-93bf-4ae2a295f3a2}">
@@ -1792,6 +1796,399 @@ CASE nStep OF
 	ELSIF nCycles > 1500 THEN
 		AssertTrue(Condition := FALSE, Message := 'the park after the release did not end');
 		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the park after the release did not end'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+END_CASE
+
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Elevation_Error_During_A_Slew_Fast_Stops_The_Healthy_Axes" Id="{19cc2cd3-08a1-4701-8de2-464a0c4f9f7a}">
+      <Declaration><![CDATA[// #272: an elevation error during a slew. In the scan of the error only the elevation is disabled and the shared brake is
+// closed (no drive holds it); azimuth and derotator stay enabled and get their MC_Stop at the fast-stop dynamics of stMotion
+// (bAxisErrorRamp), the hydraulics stay on. After the stop has settled the emergency park parks in place: all axes disabled,
+// brake closed, covers closed, hydraulics off, the stop dynamics back at the NC parameters (0.0). Until 0.23.x all three axes
+// were disabled in the scan of the error and the brake alone stopped the azimuth.
+METHOD PRIVATE Elevation_Error_During_A_Slew_Fast_Stops_The_Healthy_Axes
+VAR_INST
+	rig			: FB_MonetRig;
+	stCfg		: BROTLib.ST_MotionConfig;
+	nStep		: INT;
+	nCycles		: UINT;
+	sTest		: STRING(80);
+	nAz0		: UINT;
+	nDr0		: UINT;
+	nDisable0	: UINT;
+	bSeenError	: BOOL;
+	bSawRamp	: BOOL;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Elevation_Error_During_A_Slew_Fast_Stops_The_Healthy_Axes');
+sTest := 'Elevation_Error_During_A_Slew_Fast_Stops_The_Healthy_Axes: ';
+IF nStep >= 90 THEN
+	RETURN;
+END_IF
+IF nStep = 0 AND nCycles = 0 THEN
+	stCfg.fAzimuthFastStopDeceleration := 10.0;
+	stCfg.fAzimuthFastStopJerk := 30.0;
+	stCfg.fElevationFastStopDeceleration := 9.0;
+	stCfg.fElevationFastStopJerk := 27.0;
+	stCfg.fDerotatorFastStopDeceleration := 20.0;
+	stCfg.fDerotatorFastStopJerk := 60.0;
+	rig.SetMotion(stValue := stCfg);
+END_IF
+rig.Scan();
+nCycles := nCycles + 1;
+CASE nStep OF
+0:	// wait for the clock, then power on
+	IF rig.ClockValid THEN
+		rig.fbTel.Init();
+		nStep := 10;
+		nCycles := 0;
+	ELSIF nCycles > 2000 THEN
+		AssertTrue(Condition := FALSE, Message := 'the astronomical clock never became valid');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the astronomical clock never became valid'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+10:	// online: slew
+	IF rig.Online THEN
+		rig.fbTel.Slew(fAzimuth := 180.0, fAltitude := 45.0);
+		nStep := 20;
+		nCycles := 0;
+	ELSIF nCycles > 1500 THEN
+		AssertTrue(Condition := FALSE, Message := 'the mock telescope did not reach READY_STATE 1.0');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the mock telescope did not reach READY_STATE 1.0'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+20:	// the slew moves all three axes: the elevation reports an error
+	IF rig.fbElev.MoveAxis AND rig.fbAzim.MoveAxis AND rig.fbDero.MoveAxis AND nCycles >= 3 THEN
+		nAz0 := rig.fbAzim.nStopEdges;
+		nDr0 := rig.fbDero.nStopEdges;
+		nDisable0 := rig.fbBrakeHyd.nDisableCalls;
+		rig.InjectElevationError(16#4550);
+		nStep := 30;
+		nCycles := 0;
+	ELSIF nCycles > 300 THEN
+		AssertTrue(Condition := FALSE, Message := 'the slew did not start the axis moves');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the slew did not start the axis moves'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+30:
+	bSawRamp := bSawRamp OR rig.fbTel.bAxisErrorRamp;
+	IF rig.fbTel.bError AND NOT bSeenError THEN	// the scan that saw the error
+		bSeenError := TRUE;
+		AssertTrue(Condition := rig.fbTel.bAxisErrorRamp AND rig.fbTel.bStopActive, Message := 'the error starts the ramp (bStop)');
+		F_Note(bFailed := NOT (rig.fbTel.bAxisErrorRamp AND rig.fbTel.bStopActive), sText := CONCAT(sTest, 'the error starts the ramp (bStop)'));
+		AssertFalse(Condition := rig.fbElev.bEnable, Message := 'the faulty elevation is disabled');
+		F_Note(bFailed := (rig.fbElev.bEnable), sText := CONCAT(sTest, 'the faulty elevation is disabled'));
+		AssertTrue(Condition := rig.fbAzim.bEnable AND rig.fbDero.bEnable, Message := 'azimuth and derotator stay enabled for their stop');
+		F_Note(bFailed := NOT (rig.fbAzim.bEnable AND rig.fbDero.bEnable), sText := CONCAT(sTest, 'azimuth and derotator stay enabled for their stop'));
+		AssertFalse(Condition := rig.fbBrakeHyd.BrakeOpen, Message := 'the shared brake is closed at once');
+		F_Note(bFailed := (rig.fbBrakeHyd.BrakeOpen), sText := CONCAT(sTest, 'the shared brake is closed at once'));
+		AssertTrue(Condition := rig.fbBrakeHyd.nDisableCalls = nDisable0, Message := 'the hydraulics stay on');
+		F_Note(bFailed := NOT (rig.fbBrakeHyd.nDisableCalls = nDisable0), sText := CONCAT(sTest, 'the hydraulics stay on'));
+		AssertTrue(Condition := rig.fbAzim.fbAxis.StopDeceleration = 10.0 AND rig.fbAzim.fbAxis.StopJerk = 30.0, Message := 'the azimuth stops at its fast-stop dynamics');
+		F_Note(bFailed := NOT (rig.fbAzim.fbAxis.StopDeceleration = 10.0 AND rig.fbAzim.fbAxis.StopJerk = 30.0), sText := CONCAT(sTest, 'the azimuth stops at its fast-stop dynamics'));
+		AssertTrue(Condition := rig.fbDero.fbAxis.StopDeceleration = 20.0 AND rig.fbDero.fbAxis.StopJerk = 60.0, Message := 'the derotator stops at its fast-stop dynamics');
+		F_Note(bFailed := NOT (rig.fbDero.fbAxis.StopDeceleration = 20.0 AND rig.fbDero.fbAxis.StopJerk = 60.0), sText := CONCAT(sTest, 'the derotator stops at its fast-stop dynamics'));
+	END_IF
+	IF rig.fbTel.bIsParked AND nCycles > 5 THEN
+		AssertTrue(Condition := bSawRamp, Message := 'the ramp ran');
+		F_Note(bFailed := NOT (bSawRamp), sText := CONCAT(sTest, 'the ramp ran'));
+		AssertTrue(Condition := rig.fbAzim.nStopEdges > nAz0 AND rig.fbDero.nStopEdges > nDr0, Message := 'azimuth and derotator were sent their MC_Stop');
+		F_Note(bFailed := NOT (rig.fbAzim.nStopEdges > nAz0 AND rig.fbDero.nStopEdges > nDr0), sText := CONCAT(sTest, 'azimuth and derotator were sent their MC_Stop'));
+		AssertTrue(Condition := rig.fbTel.bParkedInPlace AND NOT rig.fbTel.bParkActive AND NOT rig.fbTel.bAxisErrorRamp, Message := 'the park ended in place, the ramp is over');
+		F_Note(bFailed := NOT (rig.fbTel.bParkedInPlace AND NOT rig.fbTel.bParkActive AND NOT rig.fbTel.bAxisErrorRamp), sText := CONCAT(sTest, 'the park ended in place, the ramp is over'));
+		AssertFalse(Condition := rig.fbElev.bEnable OR rig.fbAzim.bEnable OR rig.fbDero.bEnable, Message := 'all three axes are disabled');
+		F_Note(bFailed := (rig.fbElev.bEnable OR rig.fbAzim.bEnable OR rig.fbDero.bEnable), sText := CONCAT(sTest, 'all three axes are disabled'));
+		AssertFalse(Condition := rig.fbBrakeHyd.BrakeOpen, Message := 'the brake is closed');
+		F_Note(bFailed := (rig.fbBrakeHyd.BrakeOpen), sText := CONCAT(sTest, 'the brake is closed'));
+		AssertTrue(Condition := rig.fbCovers.bClosed AND rig.fbBrakeHyd.nDisableCalls > nDisable0, Message := 'covers closed, hydraulics off');
+		F_Note(bFailed := NOT (rig.fbCovers.bClosed AND rig.fbBrakeHyd.nDisableCalls > nDisable0), sText := CONCAT(sTest, 'covers closed, hydraulics off'));
+		AssertTrue(Condition := rig.fbAzim.fbAxis.StopDeceleration = 0.0 AND rig.fbAzim.fbAxis.StopJerk = 0.0 AND
+			rig.fbDero.fbAxis.StopDeceleration = 0.0 AND rig.fbElev.fbAxis.StopDeceleration = 0.0, Message := 'the stop dynamics are back at the NC parameters');
+		F_Note(bFailed := NOT (rig.fbAzim.fbAxis.StopDeceleration = 0.0 AND rig.fbAzim.fbAxis.StopJerk = 0.0 AND
+			rig.fbDero.fbAxis.StopDeceleration = 0.0 AND rig.fbElev.fbAxis.StopDeceleration = 0.0), sText := CONCAT(sTest, 'the stop dynamics are back at the NC parameters'));
+		AssertTrue(Condition := rig.fbTel.bError AND rig.fbTel.ReadyState = -1.0, Message := 'the error stays, READY_STATE -1.0');
+		F_Note(bFailed := NOT (rig.fbTel.bError AND rig.fbTel.ReadyState = -1.0), sText := CONCAT(sTest, 'the error stays, READY_STATE -1.0'));
+		nStep := 99;
+		TEST_FINISHED();
+	ELSIF nCycles > 1000 THEN
+		AssertTrue(Condition := FALSE, Message := 'the telescope did not park after the ramp');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the telescope did not park after the ramp'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+END_CASE
+
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Azimuth_Error_During_A_Slew_Closes_The_Brake_At_Once" Id="{005ca04b-8d1d-4d6a-b6aa-bc9fc742bd70}">
+      <Declaration><![CDATA[// #272: an azimuth error during a slew. The faulty azimuth has no drive, so the shared brake is closed in the scan of the error
+// (until 0.23.x the emergency park closed it in that scan; the park now waits behind the ramp). Elevation and derotator stay
+// enabled and get their MC_Stop; then the park parks in place.
+METHOD PRIVATE Azimuth_Error_During_A_Slew_Closes_The_Brake_At_Once
+VAR_INST
+	rig			: FB_MonetRig;
+	nStep		: INT;
+	nCycles		: UINT;
+	sTest		: STRING(80);
+	nEl0		: UINT;
+	nDisable0	: UINT;
+	bSeenError	: BOOL;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Azimuth_Error_During_A_Slew_Closes_The_Brake_At_Once');
+sTest := 'Azimuth_Error_During_A_Slew_Closes_The_Brake_At_Once: ';
+IF nStep >= 90 THEN
+	RETURN;
+END_IF
+rig.Scan();
+nCycles := nCycles + 1;
+CASE nStep OF
+0:	// wait for the clock, then power on
+	IF rig.ClockValid THEN
+		rig.fbTel.Init();
+		nStep := 10;
+		nCycles := 0;
+	ELSIF nCycles > 2000 THEN
+		AssertTrue(Condition := FALSE, Message := 'the astronomical clock never became valid');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the astronomical clock never became valid'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+10:	// online: slew
+	IF rig.Online THEN
+		rig.fbTel.Slew(fAzimuth := 180.0, fAltitude := 45.0);
+		nStep := 20;
+		nCycles := 0;
+	ELSIF nCycles > 1500 THEN
+		AssertTrue(Condition := FALSE, Message := 'the mock telescope did not reach READY_STATE 1.0');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the mock telescope did not reach READY_STATE 1.0'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+20:	// the slew moves all three axes: the azimuth reports an error
+	IF rig.fbElev.MoveAxis AND rig.fbAzim.MoveAxis AND rig.fbDero.MoveAxis AND nCycles >= 3 THEN
+		nEl0 := rig.fbElev.nStopEdges;
+		nDisable0 := rig.fbBrakeHyd.nDisableCalls;
+		rig.InjectAzimuthError(16#4550);
+		nStep := 30;
+		nCycles := 0;
+	ELSIF nCycles > 300 THEN
+		AssertTrue(Condition := FALSE, Message := 'the slew did not start the axis moves');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the slew did not start the axis moves'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+30:
+	IF rig.fbTel.bError AND NOT bSeenError THEN	// the scan that saw the error
+		bSeenError := TRUE;
+		AssertTrue(Condition := rig.fbTel.bAxisErrorRamp, Message := 'the error starts the ramp');
+		F_Note(bFailed := NOT (rig.fbTel.bAxisErrorRamp), sText := CONCAT(sTest, 'the error starts the ramp'));
+		AssertFalse(Condition := rig.fbAzim.bEnable, Message := 'the faulty azimuth is disabled');
+		F_Note(bFailed := (rig.fbAzim.bEnable), sText := CONCAT(sTest, 'the faulty azimuth is disabled'));
+		AssertTrue(Condition := rig.fbElev.bEnable AND rig.fbDero.bEnable, Message := 'elevation and derotator stay enabled for their stop');
+		F_Note(bFailed := NOT (rig.fbElev.bEnable AND rig.fbDero.bEnable), sText := CONCAT(sTest, 'elevation and derotator stay enabled for their stop'));
+		AssertFalse(Condition := rig.fbBrakeHyd.BrakeOpen, Message := 'the shared brake is closed at once');
+		F_Note(bFailed := (rig.fbBrakeHyd.BrakeOpen), sText := CONCAT(sTest, 'the shared brake is closed at once'));
+		AssertTrue(Condition := rig.fbBrakeHyd.nDisableCalls = nDisable0, Message := 'the hydraulics stay on');
+		F_Note(bFailed := NOT (rig.fbBrakeHyd.nDisableCalls = nDisable0), sText := CONCAT(sTest, 'the hydraulics stay on'));
+	END_IF
+	IF rig.fbTel.bIsParked AND nCycles > 5 THEN
+		AssertTrue(Condition := bSeenError AND rig.fbElev.nStopEdges > nEl0, Message := 'the elevation was sent its MC_Stop');
+		F_Note(bFailed := NOT (bSeenError AND rig.fbElev.nStopEdges > nEl0), sText := CONCAT(sTest, 'the elevation was sent its MC_Stop'));
+		AssertTrue(Condition := rig.fbTel.bParkedInPlace AND NOT rig.fbTel.bParkActive, Message := 'the park ended in place');
+		F_Note(bFailed := NOT (rig.fbTel.bParkedInPlace AND NOT rig.fbTel.bParkActive), sText := CONCAT(sTest, 'the park ended in place'));
+		AssertFalse(Condition := rig.fbElev.bEnable OR rig.fbAzim.bEnable OR rig.fbDero.bEnable, Message := 'all three axes are disabled');
+		F_Note(bFailed := (rig.fbElev.bEnable OR rig.fbAzim.bEnable OR rig.fbDero.bEnable), sText := CONCAT(sTest, 'all three axes are disabled'));
+		AssertTrue(Condition := rig.fbCovers.bClosed AND rig.fbBrakeHyd.nDisableCalls > nDisable0, Message := 'covers closed, hydraulics off');
+		F_Note(bFailed := NOT (rig.fbCovers.bClosed AND rig.fbBrakeHyd.nDisableCalls > nDisable0), sText := CONCAT(sTest, 'covers closed, hydraulics off'));
+		nStep := 99;
+		TEST_FINISHED();
+	ELSIF nCycles > 1000 THEN
+		AssertTrue(Condition := FALSE, Message := 'the telescope did not park after the ramp');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the telescope did not park after the ramp'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+END_CASE
+
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Derotator_Error_During_A_Slew_Keeps_The_Brake_Open_For_The_Ramp" Id="{5322b58c-fd98-49c2-9f7f-9ddec7abfca1}">
+      <Declaration><![CDATA[// #272: a derotator error alone during a slew. The derotator is not on the hydraulic brake: the brake stays open and the
+// hydraulics on while elevation and azimuth stop with their drives; the park in place closes the brake at rest.
+METHOD PRIVATE Derotator_Error_During_A_Slew_Keeps_The_Brake_Open_For_The_Ramp
+VAR_INST
+	rig			: FB_MonetRig;
+	nStep		: INT;
+	nCycles		: UINT;
+	sTest		: STRING(80);
+	nEl0		: UINT;
+	nAz0		: UINT;
+	nDisable0	: UINT;
+	bSeenError	: BOOL;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Derotator_Error_During_A_Slew_Keeps_The_Brake_Open_For_The_Ramp');
+sTest := 'Derotator_Error_During_A_Slew_Keeps_The_Brake_Open_For_The_Ramp: ';
+IF nStep >= 90 THEN
+	RETURN;
+END_IF
+rig.Scan();
+nCycles := nCycles + 1;
+CASE nStep OF
+0:	// wait for the clock, then power on
+	IF rig.ClockValid THEN
+		rig.fbTel.Init();
+		nStep := 10;
+		nCycles := 0;
+	ELSIF nCycles > 2000 THEN
+		AssertTrue(Condition := FALSE, Message := 'the astronomical clock never became valid');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the astronomical clock never became valid'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+10:	// online: slew
+	IF rig.Online THEN
+		rig.fbTel.Slew(fAzimuth := 180.0, fAltitude := 45.0);
+		nStep := 20;
+		nCycles := 0;
+	ELSIF nCycles > 1500 THEN
+		AssertTrue(Condition := FALSE, Message := 'the mock telescope did not reach READY_STATE 1.0');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the mock telescope did not reach READY_STATE 1.0'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+20:	// the slew moves all three axes: the derotator reports an error
+	IF rig.fbElev.MoveAxis AND rig.fbAzim.MoveAxis AND rig.fbDero.MoveAxis AND nCycles >= 3 THEN
+		nEl0 := rig.fbElev.nStopEdges;
+		nAz0 := rig.fbAzim.nStopEdges;
+		nDisable0 := rig.fbBrakeHyd.nDisableCalls;
+		rig.InjectDerotatorError(16#4550);
+		nStep := 30;
+		nCycles := 0;
+	ELSIF nCycles > 300 THEN
+		AssertTrue(Condition := FALSE, Message := 'the slew did not start the axis moves');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the slew did not start the axis moves'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+30:
+	IF rig.fbTel.bError AND NOT bSeenError THEN	// the scan that saw the error
+		bSeenError := TRUE;
+		AssertTrue(Condition := rig.fbTel.bAxisErrorRamp, Message := 'the error starts the ramp');
+		F_Note(bFailed := NOT (rig.fbTel.bAxisErrorRamp), sText := CONCAT(sTest, 'the error starts the ramp'));
+		AssertFalse(Condition := rig.fbDero.bEnable, Message := 'the faulty derotator is disabled');
+		F_Note(bFailed := (rig.fbDero.bEnable), sText := CONCAT(sTest, 'the faulty derotator is disabled'));
+		AssertTrue(Condition := rig.fbElev.bEnable AND rig.fbAzim.bEnable, Message := 'elevation and azimuth stay enabled for their stop');
+		F_Note(bFailed := NOT (rig.fbElev.bEnable AND rig.fbAzim.bEnable), sText := CONCAT(sTest, 'elevation and azimuth stay enabled for their stop'));
+		AssertTrue(Condition := rig.fbBrakeHyd.BrakeOpen AND rig.fbBrakeHyd.nDisableCalls = nDisable0, Message := 'the brake stays open and the hydraulics on');
+		F_Note(bFailed := NOT (rig.fbBrakeHyd.BrakeOpen AND rig.fbBrakeHyd.nDisableCalls = nDisable0), sText := CONCAT(sTest, 'the brake stays open and the hydraulics on'));
+	END_IF
+	IF rig.fbTel.bIsParked AND nCycles > 5 THEN
+		AssertTrue(Condition := bSeenError AND rig.fbElev.nStopEdges > nEl0 AND rig.fbAzim.nStopEdges > nAz0, Message := 'elevation and azimuth were sent their MC_Stop');
+		F_Note(bFailed := NOT (bSeenError AND rig.fbElev.nStopEdges > nEl0 AND rig.fbAzim.nStopEdges > nAz0), sText := CONCAT(sTest, 'elevation and azimuth were sent their MC_Stop'));
+		AssertTrue(Condition := rig.fbTel.bParkedInPlace AND NOT rig.fbTel.bParkActive, Message := 'the park ended in place');
+		F_Note(bFailed := NOT (rig.fbTel.bParkedInPlace AND NOT rig.fbTel.bParkActive), sText := CONCAT(sTest, 'the park ended in place'));
+		AssertFalse(Condition := rig.fbElev.bEnable OR rig.fbAzim.bEnable OR rig.fbDero.bEnable, Message := 'all three axes are disabled');
+		F_Note(bFailed := (rig.fbElev.bEnable OR rig.fbAzim.bEnable OR rig.fbDero.bEnable), sText := CONCAT(sTest, 'all three axes are disabled'));
+		AssertFalse(Condition := rig.fbBrakeHyd.BrakeOpen, Message := 'the brake is closed at rest');
+		F_Note(bFailed := (rig.fbBrakeHyd.BrakeOpen), sText := CONCAT(sTest, 'the brake is closed at rest'));
+		AssertTrue(Condition := rig.fbCovers.bClosed AND rig.fbBrakeHyd.nDisableCalls > nDisable0, Message := 'covers closed, hydraulics off');
+		F_Note(bFailed := NOT (rig.fbCovers.bClosed AND rig.fbBrakeHyd.nDisableCalls > nDisable0), sText := CONCAT(sTest, 'covers closed, hydraulics off'));
+		nStep := 99;
+		TEST_FINISHED();
+	ELSIF nCycles > 1000 THEN
+		AssertTrue(Condition := FALSE, Message := 'the telescope did not park after the ramp');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the telescope did not park after the ramp'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+END_CASE
+
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Second_Axis_Error_During_The_Ramp_Disables_All_Axes" Id="{d4229a9e-6bfd-4a1f-9d05-46ac6626f542}">
+      <Declaration><![CDATA[// #272: a further axis error during the ramp of an axis error ends the ramp: the error branch disables all three axes, as
+// before 0.24. The healthy stops are made slow (nMockStopScans 200) so that the ramp is still running when the azimuth faults.
+METHOD PRIVATE Second_Axis_Error_During_The_Ramp_Disables_All_Axes
+VAR_INST
+	rig			: FB_MonetRig;
+	nStep		: INT;
+	nCycles		: UINT;
+	sTest		: STRING(80);
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Second_Axis_Error_During_The_Ramp_Disables_All_Axes');
+sTest := 'Second_Axis_Error_During_The_Ramp_Disables_All_Axes: ';
+IF nStep >= 90 THEN
+	RETURN;
+END_IF
+rig.Scan();
+nCycles := nCycles + 1;
+CASE nStep OF
+0:	// wait for the clock, then power on
+	IF rig.ClockValid THEN
+		rig.fbTel.Init();
+		nStep := 10;
+		nCycles := 0;
+	ELSIF nCycles > 2000 THEN
+		AssertTrue(Condition := FALSE, Message := 'the astronomical clock never became valid');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the astronomical clock never became valid'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+10:	// online: slew with slow stops
+	IF rig.Online THEN
+		rig.fbAzim.nMockStopScans := 200;
+		rig.fbDero.nMockStopScans := 200;
+		rig.fbTel.Slew(fAzimuth := 180.0, fAltitude := 45.0);
+		nStep := 20;
+		nCycles := 0;
+	ELSIF nCycles > 1500 THEN
+		AssertTrue(Condition := FALSE, Message := 'the mock telescope did not reach READY_STATE 1.0');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the mock telescope did not reach READY_STATE 1.0'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+20:	// the slew moves all three axes: the elevation reports an error
+	IF rig.fbElev.MoveAxis AND rig.fbAzim.MoveAxis AND rig.fbDero.MoveAxis AND nCycles >= 3 THEN
+		rig.InjectElevationError(16#4550);
+		nStep := 30;
+		nCycles := 0;
+	ELSIF nCycles > 300 THEN
+		AssertTrue(Condition := FALSE, Message := 'the slew did not start the axis moves');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the slew did not start the axis moves'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+30:	// the ramp runs: the azimuth faults too
+	IF nCycles >= 5 THEN
+		AssertTrue(Condition := rig.fbTel.bAxisErrorRamp AND rig.fbAzim.bEnable, Message := 'the ramp of the elevation error runs');
+		F_Note(bFailed := NOT (rig.fbTel.bAxisErrorRamp AND rig.fbAzim.bEnable), sText := CONCAT(sTest, 'the ramp of the elevation error runs'));
+		rig.InjectAzimuthError(16#4550);
+		nStep := 40;
+		nCycles := 0;
+	END_IF
+40:	// within two scans the ramp is over and all axes are disabled
+	IF nCycles >= 2 THEN
+		AssertFalse(Condition := rig.fbTel.bAxisErrorRamp, Message := 'the second error ends the ramp');
+		F_Note(bFailed := (rig.fbTel.bAxisErrorRamp), sText := CONCAT(sTest, 'the second error ends the ramp'));
+		AssertFalse(Condition := rig.fbElev.bEnable OR rig.fbAzim.bEnable OR rig.fbDero.bEnable, Message := 'all three axes are disabled');
+		F_Note(bFailed := (rig.fbElev.bEnable OR rig.fbAzim.bEnable OR rig.fbDero.bEnable), sText := CONCAT(sTest, 'all three axes are disabled'));
 		nStep := 99;
 		TEST_FINISHED();
 	END_IF
