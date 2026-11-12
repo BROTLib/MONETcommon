@@ -18,6 +18,9 @@ VAR_INPUT
 
 	bBrakeClearing		: BOOL	:= TRUE;
 
+	// the name of the telescope in its log messages ("MONET/N startup finished"); MAIN sets it per site
+	sTelescopeName		: STRING(31) := 'MONET';
+
 	// BROTLib#33: use the live weather (MQTT, pybrotlib.weather) in the refraction of eq2hor/hor2eq. FALSE (default) keeps
 	// the estimate from the site altitude. A value is used only if it is valid (not stale) and plausible for the site
 	// (BROTLib.F_RefractionWeather); anything else falls back to the estimate, pressure and temperature independently.
@@ -2043,7 +2046,7 @@ bSlewOutsideWindow := FALSE;
 TCSreadyEvent(	Trigger := bPowerActive AND bReady, 
 				Level := ADSLOG_MSGTYPE_HINT,
 				FormatString := '%s',
-				OnMessage := 'STELLA1 startup finished', 
+				OnMessage := CONCAT(sTelescopeName, ' startup finished'),
 				Comm := fbComm);
 SoftwareErrorEvent(	Trigger := bSoftwareError,
 				Level := ADSLOG_MSGTYPE_ERROR,
