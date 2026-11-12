@@ -2122,7 +2122,7 @@ END_CASE
     </Method>
     <Method Name="Second_Axis_Error_During_The_Ramp_Disables_All_Axes" Id="{d4229a9e-6bfd-4a1f-9d05-46ac6626f542}">
       <Declaration><![CDATA[// #272: a further axis error during the ramp of an axis error ends the ramp: the error branch disables all three axes, as
-// before 0.24. The healthy stops are made slow (nMockStopScans 200) so that the ramp is still running when the azimuth faults.
+// before 0.24. The stops are made slow (SetStopScans 200) so that the ramp is still running when the azimuth faults.
 METHOD PRIVATE Second_Axis_Error_During_The_Ramp_Disables_All_Axes
 VAR_INST
 	rig			: FB_MonetRig;
@@ -2153,8 +2153,7 @@ CASE nStep OF
 	END_IF
 10:	// online: slew with slow stops
 	IF rig.Online THEN
-		rig.fbAzim.nMockStopScans := 200;
-		rig.fbDero.nMockStopScans := 200;
+		rig.SetStopScans(nScans := 200);
 		rig.fbTel.Slew(fAzimuth := 180.0, fAltitude := 45.0);
 		nStep := 20;
 		nCycles := 0;
