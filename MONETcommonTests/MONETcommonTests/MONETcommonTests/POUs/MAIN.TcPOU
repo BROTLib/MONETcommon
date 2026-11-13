@@ -28,6 +28,7 @@ VAR
 	fbMonetErrorParkTests	: MonetErrorPark_Tests;
 	fbMonetBrakeReleaseTests	: MonetBrakeRelease_Tests;
 	fbMonetTimeoutsTests : MonetTimeouts_Tests;
+	fbMonetParkLogTests	: FB_MonetParkLog_Tests;	// #279
 	fbMonetSafeStateTests	: MonetSafeState_Tests;
 	fbStageAbortTests	: F_StageAbort_Tests;	// suite 34 of 41
 	fbJogRequestTests	: FB_JogRequest_Tests;	// suite 36 of 41 (#148)
