@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="FB_LogRecordingComm" Id="{3857259c-964c-496b-8e74-26e6acc63b48}" SpecialFunc="None">
+    <Declaration><![CDATA[// #279: FB_NullComm that records every PublishLog message (not the publishes) in call order. Up to 16; more are counted in
+// nOverflow. Clear() empties it.
+FUNCTION_BLOCK FB_LogRecordingComm EXTENDS FB_NullComm
+VAR_OUTPUT
+	nCount		: INT;
+	nOverflow	: INT;
+	aMessage	: ARRAY[1..16] OF STRING(80);
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[]]></ST>
+    </Implementation>
+    <Method Name="Clear" Id="{3ec2c5ea-d07f-433c-8fb0-5abd4aeb2cb6}">
+      <Declaration><![CDATA[METHOD Clear
+VAR
+	i	: INT;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[nCount := 0;
+nOverflow := 0;
+FOR i := 1 TO 16 DO
+	aMessage[i] := '';
+END_FOR
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="PublishLog" Id="{8f409ef7-e131-4a9f-b1e3-f808f2d8ce69}">
+      <Declaration><![CDATA[METHOD PublishLog : BOOL
+VAR_INPUT
+	level		: STRING(255) := 'INFO';
+	message		: STRING(255);
+END_VAR
+VAR_OUTPUT
+	published	: BOOL;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF nCount >= 16 THEN
+	nOverflow := nOverflow + 1;
+ELSE
+	nCount := nCount + 1;
+	aMessage[nCount] := message;
+END_IF
+PublishLog := TRUE;
+published := TRUE;
+]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>
