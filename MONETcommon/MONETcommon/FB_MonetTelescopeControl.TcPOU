@@ -665,10 +665,12 @@ IF NOT bAxisErrorRamp THEN
 	fbElevation.SetStopDynamics(fDeceleration := 0.0, fJerk := 0.0);
 	fbDerotator.SetStopDynamics(fDeceleration := 0.0, fJerk := 0.0);
 END_IF
-// on the rising edge only, with the brake still open (it is open under motion) and a healthy enabled axis that moves (also
-// homing or tracking); with no healthy axis moving the disable is the stop, as before. Not during the first power-on after a PLC
-// start: its Az/El error is the expected Wake&Shake fault (#113, #155), handled as before
-IF bAxisError AND NOT bAxisErrorLast AND bAxisErrorCanRamp AND fbBrake.BrakeOpen AND
+// on the rising edge only, with a healthy enabled axis that moves (also homing or tracking); with no healthy axis moving the
+// disable is the stop, as before. Not during the first power-on after a PLC start: its Az/El error is the expected Wake&Shake
+// fault (#113, #155), handled as before. #277: the brake may already be closed on the edge (HalfBROT FB_ElevationControl closes
+// it on the falling edge of its enable, before this block sees the error); HalfBROT >= 0.15.0 keeps the enable of a moving axis
+// when the brake closes under it (FB_BrakeCloseHold), so "enabled" (abEnabled: bEnable AND fbAxis.Ready) is the condition, not the brake
+IF bAxisError AND NOT bAxisErrorLast AND bAxisErrorCanRamp AND
 		NOT (bFirstPowerOnPending AND (bPowerActive OR fbStartup.Initializing)) AND
 		((NOT abAxisFaulty[1] AND fbStopTx.abEnabled[1] AND (fbStopTx.abMoving[1] OR aAxis[1].bTracking)) OR
 		 (NOT abAxisFaulty[2] AND fbStopTx.abEnabled[2] AND (fbStopTx.abMoving[2] OR aAxis[2].bTracking)) OR
@@ -689,7 +691,8 @@ IF bAxisError AND NOT bAxisErrorLast AND bAxisErrorCanRamp AND fbBrake.BrakeOpen
 	END_IF
 END_IF
 // a faulty elevation or azimuth has no drive: only the brake holds it. The brake is shared, so the healthy axes are braked too;
-// their fast stop works with it. An elevation error has its own close in _ApplyError (#155, once on the edge), and the disabled
+// their fast stop works with it: HalfBROT (>= 0.15.0, FB_BrakeCloseHold, #277) keeps the enable of a moving axis while the brake
+// closes under it, until it stands (before, its brake gate dropped the enable at once and the brake alone stopped it). An elevation error has its own close in _ApplyError (#155, once on the edge), and the disabled
 // elevation requests no opening. A faulty azimuth needs a held close: the healthy elevation stays enabled for its stop, and HalfBROT
 // FB_ElevationControl requests the brake open in every scan while it is enabled; a close on the edge only would be undone by the
 // next scan's request. FB_HydraulicsControl lets a pending close win over the opening. Held for the whole ramp and the scan it ends

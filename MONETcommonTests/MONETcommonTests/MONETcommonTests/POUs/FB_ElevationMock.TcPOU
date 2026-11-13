@@ -22,6 +22,9 @@ VAR
 	pLreal	: POINTER TO LREAL;
 	bInjected	: BOOL;
 	nInjectedId	: UDINT;
+	fbMockHold	: HalfBROT.FB_BrakeCloseHold;	// #277: the real hold of HalfBROT, behind the mock brake gate
+	ftMockEnable	: F_TRIG;		// the real block closes the brake on the falling edge of bEnable
+	bMockGate	: BOOL;			// the brake gate of this scan (bEnable AND brake open; no settle time in the mock)
 END_VAR
 ]]></Declaration>
     <Implementation>
@@ -29,11 +32,8 @@ END_VAR
 // StopAxis -> fbAxis.Stop(), HomeAxis -> _StartHoming) stay, so the telescope sees the real command interface. The model
 // is driven by the levels the telescope writes and writes what the telescope reads: the base outputs and, through pointers
 // (FB_Axis outputs are not writable from outside), the nested fbAxis outputs.
-fbCore(bEnable := bEnable, bHome := bHomeAxis, bMove := bMoveAxis, bStop := bStopAxis, fTarget := fPosition, fHomePosition := fCalibPosition,
-	bTracking := bTracking, bLatchTarget := bMockLatchTarget, nMoveScans := nMockMoveScans, nStopScans := nMockStopScans, nHomeScans := nMockHomeScans,
-	nDisableScans := nMockDisableScans);
-
-// the real elevation block opens the brake while the axis is enabled (the covers first as long as it is not calibrated)
+// the real elevation block opens the brake while the axis is enabled (the covers first as long as it is not calibrated), and
+// closes it on the falling edge of bEnable
 IF bEnable AND fbCovers <> 0 AND fbBrake <> 0 THEN
 	IF NOT fbCore.bCalibrated THEN
 		fbCovers.Open();
@@ -43,6 +43,27 @@ IF bEnable AND fbCovers <> 0 AND fbBrake <> 0 THEN
 	ELSE
 		fbBrake.OpenBrake();
 	END_IF
+END_IF
+ftMockEnable(CLK := bEnable);
+IF ftMockEnable.Q AND fbBrake <> 0 THEN
+	fbBrake.CloseBrake();
+END_IF
+
+// #277: the real block gives the NC enable only while the brake is open (FB_BrakeSettleEnable; the mock has no settle time) and
+// keeps it for the stop of a moving axis when the brake closes (HalfBROT.FB_BrakeCloseHold, the real block). Only with a brake
+// assigned (the rig): the standalone mock tests run without one and keep the enable as it is
+IF fbBrake <> 0 THEN
+	bMockGate := bEnable AND fbBrake.BrakeOpen;
+	fbMockHold(bEnable := bEnable, bBrakeEnable := bMockGate,
+		bMoving := fbCore.bInMotion OR fbCore.bTrackActive OR fbCore.bCoast OR fbCore.bStopping,	// as HalfBROT: InMotion OR Stopping
+		tMaxHold := tBrakeCloseHold);
+	fbCore(bEnable := fbMockHold.bAxisEnable, bHome := bHomeAxis, bMove := bMoveAxis, bStop := bStopAxis, fTarget := fPosition, fHomePosition := fCalibPosition,
+		bTracking := bTracking, bLatchTarget := bMockLatchTarget, nMoveScans := nMockMoveScans, nStopScans := nMockStopScans, nHomeScans := nMockHomeScans,
+		nDisableScans := nMockDisableScans);
+ELSE
+	fbCore(bEnable := bEnable, bHome := bHomeAxis, bMove := bMoveAxis, bStop := bStopAxis, fTarget := fPosition, fHomePosition := fCalibPosition,
+		bTracking := bTracking, bLatchTarget := bMockLatchTarget, nMoveScans := nMockMoveScans, nStopScans := nMockStopScans, nHomeScans := nMockHomeScans,
+		nDisableScans := nMockDisableScans);
 END_IF
 
 pBool := ADR(fbAxis.Ready);			pBool^ := fbCore.bReady;

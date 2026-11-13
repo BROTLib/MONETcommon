@@ -157,7 +157,7 @@ ELSE
 END_IF
 fbCovers(stOut := stCoverOut);	// after the telescope, as MAIN calls CoverControl(); only the travel model (SetCoverTravelScans) runs in it
 fbElev(fbCovers := fbCovers, fbBrake := fbBrakeHyd);
-fbAzim();
+fbAzim(bBrakeOpen := fbBrakeHyd.BrakeOpen, bMockBrakeGate := TRUE);	// #277: the azimuth enable needs the shared brake, as in HalfBROT
 fbDero();
 fbFocus(stOut := stFocusOut);
 fbBrakeHyd();	// last: a close of this scan wins over the elevation's opening request (#272)
