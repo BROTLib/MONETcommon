@@ -2,9 +2,13 @@
 <TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
   <POU Name="FB_LogRecordingComm" Id="{3857259c-964c-496b-8e74-26e6acc63b48}" SpecialFunc="None">
     <Declaration><![CDATA[// #279: FB_NullComm that records every PublishLog message (not the publishes) in call order. Up to 16; more are counted in
-// nOverflow. Clear() empties it.
+// nOverflow. Clear() empties it. #287: every message that contains sWatch (not empty) is counted in nWatchHits, also past 16.
 FUNCTION_BLOCK FB_LogRecordingComm EXTENDS FB_NullComm
+VAR_INPUT
+	sWatch		: STRING(80);
+END_VAR
 VAR_OUTPUT
+	nWatchHits	: INT;
 	nCount		: INT;
 	nOverflow	: INT;
 	aMessage	: ARRAY[1..16] OF STRING(80);
@@ -22,6 +26,7 @@ END_VAR
       <Implementation>
         <ST><![CDATA[nCount := 0;
 nOverflow := 0;
+nWatchHits := 0;
 FOR i := 1 TO 16 DO
 	aMessage[i] := '';
 END_FOR
@@ -39,7 +44,10 @@ VAR_OUTPUT
 END_VAR
 ]]></Declaration>
       <Implementation>
-        <ST><![CDATA[IF nCount >= 16 THEN
+        <ST><![CDATA[IF LEN(sWatch) > 0 AND FIND(message, sWatch) > 0 THEN
+	nWatchHits := nWatchHits + 1;
+END_IF
+IF nCount >= 16 THEN
 	nOverflow := nOverflow + 1;
 ELSE
 	nCount := nCount + 1;
