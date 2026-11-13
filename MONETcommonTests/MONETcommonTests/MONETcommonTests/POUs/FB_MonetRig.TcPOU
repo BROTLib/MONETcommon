@@ -6,6 +6,7 @@
 // once per PLC cycle: the astronomical clock needs a real NT_GetTime round trip (up to about 5 s) before the telescope
 // accepts a goto/slew/track, so a rig is not usable before ClockValid. Everything else counts scans, not time.
 // Plan: BROTLib specs/plans/2026-10-21-telescope-state-machine-unification.md (D1, step 1).
+{attribute 'enable_dynamic_creation'}
 FUNCTION_BLOCK FB_MonetRig
 VAR
 	fbComm			: FB_NullComm;
