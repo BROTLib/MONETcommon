@@ -5,10 +5,15 @@
 // hydraulics error (#86, #113) or (since step 7 PR 7) power failure on mock axes, and (since #24 step 7 PR 4) of the normal park a
 // new cover error starts; since #24 step 7 PR 8 the park of a focus error alone drives to the park position
 // (plan step 1, MONETcommonTests README). These tests pin what the code does today, with the line of the behaviour in a comment;
-// they are not a specification. Every test owns a rig and runs over many PLC cycles (VAR_INST of the method, one Scan() per
-// cycle). Failed checks are also noted in GVL_Diag.sFailures (printed by Run-Tests.ps1).
+// they are not a specification. Every test owns a rig and runs over many PLC cycles (one Scan() per cycle). The rigs are not in the
+// image: the tests run one after another (nCur), and the test whose turn it is creates its rig with __NEW and frees it with
+// __DELETE in the scan it finished in, so one rig (about 0.4 MB of router memory) exists at a time instead of 25 in the global
+// data (MONETcommon#274: the PLC of the test project does not start above about 96 MB). Every method still calls TEST() in every
+// scan, before it checks its turn: TcUnit counts a test only from its first TEST(), so a test that is first called after the
+// previous one finished is not counted. Failed checks are also noted in GVL_Diag.sFailures (printed by Run-Tests.ps1).
 FUNCTION_BLOCK MonetErrorPark_Tests EXTENDS TcUnit.FB_TestSuite
 VAR
+	nCur	: INT := 1;	// the test whose turn it is, 1 = the first call of the body
 END_VAR
 ]]></Declaration>
     <Implementation>
@@ -33,6 +38,10 @@ Focus_Error_With_An_Axis_Error_Parks_In_Place();
 Axis_Error_During_The_Focus_Error_Park_Parks_In_Place();
 Stuck_Focus_Does_Not_Hold_The_Focus_Error_Park();
 Focus_Error_Park_Recovers_With_Reset_And_Power_On();
+Elevation_Error_During_A_Slew_Fast_Stops_The_Healthy_Axes();
+Azimuth_Error_During_A_Slew_Closes_The_Brake_At_Once();
+Derotator_Error_During_A_Slew_Keeps_The_Brake_Open_For_The_Ramp();
+Second_Axis_Error_During_The_Ramp_Disables_All_Axes();
 ]]></ST>
     </Implementation>
     <Method Name="Elevation_Error_Starts_The_Emergency_Park" Id="{6190de19-41df-490b-93bf-4ae2a295f3a2}">
@@ -40,7 +49,8 @@ Focus_Error_Park_Recovers_With_Reset_And_Power_On();
 // axes are disabled, the covers are closed and bIsParked is set; the error stays (READY_STATE -1.0) until it is reset.
 METHOD PRIVATE Elevation_Error_Starts_The_Emergency_Park
 VAR_INST
-	rig			: FB_MonetRig;
+	pRig		: POINTER TO FB_MonetRig;	// created with __NEW in this test's turn, freed in the scan it finished in
+	rig			: REFERENCE TO FB_MonetRig;
 	nStep		: INT;
 	nCycles		: UINT;
 	sTest		: STRING(80);
@@ -51,6 +61,21 @@ END_VAR
 sTest := 'Elevation_Error_Starts_The_Emergency_Park: ';
 IF nStep >= 90 THEN
 	RETURN;
+END_IF
+IF nCur <> 1 THEN	// not this test's turn yet (TEST() above is called in every scan, TcUnit needs that)
+	RETURN;
+END_IF
+IF pRig = 0 THEN
+	pRig := __NEW(FB_MonetRig);
+	IF pRig = 0 THEN
+		AssertTrue(Condition := FALSE, Message := 'no router memory for the rig');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'no router memory for the rig'));
+		nStep := 99;
+		nCur := nCur + 1;
+		TEST_FINISHED();
+		RETURN;
+	END_IF
+	rig REF= pRig^;
 END_IF
 rig.Scan();
 nCycles := nCycles + 1;
@@ -102,6 +127,11 @@ CASE nStep OF
 		TEST_FINISHED();
 	END_IF
 END_CASE
+IF nStep >= 90 AND pRig <> 0 THEN	// finished in this scan: free the rig, the next test starts in the next scan
+	__DELETE(pRig);
+	pRig := 0;
+	nCur := nCur + 1;
+END_IF
 
 ]]></ST>
       </Implementation>
@@ -114,7 +144,8 @@ END_CASE
 // not bParkedInPlace. The error stays (READY_STATE -1.0), no roof request (D9), and the faulty focus is not sent to focusPark (36).
 METHOD PRIVATE Focus_Error_At_Standstill_Parks_At_The_Park_Position
 VAR_INST
-	rig			: FB_MonetRig;
+	pRig		: POINTER TO FB_MonetRig;	// created with __NEW in this test's turn, freed in the scan it finished in
+	rig			: REFERENCE TO FB_MonetRig;
 	nStep		: INT;
 	nCycles		: UINT;
 	sTest		: STRING(80);
@@ -128,6 +159,21 @@ END_VAR
 sTest := 'Focus_Error_At_Standstill_Parks_At_The_Park_Position: ';
 IF nStep >= 90 THEN
 	RETURN;
+END_IF
+IF nCur <> 2 THEN	// not this test's turn yet (TEST() above is called in every scan, TcUnit needs that)
+	RETURN;
+END_IF
+IF pRig = 0 THEN
+	pRig := __NEW(FB_MonetRig);
+	IF pRig = 0 THEN
+		AssertTrue(Condition := FALSE, Message := 'no router memory for the rig');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'no router memory for the rig'));
+		nStep := 99;
+		nCur := nCur + 1;
+		TEST_FINISHED();
+		RETURN;
+	END_IF
+	rig REF= pRig^;
 END_IF
 rig.Scan();
 nCycles := nCycles + 1;
@@ -192,6 +238,11 @@ CASE nStep OF
 		TEST_FINISHED();
 	END_IF
 END_CASE
+IF nStep >= 90 AND pRig <> 0 THEN	// finished in this scan: free the rig, the next test starts in the next scan
+	__DELETE(pRig);
+	pRig := 0;
+	nCur := nCur + 1;
+END_IF
 
 ]]></ST>
       </Implementation>
@@ -200,7 +251,8 @@ END_CASE
       <Declaration><![CDATA[// F_ErrorParkRequest: an error on a telescope that is already parked starts no park (nothing to protect).
 METHOD PRIVATE Error_On_A_Parked_Telescope_Does_Not_Park_Again
 VAR_INST
-	rig			: FB_MonetRig;
+	pRig		: POINTER TO FB_MonetRig;	// created with __NEW in this test's turn, freed in the scan it finished in
+	rig			: REFERENCE TO FB_MonetRig;
 	nStep		: INT;
 	nCycles		: UINT;
 	sTest		: STRING(80);
@@ -212,6 +264,21 @@ END_VAR
 sTest := 'Error_On_A_Parked_Telescope_Does_Not_Park_Again: ';
 IF nStep >= 90 THEN
 	RETURN;
+END_IF
+IF nCur <> 3 THEN	// not this test's turn yet (TEST() above is called in every scan, TcUnit needs that)
+	RETURN;
+END_IF
+IF pRig = 0 THEN
+	pRig := __NEW(FB_MonetRig);
+	IF pRig = 0 THEN
+		AssertTrue(Condition := FALSE, Message := 'no router memory for the rig');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'no router memory for the rig'));
+		nStep := 99;
+		nCur := nCur + 1;
+		TEST_FINISHED();
+		RETURN;
+	END_IF
+	rig REF= pRig^;
 END_IF
 rig.Scan();
 nCycles := nCycles + 1;
@@ -266,6 +333,11 @@ CASE nStep OF
 		TEST_FINISHED();
 	END_IF
 END_CASE
+IF nStep >= 90 AND pRig <> 0 THEN	// finished in this scan: free the rig, the next test starts in the next scan
+	__DELETE(pRig);
+	pRig := 0;
+	nCur := nCur + 1;
+END_IF
 
 ]]></ST>
       </Implementation>
@@ -276,7 +348,8 @@ END_CASE
 // In_Place_After_The_Release); while it is pressed nothing parks and the covers are not commanded, as asserted here.
 METHOD PRIVATE Error_During_Estop_Does_Not_Park
 VAR_INST
-	rig			: FB_MonetRig;
+	pRig		: POINTER TO FB_MonetRig;	// created with __NEW in this test's turn, freed in the scan it finished in
+	rig			: REFERENCE TO FB_MonetRig;
 	nStep		: INT;
 	nCycles		: UINT;
 	sTest		: STRING(80);
@@ -287,6 +360,21 @@ END_VAR
 sTest := 'Error_During_Estop_Does_Not_Park: ';
 IF nStep >= 90 THEN
 	RETURN;
+END_IF
+IF nCur <> 4 THEN	// not this test's turn yet (TEST() above is called in every scan, TcUnit needs that)
+	RETURN;
+END_IF
+IF pRig = 0 THEN
+	pRig := __NEW(FB_MonetRig);
+	IF pRig = 0 THEN
+		AssertTrue(Condition := FALSE, Message := 'no router memory for the rig');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'no router memory for the rig'));
+		nStep := 99;
+		nCur := nCur + 1;
+		TEST_FINISHED();
+		RETURN;
+	END_IF
+	rig REF= pRig^;
 END_IF
 rig.Scan();
 nCycles := nCycles + 1;
@@ -329,6 +417,11 @@ CASE nStep OF
 		TEST_FINISHED();
 	END_IF
 END_CASE
+IF nStep >= 90 AND pRig <> 0 THEN	// finished in this scan: free the rig, the next test starts in the next scan
+	__DELETE(pRig);
+	pRig := 0;
+	nCur := nCur + 1;
+END_IF
 
 ]]></ST>
       </Implementation>
@@ -338,7 +431,8 @@ END_CASE
 // Wake&Shake: the error aborts the power-on but starts no emergency park.
 METHOD PRIVATE First_PowerOn_AzEl_Error_Is_Exempt_From_The_Park
 VAR_INST
-	rig			: FB_MonetRig;
+	pRig		: POINTER TO FB_MonetRig;	// created with __NEW in this test's turn, freed in the scan it finished in
+	rig			: REFERENCE TO FB_MonetRig;
 	nStep		: INT;
 	nCycles		: UINT;
 	sTest		: STRING(80);
@@ -349,6 +443,21 @@ END_VAR
 sTest := 'First_PowerOn_AzEl_Error_Is_Exempt_From_The_Park: ';
 IF nStep >= 90 THEN
 	RETURN;
+END_IF
+IF nCur <> 5 THEN	// not this test's turn yet (TEST() above is called in every scan, TcUnit needs that)
+	RETURN;
+END_IF
+IF pRig = 0 THEN
+	pRig := __NEW(FB_MonetRig);
+	IF pRig = 0 THEN
+		AssertTrue(Condition := FALSE, Message := 'no router memory for the rig');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'no router memory for the rig'));
+		nStep := 99;
+		nCur := nCur + 1;
+		TEST_FINISHED();
+		RETURN;
+	END_IF
+	rig REF= pRig^;
 END_IF
 rig.Scan();
 nCycles := nCycles + 1;
@@ -389,6 +498,11 @@ CASE nStep OF
 		TEST_FINISHED();
 	END_IF
 END_CASE
+IF nStep >= 90 AND pRig <> 0 THEN	// finished in this scan: free the rig, the next test starts in the next scan
+	__DELETE(pRig);
+	pRig := 0;
+	nCur := nCur + 1;
+END_IF
 
 ]]></ST>
       </Implementation>
@@ -398,7 +512,8 @@ END_CASE
 // again and the covers are not commanded again.
 METHOD PRIVATE Persisting_Error_Does_Not_Start_A_Second_Park
 VAR_INST
-	rig			: FB_MonetRig;
+	pRig		: POINTER TO FB_MonetRig;	// created with __NEW in this test's turn, freed in the scan it finished in
+	rig			: REFERENCE TO FB_MonetRig;
 	nStep		: INT;
 	nCycles		: UINT;
 	sTest		: STRING(80);
@@ -410,6 +525,21 @@ END_VAR
 sTest := 'Persisting_Error_Does_Not_Start_A_Second_Park: ';
 IF nStep >= 90 THEN
 	RETURN;
+END_IF
+IF nCur <> 6 THEN	// not this test's turn yet (TEST() above is called in every scan, TcUnit needs that)
+	RETURN;
+END_IF
+IF pRig = 0 THEN
+	pRig := __NEW(FB_MonetRig);
+	IF pRig = 0 THEN
+		AssertTrue(Condition := FALSE, Message := 'no router memory for the rig');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'no router memory for the rig'));
+		nStep := 99;
+		nCur := nCur + 1;
+		TEST_FINISHED();
+		RETURN;
+	END_IF
+	rig REF= pRig^;
 END_IF
 rig.Scan();
 nCycles := nCycles + 1;
@@ -459,6 +589,11 @@ CASE nStep OF
 		TEST_FINISHED();
 	END_IF
 END_CASE
+IF nStep >= 90 AND pRig <> 0 THEN	// finished in this scan: free the rig, the next test starts in the next scan
+	__DELETE(pRig);
+	pRig := 0;
+	nCur := nCur + 1;
+END_IF
 
 ]]></ST>
       </Implementation>
@@ -471,7 +606,8 @@ END_CASE
 // reset; then power=1 brings it online again.
 METHOD PRIVATE Power_Failure_At_Standstill_Parks_In_Place_And_Recovers
 VAR_INST
-	rig			: FB_MonetRig;
+	pRig		: POINTER TO FB_MonetRig;	// created with __NEW in this test's turn, freed in the scan it finished in
+	rig			: REFERENCE TO FB_MonetRig;
 	nStep		: INT;
 	nCycles		: UINT;
 	sTest		: STRING(80);
@@ -484,6 +620,21 @@ END_VAR
 sTest := 'Power_Failure_At_Standstill_Parks_In_Place_And_Recovers: ';
 IF nStep >= 90 THEN
 	RETURN;
+END_IF
+IF nCur <> 7 THEN	// not this test's turn yet (TEST() above is called in every scan, TcUnit needs that)
+	RETURN;
+END_IF
+IF pRig = 0 THEN
+	pRig := __NEW(FB_MonetRig);
+	IF pRig = 0 THEN
+		AssertTrue(Condition := FALSE, Message := 'no router memory for the rig');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'no router memory for the rig'));
+		nStep := 99;
+		nCur := nCur + 1;
+		TEST_FINISHED();
+		RETURN;
+	END_IF
+	rig REF= pRig^;
 END_IF
 rig.Scan();
 nCycles := nCycles + 1;
@@ -573,6 +724,11 @@ CASE nStep OF
 		TEST_FINISHED();
 	END_IF
 END_CASE
+IF nStep >= 90 AND pRig <> 0 THEN	// finished in this scan: free the rig, the next test starts in the next scan
+	__DELETE(pRig);
+	pRig := 0;
+	nCur := nCur + 1;
+END_IF
 
 ]]></ST>
       </Implementation>
@@ -584,7 +740,8 @@ END_CASE
 // open_covers as until 0.13.0: the telescope stays parked. When the supply is back bError drops by itself. No clock needed.
 METHOD PRIVATE Power_Failure_On_A_Parked_Telescope_Does_Not_Park
 VAR_INST
-	rig			: FB_MonetRig;
+	pRig		: POINTER TO FB_MonetRig;	// created with __NEW in this test's turn, freed in the scan it finished in
+	rig			: REFERENCE TO FB_MonetRig;
 	nStep		: INT;
 	nCycles		: UINT;
 	sTest		: STRING(80);
@@ -596,6 +753,21 @@ END_VAR
 sTest := 'Power_Failure_On_A_Parked_Telescope_Does_Not_Park: ';
 IF nStep >= 90 THEN
 	RETURN;
+END_IF
+IF nCur <> 8 THEN	// not this test's turn yet (TEST() above is called in every scan, TcUnit needs that)
+	RETURN;
+END_IF
+IF pRig = 0 THEN
+	pRig := __NEW(FB_MonetRig);
+	IF pRig = 0 THEN
+		AssertTrue(Condition := FALSE, Message := 'no router memory for the rig');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'no router memory for the rig'));
+		nStep := 99;
+		nCur := nCur + 1;
+		TEST_FINISHED();
+		RETURN;
+	END_IF
+	rig REF= pRig^;
 END_IF
 rig.Scan();
 nCycles := nCycles + 1;
@@ -637,6 +809,11 @@ CASE nStep OF
 		TEST_FINISHED();
 	END_IF
 END_CASE
+IF nStep >= 90 AND pRig <> 0 THEN	// finished in this scan: free the rig, the next test starts in the next scan
+	__DELETE(pRig);
+	pRig := 0;
+	nCur := nCur + 1;
+END_IF
 
 ]]></ST>
       </Implementation>
@@ -646,7 +823,8 @@ END_CASE
 // already parked (here: the PLC start) it starts no park and no stop, and the covers are not commanded. No clock, no power-on.
 METHOD PRIVATE Hydraulics_Error_On_A_Parked_Telescope_Does_Not_Park
 VAR_INST
-	rig			: FB_MonetRig;
+	pRig		: POINTER TO FB_MonetRig;	// created with __NEW in this test's turn, freed in the scan it finished in
+	rig			: REFERENCE TO FB_MonetRig;
 	nStep		: INT;
 	nCycles		: UINT;
 	sTest		: STRING(80);
@@ -658,6 +836,21 @@ END_VAR
 sTest := 'Hydraulics_Error_On_A_Parked_Telescope_Does_Not_Park: ';
 IF nStep >= 90 THEN
 	RETURN;
+END_IF
+IF nCur <> 9 THEN	// not this test's turn yet (TEST() above is called in every scan, TcUnit needs that)
+	RETURN;
+END_IF
+IF pRig = 0 THEN
+	pRig := __NEW(FB_MonetRig);
+	IF pRig = 0 THEN
+		AssertTrue(Condition := FALSE, Message := 'no router memory for the rig');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'no router memory for the rig'));
+		nStep := 99;
+		nCur := nCur + 1;
+		TEST_FINISHED();
+		RETURN;
+	END_IF
+	rig REF= pRig^;
 END_IF
 rig.Scan();
 nCycles := nCycles + 1;
@@ -683,6 +876,11 @@ CASE nStep OF
 		TEST_FINISHED();
 	END_IF
 END_CASE
+IF nStep >= 90 AND pRig <> 0 THEN	// finished in this scan: free the rig, the next test starts in the next scan
+	__DELETE(pRig);
+	pRig := 0;
+	nCur := nCur + 1;
+END_IF
 
 ]]></ST>
       </Implementation>
@@ -694,7 +892,8 @@ END_CASE
 // (target "covers as possible after release"; until PR 6 this comment said the covers must not move on the release).
 METHOD PRIVATE Hydraulics_Error_During_Estop_Does_Not_Park
 VAR_INST
-	rig			: FB_MonetRig;
+	pRig		: POINTER TO FB_MonetRig;	// created with __NEW in this test's turn, freed in the scan it finished in
+	rig			: REFERENCE TO FB_MonetRig;
 	nStep		: INT;
 	nCycles		: UINT;
 	sTest		: STRING(80);
@@ -706,6 +905,21 @@ END_VAR
 sTest := 'Hydraulics_Error_During_Estop_Does_Not_Park: ';
 IF nStep >= 90 THEN
 	RETURN;
+END_IF
+IF nCur <> 10 THEN	// not this test's turn yet (TEST() above is called in every scan, TcUnit needs that)
+	RETURN;
+END_IF
+IF pRig = 0 THEN
+	pRig := __NEW(FB_MonetRig);
+	IF pRig = 0 THEN
+		AssertTrue(Condition := FALSE, Message := 'no router memory for the rig');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'no router memory for the rig'));
+		nStep := 99;
+		nCur := nCur + 1;
+		TEST_FINISHED();
+		RETURN;
+	END_IF
+	rig REF= pRig^;
 END_IF
 rig.Scan();
 nCycles := nCycles + 1;
@@ -753,6 +967,11 @@ CASE nStep OF
 		TEST_FINISHED();
 	END_IF
 END_CASE
+IF nStep >= 90 AND pRig <> 0 THEN	// finished in this scan: free the rig, the next test starts in the next scan
+	__DELETE(pRig);
+	pRig := 0;
+	nCur := nCur + 1;
+END_IF
 
 ]]></ST>
       </Implementation>
@@ -764,7 +983,8 @@ END_CASE
 // bError by itself; bCloseRoofRequest stays latched until the next telescope reset; then power=1 brings it online again.
 METHOD PRIVATE Hydraulics_Error_Park_Recovers_With_Hydraulics_Reset_And_Reset
 VAR_INST
-	rig			: FB_MonetRig;
+	pRig		: POINTER TO FB_MonetRig;	// created with __NEW in this test's turn, freed in the scan it finished in
+	rig			: REFERENCE TO FB_MonetRig;
 	nStep		: INT;
 	nCycles		: UINT;
 	sTest		: STRING(80);
@@ -777,6 +997,21 @@ END_VAR
 sTest := 'Hydraulics_Error_Park_Recovers_With_Hydraulics_Reset_And_Reset: ';
 IF nStep >= 90 THEN
 	RETURN;
+END_IF
+IF nCur <> 11 THEN	// not this test's turn yet (TEST() above is called in every scan, TcUnit needs that)
+	RETURN;
+END_IF
+IF pRig = 0 THEN
+	pRig := __NEW(FB_MonetRig);
+	IF pRig = 0 THEN
+		AssertTrue(Condition := FALSE, Message := 'no router memory for the rig');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'no router memory for the rig'));
+		nStep := 99;
+		nCur := nCur + 1;
+		TEST_FINISHED();
+		RETURN;
+	END_IF
+	rig REF= pRig^;
 END_IF
 rig.Scan();
 nCycles := nCycles + 1;
@@ -862,6 +1097,11 @@ CASE nStep OF
 		TEST_FINISHED();
 	END_IF
 END_CASE
+IF nStep >= 90 AND pRig <> 0 THEN	// finished in this scan: free the rig, the next test starts in the next scan
+	__DELETE(pRig);
+	pRig := 0;
+	nCur := nCur + 1;
+END_IF
 
 ]]></ST>
       </Implementation>
@@ -873,7 +1113,8 @@ END_CASE
 // telescope Reset()) clears the cover error; power=1 goes online, and a park then closes the covers.
 METHOD PRIVATE Cover_Error_Park_Recovers_With_Cover_Reset_And_Reset
 VAR_INST
-	rig			: FB_MonetRig;
+	pRig		: POINTER TO FB_MonetRig;	// created with __NEW in this test's turn, freed in the scan it finished in
+	rig			: REFERENCE TO FB_MonetRig;
 	nStep		: INT;
 	nCycles		: UINT;
 	sTest		: STRING(80);
@@ -884,6 +1125,21 @@ END_VAR
 sTest := 'Cover_Error_Park_Recovers_With_Cover_Reset_And_Reset: ';
 IF nStep >= 90 THEN
 	RETURN;
+END_IF
+IF nCur <> 12 THEN	// not this test's turn yet (TEST() above is called in every scan, TcUnit needs that)
+	RETURN;
+END_IF
+IF pRig = 0 THEN
+	pRig := __NEW(FB_MonetRig);
+	IF pRig = 0 THEN
+		AssertTrue(Condition := FALSE, Message := 'no router memory for the rig');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'no router memory for the rig'));
+		nStep := 99;
+		nCur := nCur + 1;
+		TEST_FINISHED();
+		RETURN;
+	END_IF
+	rig REF= pRig^;
 END_IF
 rig.Scan();
 nCycles := nCycles + 1;
@@ -974,6 +1230,11 @@ CASE nStep OF
 		TEST_FINISHED();
 	END_IF
 END_CASE
+IF nStep >= 90 AND pRig <> 0 THEN	// finished in this scan: free the rig, the next test starts in the next scan
+	__DELETE(pRig);
+	pRig := 0;
+	nCur := nCur + 1;
+END_IF
 
 ]]></ST>
       </Implementation>
@@ -985,7 +1246,8 @@ END_CASE
 // parked after the release.
 METHOD PRIVATE Cover_Error_During_Estop_Does_Not_Park
 VAR_INST
-	rig			: FB_MonetRig;
+	pRig		: POINTER TO FB_MonetRig;	// created with __NEW in this test's turn, freed in the scan it finished in
+	rig			: REFERENCE TO FB_MonetRig;
 	nStep		: INT;
 	nCycles		: UINT;
 	sTest		: STRING(80);
@@ -996,6 +1258,21 @@ END_VAR
 sTest := 'Cover_Error_During_Estop_Does_Not_Park: ';
 IF nStep >= 90 THEN
 	RETURN;
+END_IF
+IF nCur <> 13 THEN	// not this test's turn yet (TEST() above is called in every scan, TcUnit needs that)
+	RETURN;
+END_IF
+IF pRig = 0 THEN
+	pRig := __NEW(FB_MonetRig);
+	IF pRig = 0 THEN
+		AssertTrue(Condition := FALSE, Message := 'no router memory for the rig');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'no router memory for the rig'));
+		nStep := 99;
+		nCur := nCur + 1;
+		TEST_FINISHED();
+		RETURN;
+	END_IF
+	rig REF= pRig^;
 END_IF
 rig.Scan();
 nCycles := nCycles + 1;
@@ -1056,6 +1333,11 @@ CASE nStep OF
 		TEST_FINISHED();
 	END_IF
 END_CASE
+IF nStep >= 90 AND pRig <> 0 THEN	// finished in this scan: free the rig, the next test starts in the next scan
+	__DELETE(pRig);
+	pRig := 0;
+	nCur := nCur + 1;
+END_IF
 
 ]]></ST>
       </Implementation>
@@ -1067,7 +1349,8 @@ END_CASE
 // closes the brake and the covers and switches the hydraulics off: bIsParked, not bParkedInPlace. No roof request (D9).
 METHOD PRIVATE Focus_Error_While_Tracking_Ramps_Then_Parks_At_The_Park_Position
 VAR_INST
-	rig			: FB_MonetRig;
+	pRig		: POINTER TO FB_MonetRig;	// created with __NEW in this test's turn, freed in the scan it finished in
+	rig			: REFERENCE TO FB_MonetRig;
 	nStep		: INT;
 	nCycles		: UINT;
 	nTracking	: UINT;
@@ -1089,6 +1372,21 @@ END_VAR
 sTest := 'Focus_Error_While_Tracking_Ramps_Then_Parks_At_The_Park_Position: ';
 IF nStep >= 90 THEN
 	RETURN;
+END_IF
+IF nCur <> 17 THEN	// not this test's turn yet (TEST() above is called in every scan, TcUnit needs that)
+	RETURN;
+END_IF
+IF pRig = 0 THEN
+	pRig := __NEW(FB_MonetRig);
+	IF pRig = 0 THEN
+		AssertTrue(Condition := FALSE, Message := 'no router memory for the rig');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'no router memory for the rig'));
+		nStep := 99;
+		nCur := nCur + 1;
+		TEST_FINISHED();
+		RETURN;
+	END_IF
+	rig REF= pRig^;
 END_IF
 rig.Scan();
 nCycles := nCycles + 1;
@@ -1187,6 +1485,11 @@ CASE nStep OF
 		TEST_FINISHED();
 	END_IF
 END_CASE
+IF nStep >= 90 AND pRig <> 0 THEN	// finished in this scan: free the rig, the next test starts in the next scan
+	__DELETE(pRig);
+	pRig := 0;
+	nCur := nCur + 1;
+END_IF
 
 ]]></ST>
       </Implementation>
@@ -1197,7 +1500,8 @@ END_CASE
 // place, as before PR 8: bParkedInPlace, the elevation stays where it was, covers closed, hydraulics off.
 METHOD PRIVATE Focus_Error_With_An_Axis_Error_Parks_In_Place
 VAR_INST
-	rig			: FB_MonetRig;
+	pRig		: POINTER TO FB_MonetRig;	// created with __NEW in this test's turn, freed in the scan it finished in
+	rig			: REFERENCE TO FB_MonetRig;
 	nStep		: INT;
 	nCycles		: UINT;
 	sTest		: STRING(80);
@@ -1211,6 +1515,21 @@ END_VAR
 sTest := 'Focus_Error_With_An_Axis_Error_Parks_In_Place: ';
 IF nStep >= 90 THEN
 	RETURN;
+END_IF
+IF nCur <> 18 THEN	// not this test's turn yet (TEST() above is called in every scan, TcUnit needs that)
+	RETURN;
+END_IF
+IF pRig = 0 THEN
+	pRig := __NEW(FB_MonetRig);
+	IF pRig = 0 THEN
+		AssertTrue(Condition := FALSE, Message := 'no router memory for the rig');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'no router memory for the rig'));
+		nStep := 99;
+		nCur := nCur + 1;
+		TEST_FINISHED();
+		RETURN;
+	END_IF
+	rig REF= pRig^;
 END_IF
 rig.Scan();
 nCycles := nCycles + 1;
@@ -1264,6 +1583,11 @@ CASE nStep OF
 		TEST_FINISHED();
 	END_IF
 END_CASE
+IF nStep >= 90 AND pRig <> 0 THEN	// finished in this scan: free the rig, the next test starts in the next scan
+	__DELETE(pRig);
+	pRig := 0;
+	nCur := nCur + 1;
+END_IF
 
 ]]></ST>
       </Implementation>
@@ -1274,7 +1598,8 @@ END_CASE
 // reset it, and disabled axes never report Busy). It does not hang: bIsParked, bParkedInPlace, covers closed, hydraulics off.
 METHOD PRIVATE Axis_Error_During_The_Focus_Error_Park_Parks_In_Place
 VAR_INST
-	rig			: FB_MonetRig;
+	pRig		: POINTER TO FB_MonetRig;	// created with __NEW in this test's turn, freed in the scan it finished in
+	rig			: REFERENCE TO FB_MonetRig;
 	nStep		: INT;
 	nCycles		: UINT;
 	sTest		: STRING(80);
@@ -1286,6 +1611,21 @@ END_VAR
 sTest := 'Axis_Error_During_The_Focus_Error_Park_Parks_In_Place: ';
 IF nStep >= 90 THEN
 	RETURN;
+END_IF
+IF nCur <> 19 THEN	// not this test's turn yet (TEST() above is called in every scan, TcUnit needs that)
+	RETURN;
+END_IF
+IF pRig = 0 THEN
+	pRig := __NEW(FB_MonetRig);
+	IF pRig = 0 THEN
+		AssertTrue(Condition := FALSE, Message := 'no router memory for the rig');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'no router memory for the rig'));
+		nStep := 99;
+		nCur := nCur + 1;
+		TEST_FINISHED();
+		RETURN;
+	END_IF
+	rig REF= pRig^;
 END_IF
 rig.Scan();
 nCycles := nCycles + 1;
@@ -1343,6 +1683,11 @@ CASE nStep OF
 		TEST_FINISHED();
 	END_IF
 END_CASE
+IF nStep >= 90 AND pRig <> 0 THEN	// finished in this scan: free the rig, the next test starts in the next scan
+	__DELETE(pRig);
+	pRig := 0;
+	nCur := nCur + 1;
+END_IF
 
 ]]></ST>
       </Implementation>
@@ -1354,7 +1699,8 @@ END_CASE
 // once, which drives on to the park position (elevation 60) and ends: bIsParked, not in place, hydraulics off, the error stays.
 METHOD PRIVATE Stuck_Focus_Does_Not_Hold_The_Focus_Error_Park
 VAR_INST
-	rig			: FB_MonetRig;
+	pRig		: POINTER TO FB_MonetRig;	// created with __NEW in this test's turn, freed in the scan it finished in
+	rig			: REFERENCE TO FB_MonetRig;
 	nStep		: INT;
 	nCycles		: UINT;
 	sTest		: STRING(80);
@@ -1366,6 +1712,21 @@ END_VAR
 sTest := 'Stuck_Focus_Does_Not_Hold_The_Focus_Error_Park: ';
 IF nStep >= 90 THEN
 	RETURN;
+END_IF
+IF nCur <> 20 THEN	// not this test's turn yet (TEST() above is called in every scan, TcUnit needs that)
+	RETURN;
+END_IF
+IF pRig = 0 THEN
+	pRig := __NEW(FB_MonetRig);
+	IF pRig = 0 THEN
+		AssertTrue(Condition := FALSE, Message := 'no router memory for the rig');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'no router memory for the rig'));
+		nStep := 99;
+		nCur := nCur + 1;
+		TEST_FINISHED();
+		RETURN;
+	END_IF
+	rig REF= pRig^;
 END_IF
 rig.Scan();
 nCycles := nCycles + 1;
@@ -1429,6 +1790,11 @@ CASE nStep OF
 		TEST_FINISHED();
 	END_IF
 END_CASE
+IF nStep >= 90 AND pRig <> 0 THEN	// finished in this scan: free the rig, the next test starts in the next scan
+	__DELETE(pRig);
+	pRig := 0;
+	nCur := nCur + 1;
+END_IF
 
 ]]></ST>
       </Implementation>
@@ -1438,7 +1804,8 @@ END_CASE
 // (fbFocus.Reset(), M resets the focus itself), bError goes, no roof request was ever set (D9), and power=1 brings the telescope online.
 METHOD PRIVATE Focus_Error_Park_Recovers_With_Reset_And_Power_On
 VAR_INST
-	rig			: FB_MonetRig;
+	pRig		: POINTER TO FB_MonetRig;	// created with __NEW in this test's turn, freed in the scan it finished in
+	rig			: REFERENCE TO FB_MonetRig;
 	nStep		: INT;
 	nCycles		: UINT;
 	sTest		: STRING(80);
@@ -1450,6 +1817,21 @@ END_VAR
 sTest := 'Focus_Error_Park_Recovers_With_Reset_And_Power_On: ';
 IF nStep >= 90 THEN
 	RETURN;
+END_IF
+IF nCur <> 21 THEN	// not this test's turn yet (TEST() above is called in every scan, TcUnit needs that)
+	RETURN;
+END_IF
+IF pRig = 0 THEN
+	pRig := __NEW(FB_MonetRig);
+	IF pRig = 0 THEN
+		AssertTrue(Condition := FALSE, Message := 'no router memory for the rig');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'no router memory for the rig'));
+		nStep := 99;
+		nCur := nCur + 1;
+		TEST_FINISHED();
+		RETURN;
+	END_IF
+	rig REF= pRig^;
 END_IF
 rig.Scan();
 nCycles := nCycles + 1;
@@ -1513,6 +1895,11 @@ CASE nStep OF
 		TEST_FINISHED();
 	END_IF
 END_CASE
+IF nStep >= 90 AND pRig <> 0 THEN	// finished in this scan: free the rig, the next test starts in the next scan
+	__DELETE(pRig);
+	pRig := 0;
+	nCur := nCur + 1;
+END_IF
 
 ]]></ST>
       </Implementation>
@@ -1524,7 +1911,8 @@ END_CASE
 // power-on does not open them again. Until this change the power-on went on commanding Open() during the E-stop.
 METHOD PRIVATE Estop_During_Cover_Opening_Stops_The_Covers
 VAR_INST
-	rig			: FB_MonetRig;
+	pRig		: POINTER TO FB_MonetRig;	// created with __NEW in this test's turn, freed in the scan it finished in
+	rig			: REFERENCE TO FB_MonetRig;
 	nStep		: INT;
 	nCycles		: UINT;
 	sTest		: STRING(80);
@@ -1538,6 +1926,21 @@ END_VAR
 sTest := 'Estop_During_Cover_Opening_Stops_The_Covers: ';
 IF nStep >= 90 THEN
 	RETURN;
+END_IF
+IF nCur <> 14 THEN	// not this test's turn yet (TEST() above is called in every scan, TcUnit needs that)
+	RETURN;
+END_IF
+IF pRig = 0 THEN
+	pRig := __NEW(FB_MonetRig);
+	IF pRig = 0 THEN
+		AssertTrue(Condition := FALSE, Message := 'no router memory for the rig');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'no router memory for the rig'));
+		nStep := 99;
+		nCur := nCur + 1;
+		TEST_FINISHED();
+		RETURN;
+	END_IF
+	rig REF= pRig^;
 END_IF
 rig.SetCoverTravelScans(nScans := 200);	// a cover run takes 200 scans
 rig.Scan();
@@ -1607,6 +2010,11 @@ CASE nStep OF
 		TEST_FINISHED();
 	END_IF
 END_CASE
+IF nStep >= 90 AND pRig <> 0 THEN	// finished in this scan: free the rig, the next test starts in the next scan
+	__DELETE(pRig);
+	pRig := 0;
+	nCur := nCur + 1;
+END_IF
 
 ]]></ST>
       </Implementation>
@@ -1617,7 +2025,8 @@ END_CASE
 // park closes them.
 METHOD PRIVATE Safety_Error_During_Cover_Opening_Stops_The_Covers
 VAR_INST
-	rig			: FB_MonetRig;
+	pRig		: POINTER TO FB_MonetRig;	// created with __NEW in this test's turn, freed in the scan it finished in
+	rig			: REFERENCE TO FB_MonetRig;
 	nStep		: INT;
 	nCycles		: UINT;
 	sTest		: STRING(80);
@@ -1631,6 +2040,21 @@ END_VAR
 sTest := 'Safety_Error_During_Cover_Opening_Stops_The_Covers: ';
 IF nStep >= 90 THEN
 	RETURN;
+END_IF
+IF nCur <> 15 THEN	// not this test's turn yet (TEST() above is called in every scan, TcUnit needs that)
+	RETURN;
+END_IF
+IF pRig = 0 THEN
+	pRig := __NEW(FB_MonetRig);
+	IF pRig = 0 THEN
+		AssertTrue(Condition := FALSE, Message := 'no router memory for the rig');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'no router memory for the rig'));
+		nStep := 99;
+		nCur := nCur + 1;
+		TEST_FINISHED();
+		RETURN;
+	END_IF
+	rig REF= pRig^;
 END_IF
 rig.SetCoverTravelScans(nScans := 200);	// a cover run takes 200 scans
 rig.Scan();
@@ -1696,6 +2120,11 @@ CASE nStep OF
 		TEST_FINISHED();
 	END_IF
 END_CASE
+IF nStep >= 90 AND pRig <> 0 THEN	// finished in this scan: free the rig, the next test starts in the next scan
+	__DELETE(pRig);
+	pRig := 0;
+	nCur := nCur + 1;
+END_IF
 
 ]]></ST>
       </Implementation>
@@ -1706,7 +2135,8 @@ END_CASE
 // the park (and the park in place held by the E-stop) closes the covers and ends. Until this change the park went on closing them.
 METHOD PRIVATE Estop_During_Cover_Closing_Stops_The_Covers
 VAR_INST
-	rig			: FB_MonetRig;
+	pRig		: POINTER TO FB_MonetRig;	// created with __NEW in this test's turn, freed in the scan it finished in
+	rig			: REFERENCE TO FB_MonetRig;
 	nStep		: INT;
 	nCycles		: UINT;
 	sTest		: STRING(80);
@@ -1721,6 +2151,21 @@ END_VAR
 sTest := 'Estop_During_Cover_Closing_Stops_The_Covers: ';
 IF nStep >= 90 THEN
 	RETURN;
+END_IF
+IF nCur <> 16 THEN	// not this test's turn yet (TEST() above is called in every scan, TcUnit needs that)
+	RETURN;
+END_IF
+IF pRig = 0 THEN
+	pRig := __NEW(FB_MonetRig);
+	IF pRig = 0 THEN
+		AssertTrue(Condition := FALSE, Message := 'no router memory for the rig');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'no router memory for the rig'));
+		nStep := 99;
+		nCur := nCur + 1;
+		TEST_FINISHED();
+		RETURN;
+	END_IF
+	rig REF= pRig^;
 END_IF
 rig.SetCoverTravelScans(nScans := 100);	// a cover run takes 100 scans
 rig.Scan();
@@ -1796,6 +2241,493 @@ CASE nStep OF
 		TEST_FINISHED();
 	END_IF
 END_CASE
+IF nStep >= 90 AND pRig <> 0 THEN	// finished in this scan: free the rig, the next test starts in the next scan
+	__DELETE(pRig);
+	pRig := 0;
+	nCur := nCur + 1;
+END_IF
+
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Elevation_Error_During_A_Slew_Fast_Stops_The_Healthy_Axes" Id="{19cc2cd3-08a1-4701-8de2-464a0c4f9f7a}">
+      <Declaration><![CDATA[// #272: an elevation error during a slew. In the scan of the error only the elevation is disabled and the shared brake is
+// closed (no drive holds it); azimuth and derotator stay enabled and get their MC_Stop at the fast-stop dynamics of stMotion
+// (bAxisErrorRamp), the hydraulics stay on. After the stop has settled the emergency park parks in place: all axes disabled,
+// brake closed, covers closed, hydraulics off, the stop dynamics back at the NC parameters (0.0). Until 0.23.x all three axes
+// were disabled in the scan of the error and the brake alone stopped the azimuth.
+METHOD PRIVATE Elevation_Error_During_A_Slew_Fast_Stops_The_Healthy_Axes
+VAR_INST
+	pRig		: POINTER TO FB_MonetRig;	// created with __NEW in this test's turn, freed in the scan it finished in
+	rig			: REFERENCE TO FB_MonetRig;
+	stCfg		: BROTLib.ST_MotionConfig;
+	nStep		: INT;
+	nCycles		: UINT;
+	sTest		: STRING(80);
+	nAz0		: UINT;
+	nDr0		: UINT;
+	nDisable0	: UINT;
+	bSeenError	: BOOL;
+	bSawRamp	: BOOL;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Elevation_Error_During_A_Slew_Fast_Stops_The_Healthy_Axes');
+sTest := 'Elevation_Error_During_A_Slew_Fast_Stops_The_Healthy_Axes: ';
+IF nStep >= 90 THEN
+	RETURN;
+END_IF
+IF nCur <> 22 THEN	// not this test's turn yet (TEST() above is called in every scan, TcUnit needs that)
+	RETURN;
+END_IF
+IF pRig = 0 THEN
+	pRig := __NEW(FB_MonetRig);
+	IF pRig = 0 THEN
+		AssertTrue(Condition := FALSE, Message := 'no router memory for the rig');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'no router memory for the rig'));
+		nStep := 99;
+		nCur := nCur + 1;
+		TEST_FINISHED();
+		RETURN;
+	END_IF
+	rig REF= pRig^;
+END_IF
+IF nStep = 0 AND nCycles = 0 THEN
+	stCfg.fAzimuthFastStopDeceleration := 10.0;
+	stCfg.fAzimuthFastStopJerk := 30.0;
+	stCfg.fElevationFastStopDeceleration := 9.0;
+	stCfg.fElevationFastStopJerk := 27.0;
+	stCfg.fDerotatorFastStopDeceleration := 20.0;
+	stCfg.fDerotatorFastStopJerk := 60.0;
+	rig.SetMotion(stValue := stCfg);
+END_IF
+rig.Scan();
+nCycles := nCycles + 1;
+CASE nStep OF
+0:	// wait for the clock, then power on
+	IF rig.ClockValid THEN
+		rig.fbTel.Init();
+		nStep := 10;
+		nCycles := 0;
+	ELSIF nCycles > 2000 THEN
+		AssertTrue(Condition := FALSE, Message := 'the astronomical clock never became valid');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the astronomical clock never became valid'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+10:	// online: slew
+	IF rig.Online THEN
+		rig.fbTel.Slew(fAzimuth := 180.0, fAltitude := 45.0);
+		nStep := 20;
+		nCycles := 0;
+	ELSIF nCycles > 1500 THEN
+		AssertTrue(Condition := FALSE, Message := 'the mock telescope did not reach READY_STATE 1.0');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the mock telescope did not reach READY_STATE 1.0'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+20:	// the slew moves all three axes: the elevation reports an error
+	IF rig.fbElev.MoveAxis AND rig.fbAzim.MoveAxis AND rig.fbDero.MoveAxis AND nCycles >= 3 THEN
+		nAz0 := rig.fbAzim.nStopEdges;
+		nDr0 := rig.fbDero.nStopEdges;
+		nDisable0 := rig.fbBrakeHyd.nDisableCalls;
+		rig.InjectElevationError(16#4550);
+		nStep := 30;
+		nCycles := 0;
+	ELSIF nCycles > 300 THEN
+		AssertTrue(Condition := FALSE, Message := 'the slew did not start the axis moves');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the slew did not start the axis moves'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+30:
+	bSawRamp := bSawRamp OR rig.fbTel.bAxisErrorRamp;
+	IF rig.fbTel.bError AND NOT bSeenError THEN	// the scan that saw the error
+		bSeenError := TRUE;
+		AssertTrue(Condition := rig.fbTel.bAxisErrorRamp AND rig.fbTel.bStopActive, Message := 'the error starts the ramp (bStop)');
+		F_Note(bFailed := NOT (rig.fbTel.bAxisErrorRamp AND rig.fbTel.bStopActive), sText := CONCAT(sTest, 'the error starts the ramp (bStop)'));
+		AssertFalse(Condition := rig.fbElev.bEnable, Message := 'the faulty elevation is disabled');
+		F_Note(bFailed := (rig.fbElev.bEnable), sText := CONCAT(sTest, 'the faulty elevation is disabled'));
+		AssertTrue(Condition := rig.fbAzim.bEnable AND rig.fbDero.bEnable, Message := 'azimuth and derotator stay enabled for their stop');
+		F_Note(bFailed := NOT (rig.fbAzim.bEnable AND rig.fbDero.bEnable), sText := CONCAT(sTest, 'azimuth and derotator stay enabled for their stop'));
+		AssertFalse(Condition := rig.fbBrakeHyd.BrakeOpen, Message := 'the shared brake is closed at once');
+		F_Note(bFailed := (rig.fbBrakeHyd.BrakeOpen), sText := CONCAT(sTest, 'the shared brake is closed at once'));
+		AssertTrue(Condition := rig.fbBrakeHyd.nDisableCalls = nDisable0, Message := 'the hydraulics stay on');
+		F_Note(bFailed := NOT (rig.fbBrakeHyd.nDisableCalls = nDisable0), sText := CONCAT(sTest, 'the hydraulics stay on'));
+		AssertTrue(Condition := rig.fbAzim.fbAxis.StopDeceleration = 10.0 AND rig.fbAzim.fbAxis.StopJerk = 30.0, Message := 'the azimuth stops at its fast-stop dynamics');
+		F_Note(bFailed := NOT (rig.fbAzim.fbAxis.StopDeceleration = 10.0 AND rig.fbAzim.fbAxis.StopJerk = 30.0), sText := CONCAT(sTest, 'the azimuth stops at its fast-stop dynamics'));
+		AssertTrue(Condition := rig.fbDero.fbAxis.StopDeceleration = 20.0 AND rig.fbDero.fbAxis.StopJerk = 60.0, Message := 'the derotator stops at its fast-stop dynamics');
+		F_Note(bFailed := NOT (rig.fbDero.fbAxis.StopDeceleration = 20.0 AND rig.fbDero.fbAxis.StopJerk = 60.0), sText := CONCAT(sTest, 'the derotator stops at its fast-stop dynamics'));
+	END_IF
+	IF rig.fbTel.bIsParked AND nCycles > 5 THEN
+		AssertTrue(Condition := bSawRamp, Message := 'the ramp ran');
+		F_Note(bFailed := NOT (bSawRamp), sText := CONCAT(sTest, 'the ramp ran'));
+		AssertTrue(Condition := rig.fbAzim.nStopEdges > nAz0 AND rig.fbDero.nStopEdges > nDr0, Message := 'azimuth and derotator were sent their MC_Stop');
+		F_Note(bFailed := NOT (rig.fbAzim.nStopEdges > nAz0 AND rig.fbDero.nStopEdges > nDr0), sText := CONCAT(sTest, 'azimuth and derotator were sent their MC_Stop'));
+		AssertTrue(Condition := rig.fbTel.bParkedInPlace AND NOT rig.fbTel.bParkActive AND NOT rig.fbTel.bAxisErrorRamp, Message := 'the park ended in place, the ramp is over');
+		F_Note(bFailed := NOT (rig.fbTel.bParkedInPlace AND NOT rig.fbTel.bParkActive AND NOT rig.fbTel.bAxisErrorRamp), sText := CONCAT(sTest, 'the park ended in place, the ramp is over'));
+		AssertFalse(Condition := rig.fbElev.bEnable OR rig.fbAzim.bEnable OR rig.fbDero.bEnable, Message := 'all three axes are disabled');
+		F_Note(bFailed := (rig.fbElev.bEnable OR rig.fbAzim.bEnable OR rig.fbDero.bEnable), sText := CONCAT(sTest, 'all three axes are disabled'));
+		AssertFalse(Condition := rig.fbBrakeHyd.BrakeOpen, Message := 'the brake is closed');
+		F_Note(bFailed := (rig.fbBrakeHyd.BrakeOpen), sText := CONCAT(sTest, 'the brake is closed'));
+		AssertTrue(Condition := rig.fbCovers.bClosed AND rig.fbBrakeHyd.nDisableCalls > nDisable0, Message := 'covers closed, hydraulics off');
+		F_Note(bFailed := NOT (rig.fbCovers.bClosed AND rig.fbBrakeHyd.nDisableCalls > nDisable0), sText := CONCAT(sTest, 'covers closed, hydraulics off'));
+		AssertTrue(Condition := rig.fbAzim.fbAxis.StopDeceleration = 0.0 AND rig.fbAzim.fbAxis.StopJerk = 0.0 AND
+			rig.fbDero.fbAxis.StopDeceleration = 0.0 AND rig.fbElev.fbAxis.StopDeceleration = 0.0, Message := 'the stop dynamics are back at the NC parameters');
+		F_Note(bFailed := NOT (rig.fbAzim.fbAxis.StopDeceleration = 0.0 AND rig.fbAzim.fbAxis.StopJerk = 0.0 AND
+			rig.fbDero.fbAxis.StopDeceleration = 0.0 AND rig.fbElev.fbAxis.StopDeceleration = 0.0), sText := CONCAT(sTest, 'the stop dynamics are back at the NC parameters'));
+		AssertTrue(Condition := rig.fbTel.bError AND rig.fbTel.ReadyState = -1.0, Message := 'the error stays, READY_STATE -1.0');
+		F_Note(bFailed := NOT (rig.fbTel.bError AND rig.fbTel.ReadyState = -1.0), sText := CONCAT(sTest, 'the error stays, READY_STATE -1.0'));
+		nStep := 99;
+		TEST_FINISHED();
+	ELSIF nCycles > 1000 THEN
+		AssertTrue(Condition := FALSE, Message := 'the telescope did not park after the ramp');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the telescope did not park after the ramp'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+END_CASE
+IF nStep >= 90 AND pRig <> 0 THEN	// finished in this scan: free the rig, the next test starts in the next scan
+	__DELETE(pRig);
+	pRig := 0;
+	nCur := nCur + 1;
+END_IF
+
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Azimuth_Error_During_A_Slew_Closes_The_Brake_At_Once" Id="{005ca04b-8d1d-4d6a-b6aa-bc9fc742bd70}">
+      <Declaration><![CDATA[// #272: an azimuth error during a slew. The faulty azimuth has no drive, so the shared brake is closed in the scan of the error
+// (until 0.23.x the emergency park closed it in that scan; the park now waits behind the ramp) and held closed: the enabled
+// elevation requests the opening in every scan. Elevation and derotator stay enabled and get their MC_Stop; then the park parks
+// in place.
+METHOD PRIVATE Azimuth_Error_During_A_Slew_Closes_The_Brake_At_Once
+VAR_INST
+	pRig		: POINTER TO FB_MonetRig;	// created with __NEW in this test's turn, freed in the scan it finished in
+	rig			: REFERENCE TO FB_MonetRig;
+	nStep		: INT;
+	nCycles		: UINT;
+	sTest		: STRING(80);
+	nEl0		: UINT;
+	nDisable0	: UINT;
+	bSeenError	: BOOL;
+	bReopened	: BOOL;	// the brake was open again in a later scan of the ramp (the enabled elevation requests the opening in every scan)
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Azimuth_Error_During_A_Slew_Closes_The_Brake_At_Once');
+sTest := 'Azimuth_Error_During_A_Slew_Closes_The_Brake_At_Once: ';
+IF nStep >= 90 THEN
+	RETURN;
+END_IF
+IF nCur <> 23 THEN	// not this test's turn yet (TEST() above is called in every scan, TcUnit needs that)
+	RETURN;
+END_IF
+IF pRig = 0 THEN
+	pRig := __NEW(FB_MonetRig);
+	IF pRig = 0 THEN
+		AssertTrue(Condition := FALSE, Message := 'no router memory for the rig');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'no router memory for the rig'));
+		nStep := 99;
+		nCur := nCur + 1;
+		TEST_FINISHED();
+		RETURN;
+	END_IF
+	rig REF= pRig^;
+END_IF
+rig.Scan();
+nCycles := nCycles + 1;
+CASE nStep OF
+0:	// wait for the clock, then power on
+	IF rig.ClockValid THEN
+		rig.fbTel.Init();
+		nStep := 10;
+		nCycles := 0;
+	ELSIF nCycles > 2000 THEN
+		AssertTrue(Condition := FALSE, Message := 'the astronomical clock never became valid');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the astronomical clock never became valid'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+10:	// online: slew
+	IF rig.Online THEN
+		rig.fbTel.Slew(fAzimuth := 180.0, fAltitude := 45.0);
+		nStep := 20;
+		nCycles := 0;
+	ELSIF nCycles > 1500 THEN
+		AssertTrue(Condition := FALSE, Message := 'the mock telescope did not reach READY_STATE 1.0');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the mock telescope did not reach READY_STATE 1.0'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+20:	// the slew moves all three axes: the azimuth reports an error
+	IF rig.fbElev.MoveAxis AND rig.fbAzim.MoveAxis AND rig.fbDero.MoveAxis AND nCycles >= 3 THEN
+		nEl0 := rig.fbElev.nStopEdges;
+		nDisable0 := rig.fbBrakeHyd.nDisableCalls;
+		rig.InjectAzimuthError(16#4550);
+		nStep := 30;
+		nCycles := 0;
+	ELSIF nCycles > 300 THEN
+		AssertTrue(Condition := FALSE, Message := 'the slew did not start the axis moves');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the slew did not start the axis moves'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+30:
+	IF rig.fbTel.bError AND NOT bSeenError THEN	// the scan that saw the error
+		bSeenError := TRUE;
+		AssertTrue(Condition := rig.fbTel.bAxisErrorRamp, Message := 'the error starts the ramp');
+		F_Note(bFailed := NOT (rig.fbTel.bAxisErrorRamp), sText := CONCAT(sTest, 'the error starts the ramp'));
+		AssertFalse(Condition := rig.fbAzim.bEnable, Message := 'the faulty azimuth is disabled');
+		F_Note(bFailed := (rig.fbAzim.bEnable), sText := CONCAT(sTest, 'the faulty azimuth is disabled'));
+		AssertTrue(Condition := rig.fbElev.bEnable AND rig.fbDero.bEnable, Message := 'elevation and derotator stay enabled for their stop');
+		F_Note(bFailed := NOT (rig.fbElev.bEnable AND rig.fbDero.bEnable), sText := CONCAT(sTest, 'elevation and derotator stay enabled for their stop'));
+		AssertFalse(Condition := rig.fbBrakeHyd.BrakeOpen, Message := 'the shared brake is closed at once');
+		F_Note(bFailed := (rig.fbBrakeHyd.BrakeOpen), sText := CONCAT(sTest, 'the shared brake is closed at once'));
+		AssertTrue(Condition := rig.fbBrakeHyd.nDisableCalls = nDisable0, Message := 'the hydraulics stay on');
+		F_Note(bFailed := NOT (rig.fbBrakeHyd.nDisableCalls = nDisable0), sText := CONCAT(sTest, 'the hydraulics stay on'));
+	ELSIF bSeenError AND rig.fbBrakeHyd.BrakeOpen THEN
+		bReopened := TRUE;
+	END_IF
+	IF rig.fbTel.bIsParked AND nCycles > 5 THEN
+		AssertFalse(Condition := bReopened, Message := 'the brake stays closed after the error');
+		F_Note(bFailed := bReopened, sText := CONCAT(sTest, 'the brake stays closed after the error'));
+		AssertTrue(Condition := bSeenError AND rig.fbElev.nStopEdges > nEl0, Message := 'the elevation was sent its MC_Stop');
+		F_Note(bFailed := NOT (bSeenError AND rig.fbElev.nStopEdges > nEl0), sText := CONCAT(sTest, 'the elevation was sent its MC_Stop'));
+		AssertTrue(Condition := rig.fbTel.bParkedInPlace AND NOT rig.fbTel.bParkActive, Message := 'the park ended in place');
+		F_Note(bFailed := NOT (rig.fbTel.bParkedInPlace AND NOT rig.fbTel.bParkActive), sText := CONCAT(sTest, 'the park ended in place'));
+		AssertFalse(Condition := rig.fbElev.bEnable OR rig.fbAzim.bEnable OR rig.fbDero.bEnable, Message := 'all three axes are disabled');
+		F_Note(bFailed := (rig.fbElev.bEnable OR rig.fbAzim.bEnable OR rig.fbDero.bEnable), sText := CONCAT(sTest, 'all three axes are disabled'));
+		AssertTrue(Condition := rig.fbCovers.bClosed AND rig.fbBrakeHyd.nDisableCalls > nDisable0, Message := 'covers closed, hydraulics off');
+		F_Note(bFailed := NOT (rig.fbCovers.bClosed AND rig.fbBrakeHyd.nDisableCalls > nDisable0), sText := CONCAT(sTest, 'covers closed, hydraulics off'));
+		nStep := 99;
+		TEST_FINISHED();
+	ELSIF nCycles > 1000 THEN
+		AssertTrue(Condition := FALSE, Message := 'the telescope did not park after the ramp');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the telescope did not park after the ramp'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+END_CASE
+IF nStep >= 90 AND pRig <> 0 THEN	// finished in this scan: free the rig, the next test starts in the next scan
+	__DELETE(pRig);
+	pRig := 0;
+	nCur := nCur + 1;
+END_IF
+
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Derotator_Error_During_A_Slew_Keeps_The_Brake_Open_For_The_Ramp" Id="{5322b58c-fd98-49c2-9f7f-9ddec7abfca1}">
+      <Declaration><![CDATA[// #272: a derotator error alone during a slew. The derotator is not on the hydraulic brake: the brake stays open and the
+// hydraulics on while elevation and azimuth stop with their drives; the park in place closes the brake at rest.
+METHOD PRIVATE Derotator_Error_During_A_Slew_Keeps_The_Brake_Open_For_The_Ramp
+VAR_INST
+	pRig		: POINTER TO FB_MonetRig;	// created with __NEW in this test's turn, freed in the scan it finished in
+	rig			: REFERENCE TO FB_MonetRig;
+	nStep		: INT;
+	nCycles		: UINT;
+	sTest		: STRING(80);
+	nEl0		: UINT;
+	nAz0		: UINT;
+	nDisable0	: UINT;
+	bSeenError	: BOOL;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Derotator_Error_During_A_Slew_Keeps_The_Brake_Open_For_The_Ramp');
+sTest := 'Derotator_Error_During_A_Slew_Keeps_The_Brake_Open_For_The_Ramp: ';
+IF nStep >= 90 THEN
+	RETURN;
+END_IF
+IF nCur <> 24 THEN	// not this test's turn yet (TEST() above is called in every scan, TcUnit needs that)
+	RETURN;
+END_IF
+IF pRig = 0 THEN
+	pRig := __NEW(FB_MonetRig);
+	IF pRig = 0 THEN
+		AssertTrue(Condition := FALSE, Message := 'no router memory for the rig');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'no router memory for the rig'));
+		nStep := 99;
+		nCur := nCur + 1;
+		TEST_FINISHED();
+		RETURN;
+	END_IF
+	rig REF= pRig^;
+END_IF
+rig.Scan();
+nCycles := nCycles + 1;
+CASE nStep OF
+0:	// wait for the clock, then power on
+	IF rig.ClockValid THEN
+		rig.fbTel.Init();
+		nStep := 10;
+		nCycles := 0;
+	ELSIF nCycles > 2000 THEN
+		AssertTrue(Condition := FALSE, Message := 'the astronomical clock never became valid');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the astronomical clock never became valid'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+10:	// online: slew
+	IF rig.Online THEN
+		rig.fbTel.Slew(fAzimuth := 180.0, fAltitude := 45.0);
+		nStep := 20;
+		nCycles := 0;
+	ELSIF nCycles > 1500 THEN
+		AssertTrue(Condition := FALSE, Message := 'the mock telescope did not reach READY_STATE 1.0');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the mock telescope did not reach READY_STATE 1.0'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+20:	// the slew moves all three axes: the derotator reports an error
+	IF rig.fbElev.MoveAxis AND rig.fbAzim.MoveAxis AND rig.fbDero.MoveAxis AND nCycles >= 3 THEN
+		nEl0 := rig.fbElev.nStopEdges;
+		nAz0 := rig.fbAzim.nStopEdges;
+		nDisable0 := rig.fbBrakeHyd.nDisableCalls;
+		rig.InjectDerotatorError(16#4550);
+		nStep := 30;
+		nCycles := 0;
+	ELSIF nCycles > 300 THEN
+		AssertTrue(Condition := FALSE, Message := 'the slew did not start the axis moves');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the slew did not start the axis moves'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+30:
+	IF rig.fbTel.bError AND NOT bSeenError THEN	// the scan that saw the error
+		bSeenError := TRUE;
+		AssertTrue(Condition := rig.fbTel.bAxisErrorRamp, Message := 'the error starts the ramp');
+		F_Note(bFailed := NOT (rig.fbTel.bAxisErrorRamp), sText := CONCAT(sTest, 'the error starts the ramp'));
+		AssertFalse(Condition := rig.fbDero.bEnable, Message := 'the faulty derotator is disabled');
+		F_Note(bFailed := (rig.fbDero.bEnable), sText := CONCAT(sTest, 'the faulty derotator is disabled'));
+		AssertTrue(Condition := rig.fbElev.bEnable AND rig.fbAzim.bEnable, Message := 'elevation and azimuth stay enabled for their stop');
+		F_Note(bFailed := NOT (rig.fbElev.bEnable AND rig.fbAzim.bEnable), sText := CONCAT(sTest, 'elevation and azimuth stay enabled for their stop'));
+		AssertTrue(Condition := rig.fbBrakeHyd.BrakeOpen AND rig.fbBrakeHyd.nDisableCalls = nDisable0, Message := 'the brake stays open and the hydraulics on');
+		F_Note(bFailed := NOT (rig.fbBrakeHyd.BrakeOpen AND rig.fbBrakeHyd.nDisableCalls = nDisable0), sText := CONCAT(sTest, 'the brake stays open and the hydraulics on'));
+	END_IF
+	IF rig.fbTel.bIsParked AND nCycles > 5 THEN
+		AssertTrue(Condition := bSeenError AND rig.fbElev.nStopEdges > nEl0 AND rig.fbAzim.nStopEdges > nAz0, Message := 'elevation and azimuth were sent their MC_Stop');
+		F_Note(bFailed := NOT (bSeenError AND rig.fbElev.nStopEdges > nEl0 AND rig.fbAzim.nStopEdges > nAz0), sText := CONCAT(sTest, 'elevation and azimuth were sent their MC_Stop'));
+		AssertTrue(Condition := rig.fbTel.bParkedInPlace AND NOT rig.fbTel.bParkActive, Message := 'the park ended in place');
+		F_Note(bFailed := NOT (rig.fbTel.bParkedInPlace AND NOT rig.fbTel.bParkActive), sText := CONCAT(sTest, 'the park ended in place'));
+		AssertFalse(Condition := rig.fbElev.bEnable OR rig.fbAzim.bEnable OR rig.fbDero.bEnable, Message := 'all three axes are disabled');
+		F_Note(bFailed := (rig.fbElev.bEnable OR rig.fbAzim.bEnable OR rig.fbDero.bEnable), sText := CONCAT(sTest, 'all three axes are disabled'));
+		AssertFalse(Condition := rig.fbBrakeHyd.BrakeOpen, Message := 'the brake is closed at rest');
+		F_Note(bFailed := (rig.fbBrakeHyd.BrakeOpen), sText := CONCAT(sTest, 'the brake is closed at rest'));
+		AssertTrue(Condition := rig.fbCovers.bClosed AND rig.fbBrakeHyd.nDisableCalls > nDisable0, Message := 'covers closed, hydraulics off');
+		F_Note(bFailed := NOT (rig.fbCovers.bClosed AND rig.fbBrakeHyd.nDisableCalls > nDisable0), sText := CONCAT(sTest, 'covers closed, hydraulics off'));
+		nStep := 99;
+		TEST_FINISHED();
+	ELSIF nCycles > 1000 THEN
+		AssertTrue(Condition := FALSE, Message := 'the telescope did not park after the ramp');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the telescope did not park after the ramp'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+END_CASE
+IF nStep >= 90 AND pRig <> 0 THEN	// finished in this scan: free the rig, the next test starts in the next scan
+	__DELETE(pRig);
+	pRig := 0;
+	nCur := nCur + 1;
+END_IF
+
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Second_Axis_Error_During_The_Ramp_Disables_All_Axes" Id="{d4229a9e-6bfd-4a1f-9d05-46ac6626f542}">
+      <Declaration><![CDATA[// #272: a further axis error during the ramp of an axis error ends the ramp: the error branch disables all three axes, as
+// before 0.24. The stops are made slow (SetStopScans 200) so that the ramp is still running when the azimuth faults.
+METHOD PRIVATE Second_Axis_Error_During_The_Ramp_Disables_All_Axes
+VAR_INST
+	pRig		: POINTER TO FB_MonetRig;	// created with __NEW in this test's turn, freed in the scan it finished in
+	rig			: REFERENCE TO FB_MonetRig;
+	nStep		: INT;
+	nCycles		: UINT;
+	sTest		: STRING(80);
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Second_Axis_Error_During_The_Ramp_Disables_All_Axes');
+sTest := 'Second_Axis_Error_During_The_Ramp_Disables_All_Axes: ';
+IF nStep >= 90 THEN
+	RETURN;
+END_IF
+IF nCur <> 25 THEN	// not this test's turn yet (TEST() above is called in every scan, TcUnit needs that)
+	RETURN;
+END_IF
+IF pRig = 0 THEN
+	pRig := __NEW(FB_MonetRig);
+	IF pRig = 0 THEN
+		AssertTrue(Condition := FALSE, Message := 'no router memory for the rig');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'no router memory for the rig'));
+		nStep := 99;
+		nCur := nCur + 1;
+		TEST_FINISHED();
+		RETURN;
+	END_IF
+	rig REF= pRig^;
+END_IF
+rig.Scan();
+nCycles := nCycles + 1;
+CASE nStep OF
+0:	// wait for the clock, then power on
+	IF rig.ClockValid THEN
+		rig.fbTel.Init();
+		nStep := 10;
+		nCycles := 0;
+	ELSIF nCycles > 2000 THEN
+		AssertTrue(Condition := FALSE, Message := 'the astronomical clock never became valid');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the astronomical clock never became valid'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+10:	// online: slew with slow stops
+	IF rig.Online THEN
+		rig.SetStopScans(nScans := 200);
+		rig.fbTel.Slew(fAzimuth := 180.0, fAltitude := 45.0);
+		nStep := 20;
+		nCycles := 0;
+	ELSIF nCycles > 1500 THEN
+		AssertTrue(Condition := FALSE, Message := 'the mock telescope did not reach READY_STATE 1.0');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the mock telescope did not reach READY_STATE 1.0'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+20:	// the slew moves all three axes: the elevation reports an error
+	IF rig.fbElev.MoveAxis AND rig.fbAzim.MoveAxis AND rig.fbDero.MoveAxis AND nCycles >= 3 THEN
+		rig.InjectElevationError(16#4550);
+		nStep := 30;
+		nCycles := 0;
+	ELSIF nCycles > 300 THEN
+		AssertTrue(Condition := FALSE, Message := 'the slew did not start the axis moves');
+		F_Note(bFailed := TRUE, sText := CONCAT(sTest, 'the slew did not start the axis moves'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+30:	// the ramp runs: the azimuth faults too
+	IF nCycles >= 5 THEN
+		AssertTrue(Condition := rig.fbTel.bAxisErrorRamp AND rig.fbAzim.bEnable, Message := 'the ramp of the elevation error runs');
+		F_Note(bFailed := NOT (rig.fbTel.bAxisErrorRamp AND rig.fbAzim.bEnable), sText := CONCAT(sTest, 'the ramp of the elevation error runs'));
+		rig.InjectAzimuthError(16#4550);
+		nStep := 40;
+		nCycles := 0;
+	END_IF
+40:	// within two scans the ramp is over and all axes are disabled
+	IF nCycles >= 2 THEN
+		AssertFalse(Condition := rig.fbTel.bAxisErrorRamp, Message := 'the second error ends the ramp');
+		F_Note(bFailed := (rig.fbTel.bAxisErrorRamp), sText := CONCAT(sTest, 'the second error ends the ramp'));
+		AssertFalse(Condition := rig.fbElev.bEnable OR rig.fbAzim.bEnable OR rig.fbDero.bEnable, Message := 'all three axes are disabled');
+		F_Note(bFailed := (rig.fbElev.bEnable OR rig.fbAzim.bEnable OR rig.fbDero.bEnable), sText := CONCAT(sTest, 'all three axes are disabled'));
+		nStep := 99;
+		TEST_FINISHED();
+	END_IF
+END_CASE
+IF nStep >= 90 AND pRig <> 0 THEN	// finished in this scan: free the rig, the next test starts in the next scan
+	__DELETE(pRig);
+	pRig := 0;
+	nCur := nCur + 1;
+END_IF
 
 ]]></ST>
       </Implementation>

@@ -5,9 +5,13 @@
 // The Az/El brake is hydraulic and locks by itself without pressure: Enable := FALSE (hydraulics off) closes the brake, and after
 // InjectPressureLoss() the brake is locked and OpenBrake() has no effect until Reset(). Nobody sets Enable TRUE in the rig, so the
 // brake opens as before as long as the pressure is there (OpenBrake does not need Enable).
+// A close wins over the opening in the same scan, as in HalfBROT FB_HydraulicsControl (a pending bCloseBrake clears bOpenBrake): after
+// CloseBrake() an OpenBrake() has no effect until the body has run (the rig calls it at the end of the scan). MONETcommon#272: the
+// enabled elevation requests the opening in every scan, after the telescope.
 FUNCTION_BLOCK FB_BrakeHydraulicsMock IMPLEMENTS BROTLib.I_Brake, BROTLib.I_Hydraulics
 VAR
 	bBrakeIsOpen	: BOOL;
+	bCloseRequest	: BOOL;	// CloseBrake() in this scan: OpenBrake() is ignored until the body
 	bEnabled		: BOOL;
 	bFailed			: BOOL;
 	bPressureLost	: BOOL;	// InjectPressureLoss: no oil pressure, the brake is locked
@@ -19,14 +23,14 @@ VAR
 END_VAR
 ]]></Declaration>
     <Implementation>
-      <ST><![CDATA[
+      <ST><![CDATA[bCloseRequest := FALSE;	// the scan's close has been applied
 ]]></ST>
     </Implementation>
     <Method Name="OpenBrake" Id="{1860ca1d-fc0d-4dcf-9300-461841a019a3}">
       <Declaration><![CDATA[METHOD OpenBrake : BOOL
 ]]></Declaration>
       <Implementation>
-        <ST><![CDATA[IF NOT bPressureLost THEN
+        <ST><![CDATA[IF NOT bPressureLost AND NOT bCloseRequest THEN
 	bBrakeIsOpen := TRUE;
 END_IF
 nOpenCalls := nOpenCalls + 1;
@@ -39,6 +43,7 @@ OpenBrake := NOT bPressureLost;
 ]]></Declaration>
       <Implementation>
         <ST><![CDATA[bBrakeIsOpen := FALSE;
+bCloseRequest := TRUE;
 nCloseCalls := nCloseCalls + 1;
 CloseBrake := TRUE;
 ]]></ST>

@@ -106,7 +106,9 @@ jobs:
         shell: powershell
         working-directory: MONETcommonTests
         run: |
-          tctool MONETcommonTests.sln build run --require-valid-license --skip-if-unavailable
+          # --timeout: how long to wait for TcUnit after the deploy (default 120 s). MonetErrorPark_Tests runs its tests one
+          # after another (one rig at a time, MONETcommon#274), about 180 s together; the job limit above is 30 min.
+          tctool MONETcommonTests.sln build run --require-valid-license --skip-if-unavailable --timeout 600
           $code = $LASTEXITCODE
           # (not `>>`: Windows PowerShell 5.1 would write UTF-16, which the runner cannot parse)
           if ($code -le 1) { [IO.File]::AppendAllText($env:GITHUB_OUTPUT, "ran=true`n"); exit 0 }
