@@ -350,6 +350,7 @@ VAR
 	bAxisErrorCanRamp		: BOOL;	// the healthy drives may ramp in this scan
 	bAxisErrorRamp			: BOOL;	// the controlled stop of the healthy axes is running, the error branch disables only the faulty ones
 	bAxisErrorRampStarted	: BOOL;	// one scan, logged
+	bAxisErrorBrakeHold		: BOOL;	// the ramp of a faulty azimuth ran at the start of this scan: the shared brake is held closed
 	AxisErrorRampEvent		: FB_EventLog;
 	nAxisRamp				: INT;
 	// #24 step 7 PR 8 (plan D8, specs/design/monetcommon-safe-states.md row "Focus error"): only the focus is faulty, the axes are
@@ -651,6 +652,7 @@ abAxisFaulty[2] := fbElevation.Error;
 abAxisFaulty[3] := fbDerotator.bError;
 bAxisError := abAxisFaulty[1] OR abAxisFaulty[2] OR abAxisFaulty[3];
 bAxisErrorCanRamp := fbHydraulics.OilPressureOK AND NOT bEstopTriggered AND NOT bSafetyError;
+bAxisErrorBrakeHold := bAxisErrorRamp AND abAxisFaulty[1];	// before the end below: the scan in which the ramp ends is held too
 IF bAxisErrorRamp AND (NOT bAxisError OR NOT bAxisErrorCanRamp OR NOT bStopActive OR
 		(abAxisFaulty[1] AND NOT abAxisFaultyAtStart[1]) OR (abAxisFaulty[2] AND NOT abAxisFaultyAtStart[2]) OR
 		(abAxisFaulty[3] AND NOT abAxisFaultyAtStart[3]) OR
@@ -685,11 +687,15 @@ IF bAxisError AND NOT bAxisErrorLast AND bAxisErrorCanRamp AND fbBrake.BrakeOpen
 	IF bParkActive THEN
 		Park();
 	END_IF
-	// a faulty elevation or azimuth has no drive: only the brake holds it. The brake is shared, so the healthy axes are braked
-	// too; their fast stop works with it. An elevation error has its own close in _ApplyError (#155, once on the edge).
-	IF abAxisFaulty[1] THEN
-		fbBrake.CloseBrake();
-	END_IF
+END_IF
+// a faulty elevation or azimuth has no drive: only the brake holds it. The brake is shared, so the healthy axes are braked too;
+// their fast stop works with it. An elevation error has its own close in _ApplyError (#155, once on the edge), and the disabled
+// elevation requests no opening. A faulty azimuth needs a held close: the healthy elevation stays enabled for its stop, and HalfBROT
+// FB_ElevationControl requests the brake open in every scan while it is enabled; a close on the edge only would be undone by the
+// next scan's request. FB_HydraulicsControl lets a pending close win over the opening. Held for the whole ramp and the scan it ends
+// in; from the next scan the elevation is disabled and F_BrakeMustClose holds it (#121).
+IF bAxisErrorBrakeHold OR (bAxisErrorRamp AND abAxisFaulty[1]) THEN
+	fbBrake.CloseBrake();
 END_IF
 bAxisErrorLast := bAxisError;
 

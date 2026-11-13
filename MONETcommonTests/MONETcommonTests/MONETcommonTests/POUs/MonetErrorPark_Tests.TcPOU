@@ -2398,8 +2398,9 @@ END_IF
     </Method>
     <Method Name="Azimuth_Error_During_A_Slew_Closes_The_Brake_At_Once" Id="{005ca04b-8d1d-4d6a-b6aa-bc9fc742bd70}">
       <Declaration><![CDATA[// #272: an azimuth error during a slew. The faulty azimuth has no drive, so the shared brake is closed in the scan of the error
-// (until 0.23.x the emergency park closed it in that scan; the park now waits behind the ramp). Elevation and derotator stay
-// enabled and get their MC_Stop; then the park parks in place.
+// (until 0.23.x the emergency park closed it in that scan; the park now waits behind the ramp) and held closed: the enabled
+// elevation requests the opening in every scan. Elevation and derotator stay enabled and get their MC_Stop; then the park parks
+// in place.
 METHOD PRIVATE Azimuth_Error_During_A_Slew_Closes_The_Brake_At_Once
 VAR_INST
 	pRig		: POINTER TO FB_MonetRig;	// created with __NEW in this test's turn, freed in the scan it finished in
@@ -2410,6 +2411,7 @@ VAR_INST
 	nEl0		: UINT;
 	nDisable0	: UINT;
 	bSeenError	: BOOL;
+	bReopened	: BOOL;	// the brake was open again in a later scan of the ramp (the enabled elevation requests the opening in every scan)
 END_VAR
 ]]></Declaration>
       <Implementation>
@@ -2484,8 +2486,12 @@ CASE nStep OF
 		F_Note(bFailed := (rig.fbBrakeHyd.BrakeOpen), sText := CONCAT(sTest, 'the shared brake is closed at once'));
 		AssertTrue(Condition := rig.fbBrakeHyd.nDisableCalls = nDisable0, Message := 'the hydraulics stay on');
 		F_Note(bFailed := NOT (rig.fbBrakeHyd.nDisableCalls = nDisable0), sText := CONCAT(sTest, 'the hydraulics stay on'));
+	ELSIF bSeenError AND rig.fbBrakeHyd.BrakeOpen THEN
+		bReopened := TRUE;
 	END_IF
 	IF rig.fbTel.bIsParked AND nCycles > 5 THEN
+		AssertFalse(Condition := bReopened, Message := 'the brake stays closed after the error');
+		F_Note(bFailed := bReopened, sText := CONCAT(sTest, 'the brake stays closed after the error'));
 		AssertTrue(Condition := bSeenError AND rig.fbElev.nStopEdges > nEl0, Message := 'the elevation was sent its MC_Stop');
 		F_Note(bFailed := NOT (bSeenError AND rig.fbElev.nStopEdges > nEl0), sText := CONCAT(sTest, 'the elevation was sent its MC_Stop'));
 		AssertTrue(Condition := rig.fbTel.bParkedInPlace AND NOT rig.fbTel.bParkActive, Message := 'the park ended in place');

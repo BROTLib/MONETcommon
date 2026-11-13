@@ -45,7 +45,10 @@ is no brake-before-hydraulics ordering. The roof closes at once and does not wai
 ramp. The brake lock is the stop only when they cannot: the faulty axis of an axis error, E-stop/safety error, and a
 hydraulics error where the pressure is already gone. The hydraulic brakes lock by themselves when the hydraulics go off.
 Since #272 the healthy axes of an axis error are no longer disabled with the faulty one: they get a fast stop with their
-drives while the shared brake (one hydraulic circuit for El and Az) clamps for the faulty El/Az axis.
+drives while the shared brake (one hydraulic circuit for El and Az) clamps for the faulty El/Az axis. For a faulty
+azimuth the close is held in every scan of the ramp: the healthy elevation stays enabled, and HalfBROT
+`FB_ElevationControl` requests the brake open in every scan while it is enabled (a pending close wins in
+`FB_HydraulicsControl`).
 
 **Roof (decided, plan D9, was open point 8.2):** the roof closes only for the serious classes: E-stop/safety error,
 power failure, hydraulics error, axis error (Az/El/Der). It does **not** close for the recoverable ones: timeouts
