@@ -160,6 +160,7 @@ fbElev(fbCovers := fbCovers, fbBrake := fbBrakeHyd);
 fbAzim();
 fbDero();
 fbFocus(stOut := stFocusOut);
+fbBrakeHyd();	// last: a close of this scan wins over the elevation's opening request (#272)
 nScans := nScans + 1;
 ]]></ST>
       </Implementation>
