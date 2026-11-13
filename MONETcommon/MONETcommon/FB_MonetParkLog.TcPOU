@@ -2,20 +2,25 @@
 <TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
   <POU Name="FB_MonetParkLog" Id="{360a020c-5b2f-4a37-9fd7-79caa778f159}" SpecialFunc="None">
     <Declaration><![CDATA[// #279: the park log of FB_MonetTelescopeControl in its order: 'PARK commencing', the progress of the park stages, 'PARK completed'.
-// _ParkTelescope only reports the stage reached in its scan (nProgress); the lines are written here, in _LogEvents at the end of the
-// scan. The emergency park goes from prepare to secure (80) in its first scan, and the progress logged inside _ParkTelescope came
-// before the start edge of bParkActive (MONET/N 2026-11-12 and 2026-11-13: 'Parking progress: 80', then 'PARK commencing').
+// The lines are written here, in _LogEvents at the end of the scan, from bParkActive and the park stage of the scan. The emergency
+// park goes from prepare to secure (80) in its first scan, and the progress logged inside _ParkTelescope came before the start edge
+// of bParkActive (MONET/N 2026-11-12 and 2026-11-13: 'Parking progress: 80', then 'PARK commencing').
+// A stage is logged when it is above the stage of the last scan. The last stage is kept here and follows every scan, also the drop
+// to prepare of a finished or aborted park: _ParkTelescope runs only during a park and returned before its own last-stage update on
+// an abort, and that one started at 101, so the first park after an activation logged no stage below 100 (MONET/N 2026-11-13
+// 16:15 UTC: no 'Parking progress: 80').
 // One call per scan.
 FUNCTION_BLOCK FB_MonetParkLog
 VAR_INPUT
 	bParkActive	: BOOL;		// FB_MonetTelescopeControl.bParkActive
-	nProgress	: USINT;	// the park stage reached in this scan (E_ParkStage), 0 = none
+	nStage		: USINT;	// FB_MonetTelescopeControl.eParkStage at the end of this scan (E_ParkStage, prepare = 0)
 	comm		: I_Comm;
 END_VAR
 VAR
 	fbPark		: FB_EventLog;
 	fbProgress	: FB_EventLog;
 	bLastActive	: BOOL;		// bParkActive of the last scan
+	nLastStage	: USINT;	// nStage of the last scan; 0 = prepare, the stage of an idle park
 END_VAR
 ]]></Declaration>
     <Implementation>
@@ -24,9 +29,10 @@ fbPark(Trigger := bParkActive OR bLastActive, Level := ADSLOG_MSGTYPE_HINT, Form
 	OnMessage := 'commencing', OffMessage := 'completed', Comm := comm);
 // a new edge for every stage, also in consecutive scans: the low call has no OffMessage and logs nothing
 fbProgress(Trigger := FALSE, Level := ADSLOG_MSGTYPE_HINT, FormatString := 'Parking progress: %s', Comm := comm);
-IF nProgress > 0 THEN
-	fbProgress(Trigger := TRUE, OnMessage := USINT_TO_STRING(nProgress));
+IF nStage > nLastStage THEN
+	fbProgress(Trigger := TRUE, OnMessage := USINT_TO_STRING(nStage));
 END_IF
+nLastStage := nStage;
 bLastActive := bParkActive;
 fbPark(Trigger := bParkActive);
 ]]></ST>

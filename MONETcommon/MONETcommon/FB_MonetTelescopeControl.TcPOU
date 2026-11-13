@@ -272,8 +272,7 @@ VAR
 	bHwErrorLast			: BOOL;	// edge memory, updated only where the request is made
 	bErrorParkStarted		: BOOL;	// one scan, logged
 	ErrorParkEvent			: FB_EventLog;
-	// #279: the park stage reached in this scan (set in _ParkTelescope, 0 = none) and the park log, written in _LogEvents
-	nParkProgress			: USINT;
+	// #279: the park log, written in _LogEvents from bParkActive and eParkStage
 	fbParkLog				: FB_MonetParkLog;
 	// #24 step 7 PR 1 (D9): a cause of bCloseRoofRequest is active in this scan, and its value of the last automatic scan. The
 	// initial FALSE of bCloseRoofCauseLast means a cause already present at the PLC start (E-stop, no phase) sets the request
@@ -1416,9 +1415,6 @@ VAR
 END_VAR
 VAR_INST
 	rtrigError	: R_TRIG;	// M2: reset the stage only on the rising edge of bError, not every scan; VAR_INST, a plain method VAR is re-created on every call (#17)
-END_VAR
-VAR_INST
-	nLastStage	: USINT := 101;
 END_VAR]]></Declaration>
       <Implementation>
         <ST><![CDATA[_ParkTelescope := TO_USINT(eParkStage);
@@ -1565,11 +1561,7 @@ CASE eParkStage OF
 				bParkCoverFault := FALSE;
 			END_IF
 END_CASE
-// #279: logged in _LogEvents (FB_MonetParkLog), after the 'PARK commencing' of this scan
-IF TO_USINT(eParkStage) > nLastStage THEN
-	nParkProgress := TO_USINT(eParkStage);
-END_IF
-nLastStage := TO_USINT(eParkStage);
+// #279: the park progress is logged in _LogEvents (FB_MonetParkLog), after the 'PARK commencing' of this scan
 ]]></ST>
       </Implementation>
     </Method>
@@ -2084,8 +2076,7 @@ TCSgohomeEvent(	Trigger := bGoHomeActive,
 				Comm := fbComm);
 // #279: 'PARK commencing', the park progress of this scan, 'PARK completed', in this order (also when the emergency park starts and
 // reaches stage secure in one scan)
-fbParkLog(bParkActive := bParkActive, nProgress := nParkProgress, comm := fbComm);
-nParkProgress := 0;
+fbParkLog(bParkActive := bParkActive, nStage := TO_USINT(eParkStage), comm := fbComm);
 TCSgotoEvent(	Trigger := bGotoActive, 
 				Level := ADSLOG_MSGTYPE_HINT,
 				FormatString := 'GOTO %s',
