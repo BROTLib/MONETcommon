@@ -150,6 +150,10 @@ VAR
 	// #212: a slew target outside the elevation window (stMotionUsed.fGotoMinElevation..fGotoMaxElevation, as goto) was refused (one-scan flag, set by _SlewTelescope).
 	bSlewOutsideWindow	: BOOL;
 	SlewOutsideWindowEvent: FB_EventLog;
+	// #287: the power-on has completed (stage complete, fbStartup.MarkCompleted); one-scan flag, logged by TCSreadyEvent in
+	// _LogEvents. Until 0.26.x the line came from bPowerActive AND bReady, i.e. at the start of the move to home, also for a
+	// power-on that was then stopped.
+	bStartupCompleted	: BOOL;
 
 	// #34: home or park position at or below fHorizon + stMotionUsed.fHorizonMargin. The horizon guard
 	// would send the telescope home, find it still below the horizon, and home it again forever.
@@ -662,10 +666,12 @@ IF bAxisErrorRamp AND (NOT bAxisError OR NOT bAxisErrorCanRamp OR NOT bStopActiv
 	bAxisErrorRamp := FALSE;
 END_IF
 IF NOT bAxisErrorRamp THEN
-	// the normal stop again (0.0: the NC parameters); a running MC_Stop keeps the dynamics it started with
-	fbAzimuth.SetStopDynamics(fDeceleration := 0.0, fJerk := 0.0);
-	fbElevation.SetStopDynamics(fDeceleration := 0.0, fJerk := 0.0);
-	fbDerotator.SetStopDynamics(fDeceleration := 0.0, fJerk := 0.0);
+	// #286: every other stop (stop command, the abort stop of an interrupted move, park/gohome over a move, the switch to
+	// manual) at the stop dynamics of stMotionUsed (0.0: the NC parameters, the default); a running MC_Stop keeps the dynamics
+	// it started with
+	fbAzimuth.SetStopDynamics(fDeceleration := stMotionUsed.fAzimuthStopDeceleration, fJerk := stMotionUsed.fAzimuthStopJerk);
+	fbElevation.SetStopDynamics(fDeceleration := stMotionUsed.fElevationStopDeceleration, fJerk := stMotionUsed.fElevationStopJerk);
+	fbDerotator.SetStopDynamics(fDeceleration := stMotionUsed.fDerotatorStopDeceleration, fJerk := stMotionUsed.fDerotatorStopJerk);
 END_IF
 // on the rising edge only, with a healthy enabled axis that moves (also homing or tracking); with no healthy axis moving the
 // disable is the stop, as before. Not during the first power-on after a PLC start: its Az/El error is the expected Wake&Shake
@@ -1704,6 +1710,7 @@ CASE ePowerOnStage OF
         // while bPower is already FALSE and the startup would stay at 0.8. Wait one more scan instead.
         IF bReady AND bMainReady AND bStopped AND NOT bBusy AND NOT bError AND NOT bEstopTriggered THEN
             fbStartup.MarkCompleted();
+            bStartupCompleted := TRUE;		// #287: logged in _LogEvents
             bInitRequired := FALSE;			// #72
             bFirstPowerOnPending := FALSE;	// #113
             bPowerActive := FALSE;
@@ -2131,11 +2138,12 @@ SlewOutsideWindowEvent(	Trigger := bSlewOutsideWindow,
 				OffMEssage := '',
 				Comm := fbComm);
 bSlewOutsideWindow := FALSE;
-TCSreadyEvent(	Trigger := bPowerActive AND bReady, 
+TCSreadyEvent(	Trigger := bStartupCompleted,	// #287: at the completion of the power-on, not when the axes are ready
 				Level := ADSLOG_MSGTYPE_HINT,
 				FormatString := '%s',
 				OnMessage := CONCAT(sTelescopeName, ' startup finished'),
 				Comm := fbComm);
+bStartupCompleted := FALSE;
 SoftwareErrorEvent(	Trigger := bSoftwareError,
 				Level := ADSLOG_MSGTYPE_ERROR,
 				FormatString := 'Internal command error, ID: %s',
