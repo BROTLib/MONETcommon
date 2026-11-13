@@ -1,0 +1,97 @@
+<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="FB_MonetParkLog_Tests" Id="{5ed42ce7-de2f-4b12-828d-6f98102c074c}" SpecialFunc="None">
+    <Declaration><![CDATA[// #279: FB_MonetParkLog writes 'PARK commencing' before the progress and 'PARK completed' after it, also when the start or the
+// end falls in the scan of a stage change. One call per modelled PLC scan; the lines are read from FB_LogRecordingComm.
+FUNCTION_BLOCK FB_MonetParkLog_Tests EXTENDS TcUnit.FB_TestSuite
+VAR
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[Emergency_Park_Logs_Commencing_Before_Progress();
+Normal_Park_Logs_Every_Stage_In_Order();
+End_Logs_Completed_After_The_Last_Progress();
+Idle_Logs_Nothing();
+]]></ST>
+    </Implementation>
+    <Method Name="Emergency_Park_Logs_Commencing_Before_Progress" Id="{a6695d5c-93ba-4935-b884-838fe5739b92}">
+      <Declaration><![CDATA[// MONET/N 2026-11-13 run B of #277: the emergency park starts and reaches stage secure (80) in the same scan.
+METHOD PRIVATE Emergency_Park_Logs_Commencing_Before_Progress
+VAR
+	comm	: FB_LogRecordingComm;
+	fb		: FB_MonetParkLog;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Emergency_Park_Logs_Commencing_Before_Progress');
+fb(bParkActive := TRUE, nProgress := 80, comm := comm);
+AssertEquals_INT(Expected := 2, Actual := comm.nCount, Message := 'two lines');
+AssertEquals_STRING(Expected := 'PARK commencing', Actual := comm.aMessage[1], Message := 'the start first');
+AssertEquals_STRING(Expected := 'Parking progress: 80', Actual := comm.aMessage[2], Message := 'then the progress');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Normal_Park_Logs_Every_Stage_In_Order" Id="{5fbd0957-3ced-474f-b0bf-0feef00233e8}">
+      <Declaration><![CDATA[// park=1: the stages follow in consecutive scans; each one is logged once.
+METHOD PRIVATE Normal_Park_Logs_Every_Stage_In_Order
+VAR
+	comm	: FB_LogRecordingComm;
+	fb		: FB_MonetParkLog;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Normal_Park_Logs_Every_Stage_In_Order');
+fb(bParkActive := TRUE, nProgress := 10, comm := comm);
+fb(bParkActive := TRUE, nProgress := 20, comm := comm);
+fb(bParkActive := TRUE, nProgress := 0, comm := comm);
+fb(bParkActive := TRUE, nProgress := 40, comm := comm);
+AssertEquals_INT(Expected := 4, Actual := comm.nCount, Message := 'four lines');
+AssertEquals_STRING(Expected := 'PARK commencing', Actual := comm.aMessage[1], Message := 'start');
+AssertEquals_STRING(Expected := 'Parking progress: 10', Actual := comm.aMessage[2], Message := 'stage 10');
+AssertEquals_STRING(Expected := 'Parking progress: 20', Actual := comm.aMessage[3], Message := 'stage 20 in the next scan');
+AssertEquals_STRING(Expected := 'Parking progress: 40', Actual := comm.aMessage[4], Message := 'stage 40');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="End_Logs_Completed_After_The_Last_Progress" Id="{79067c5b-cf60-45d7-ae8b-14af71a75229}">
+      <Declaration><![CDATA[// The park ends in the scan of its last stage change: 'PARK completed' comes after it.
+METHOD PRIVATE End_Logs_Completed_After_The_Last_Progress
+VAR
+	comm	: FB_LogRecordingComm;
+	fb		: FB_MonetParkLog;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('End_Logs_Completed_After_The_Last_Progress');
+fb(bParkActive := TRUE, nProgress := 80, comm := comm);
+comm.Clear();
+fb(bParkActive := FALSE, nProgress := 100, comm := comm);
+AssertEquals_INT(Expected := 2, Actual := comm.nCount, Message := 'two lines');
+AssertEquals_STRING(Expected := 'Parking progress: 100', Actual := comm.aMessage[1], Message := 'the progress first');
+AssertEquals_STRING(Expected := 'PARK completed', Actual := comm.aMessage[2], Message := 'then the end');
+fb(bParkActive := FALSE, nProgress := 0, comm := comm);
+AssertEquals_INT(Expected := 2, Actual := comm.nCount, Message := 'nothing in the next scan');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Idle_Logs_Nothing" Id="{8a22e75b-93bf-43c0-aa44-370e308523e8}">
+      <Declaration><![CDATA[METHOD PRIVATE Idle_Logs_Nothing
+VAR
+	comm	: FB_LogRecordingComm;
+	fb		: FB_MonetParkLog;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Idle_Logs_Nothing');
+fb(bParkActive := FALSE, nProgress := 0, comm := comm);
+fb(bParkActive := FALSE, nProgress := 0, comm := comm);
+AssertEquals_INT(Expected := 0, Actual := comm.nCount, Message := 'no park, no line');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

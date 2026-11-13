@@ -272,6 +272,9 @@ VAR
 	bHwErrorLast			: BOOL;	// edge memory, updated only where the request is made
 	bErrorParkStarted		: BOOL;	// one scan, logged
 	ErrorParkEvent			: FB_EventLog;
+	// #279: the park stage reached in this scan (set in _ParkTelescope, 0 = none) and the park log, written in _LogEvents
+	nParkProgress			: USINT;
+	fbParkLog				: FB_MonetParkLog;
 	// #24 step 7 PR 1 (D9): a cause of bCloseRoofRequest is active in this scan, and its value of the last automatic scan. The
 	// initial FALSE of bCloseRoofCauseLast means a cause already present at the PLC start (E-stop, no phase) sets the request
 	// (conservative, plan 8.7). To arm only after the start instead, initialise it with TRUE.
@@ -1409,7 +1412,6 @@ HomeEvent(Trigger := _HomeTelescope,
 VAR_INPUT
 END_VAR
 VAR
-	ParkEvent	: FB_Eventlog;
 	bAxesCanMove	: BOOL;
 END_VAR
 VAR_INST
@@ -1563,7 +1565,10 @@ CASE eParkStage OF
 				bParkCoverFault := FALSE;
 			END_IF
 END_CASE
-ParkEvent(Trigger := TO_USINT(eParkStage) > nLastStage, FormatString := 'Parking progress: %s', OnMessage := USINT_TO_STRING(TO_USINT(eParkStage)), comm := fbComm);
+// #279: logged in _LogEvents (FB_MonetParkLog), after the 'PARK commencing' of this scan
+IF TO_USINT(eParkStage) > nLastStage THEN
+	nParkProgress := TO_USINT(eParkStage);
+END_IF
 nLastStage := TO_USINT(eParkStage);
 ]]></ST>
       </Implementation>
@@ -2077,12 +2082,10 @@ TCSgohomeEvent(	Trigger := bGoHomeActive,
 				OnMessage := 'commencing',
 				OffMEssage := 'completed', 
 				Comm := fbComm);
-TCSparkEvent(	Trigger := bParkActive, 
-				Level := ADSLOG_MSGTYPE_HINT,
-				FormatString := 'PARK %s',
-				OnMessage := 'commencing',
-				OffMEssage := 'completed', 
-				Comm := fbComm);
+// #279: 'PARK commencing', the park progress of this scan, 'PARK completed', in this order (also when the emergency park starts and
+// reaches stage secure in one scan)
+fbParkLog(bParkActive := bParkActive, nProgress := nParkProgress, comm := fbComm);
+nParkProgress := 0;
 TCSgotoEvent(	Trigger := bGotoActive, 
 				Level := ADSLOG_MSGTYPE_HINT,
 				FormatString := 'GOTO %s',

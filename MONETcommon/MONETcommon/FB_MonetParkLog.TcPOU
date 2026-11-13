@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="FB_MonetParkLog" Id="{360a020c-5b2f-4a37-9fd7-79caa778f159}" SpecialFunc="None">
+    <Declaration><![CDATA[// #279: the park log of FB_MonetTelescopeControl in its order: 'PARK commencing', the progress of the park stages, 'PARK completed'.
+// _ParkTelescope only reports the stage reached in its scan (nProgress); the lines are written here, in _LogEvents at the end of the
+// scan. The emergency park goes from prepare to secure (80) in its first scan, and the progress logged inside _ParkTelescope came
+// before the start edge of bParkActive (MONET/N 2026-11-12 and 2026-11-13: 'Parking progress: 80', then 'PARK commencing').
+// One call per scan.
+FUNCTION_BLOCK FB_MonetParkLog
+VAR_INPUT
+	bParkActive	: BOOL;		// FB_MonetTelescopeControl.bParkActive
+	nProgress	: USINT;	// the park stage reached in this scan (E_ParkStage), 0 = none
+	comm		: I_Comm;
+END_VAR
+VAR
+	fbPark		: FB_EventLog;
+	fbProgress	: FB_EventLog;
+	bLastActive	: BOOL;		// bParkActive of the last scan
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[// a start in this scan is logged before the progress (rising edge here), an end after it (falling edge in the second call)
+fbPark(Trigger := bParkActive OR bLastActive, Level := ADSLOG_MSGTYPE_HINT, FormatString := 'PARK %s',
+	OnMessage := 'commencing', OffMessage := 'completed', Comm := comm);
+// a new edge for every stage, also in consecutive scans: the low call has no OffMessage and logs nothing
+fbProgress(Trigger := FALSE, Level := ADSLOG_MSGTYPE_HINT, FormatString := 'Parking progress: %s', Comm := comm);
+IF nProgress > 0 THEN
+	fbProgress(Trigger := TRUE, OnMessage := USINT_TO_STRING(nProgress));
+END_IF
+bLastActive := bParkActive;
+fbPark(Trigger := bParkActive);
+]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

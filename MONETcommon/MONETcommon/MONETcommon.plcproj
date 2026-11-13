@@ -103,6 +103,9 @@
     <Compile Include="F_ParkAxesCanMove.TcPOU">
       <SubType>Code</SubType>
     </Compile>
+    <Compile Include="FB_MonetParkLog.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
     <Compile Include="F_WakeShakeErrorExempt.TcPOU">
       <SubType>Code</SubType>
     </Compile>
