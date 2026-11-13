@@ -9,7 +9,7 @@
 {attribute 'enable_dynamic_creation'}
 FUNCTION_BLOCK FB_MonetRig
 VAR
-	fbComm			: FB_NullComm;
+	fbComm			: FB_LogRecordingComm;	// #287: the log of the rig can be watched (fbComm.sWatch, nWatchHits)
 	fbElev			: FB_ElevationMock(comm := fbComm);
 	fbAzim			: FB_AzimuthMock(comm := fbComm);
 	fbDero			: FB_DerotatorMock(comm := fbComm);
@@ -187,6 +187,31 @@ END_VAR
         </Implementation>
       </Get>
     </Property>
+    <Property Name="LogHits" Id="{42f1f42d-ff27-434c-8907-925c6dd494b4}">
+      <Declaration><![CDATA[// #287: the log messages of the rig that contained the text of WatchLog since that call
+PROPERTY LogHits : INT]]></Declaration>
+      <Get Name="Get" Id="{ecc727e9-b181-4cc8-8945-00961633fa5a}">
+        <Declaration><![CDATA[VAR
+END_VAR
+]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[LogHits := fbComm.nWatchHits;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Method Name="WatchLog" Id="{46326d1d-eeb3-445f-8073-898474c30993}">
+      <Declaration><![CDATA[// #287: count every log message of the rig that contains sText (LogHits), from now on
+METHOD WatchLog
+VAR_INPUT
+	sText	: STRING(80);
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[fbComm.sWatch := sText;
+fbComm.Clear();
+]]></ST>
+      </Implementation>
+    </Method>
     <Method Name="SetMotion" Id="{a8848ecf-4ba6-4d7f-95e4-4a32a59465d5}">
       <Declaration><![CDATA[// stMotion of the telescope under test (#24 step 2c), handed to it from the next Scan() on; the default is the struct defaults
 METHOD SetMotion
