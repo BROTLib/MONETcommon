@@ -132,7 +132,7 @@
       <Namespace>BROTLib</Namespace>
     </PlaceholderReference>
     <PlaceholderReference Include="HalfBROT">
-      <DefaultResolution>HalfBROT, 0.14.0 (BROT)</DefaultResolution>
+      <DefaultResolution>HalfBROT, 0.15.0 (BROT)</DefaultResolution>
       <Namespace>HalfBROT</Namespace>
     </PlaceholderReference>
     <PlaceholderReference Include="Tc2_Math">
