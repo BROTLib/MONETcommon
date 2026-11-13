@@ -2821,7 +2821,7 @@ CASE nStep OF
 20:	// the slew moves all three axes: the elevation enable drops (the ADS write of run B)
 	IF rig.fbElev.MoveAxis AND rig.fbAzim.MoveAxis AND rig.fbDero.MoveAxis AND nCycles >= 3 THEN
 		nAz0 := rig.fbAzim.nStopEdges;
-		rig.fbElev.Enable := FALSE;
+		rig.DisableElevation();
 		nStep := 25;
 		nCycles := 0;
 	ELSIF nCycles > 300 THEN

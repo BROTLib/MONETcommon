@@ -330,6 +330,15 @@ END_VAR
 ]]></ST>
       </Implementation>
     </Method>
+    <Method Name="DisableElevation" Id="{157508e2-dd45-48fd-8139-697da48b8a16}">
+      <Declaration><![CDATA[// The elevation enable drops outside the telescope control (the ADS write of MONET/N run B, #277).
+METHOD DisableElevation
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[fbElev.Enable := FALSE;
+]]></ST>
+      </Implementation>
+    </Method>
     <Method Name="InjectAzimuthError" Id="{5857afe2-6b7e-47e4-849f-b3e7bfb14aca}">
       <Declaration><![CDATA[METHOD InjectAzimuthError
 VAR_INPUT
