@@ -10,6 +10,7 @@ VAR_INPUT
 	nMockStopScans	: UINT := 3;	// scans an MC_Stop takes until Done
 	nMockHomeScans	: UINT := 3;	// scans a homing takes
 	nMockDisableScans	: UINT := 1;	// scans MC_ExtSetPointGenDisable takes (BROTLib#101)
+	bMockBrakeGate	: BOOL;			// #277: TRUE = the NC enable needs bBrakeOpen, as the real block (the rig); FALSE = the standalone mock tests
 END_VAR
 VAR_OUTPUT
 	nStopEdges		: UINT;			// stop requests the telescope made (rising edges of StopAxis)
@@ -23,6 +24,8 @@ VAR
 	bInjected	: BOOL;
 	bMockPowerLost	: BOOL;		// #232: drive power cut while bEnable stays (NC state Disabled), set with SetPowerLost
 	nInjectedId	: UDINT;
+	fbMockHold	: HalfBROT.FB_BrakeCloseHold;	// #277: the real hold of HalfBROT, behind the mock brake gate
+	bMockEnable	: BOOL;			// the enable the mock core gets
 END_VAR
 ]]></Declaration>
     <Implementation>
@@ -30,7 +33,16 @@ END_VAR
 // StopAxis -> fbAxis.Stop(), HomeAxis -> _StartHoming) stay, so the telescope sees the real command interface. The model
 // is driven by the levels the telescope writes and writes what the telescope reads: the base outputs and, through pointers
 // (FB_Axis outputs are not writable from outside), the nested fbAxis outputs.
-fbCore(bEnable := bEnable, bPowerLost := bMockPowerLost, bHome := bHomeAxis, bMove := bMoveAxis, bStop := bStopAxis, fTarget := fPosition, fHomePosition := fCalibPosition,
+// #277: the real block gives the NC enable only while the brake is open (bEnable AND bAtRest AND bBrakeOpen; at rest is not
+// modelled) and keeps it for the stop of a moving axis when the brake closes (HalfBROT.FB_BrakeCloseHold, the real block)
+bMockEnable := bEnable;
+IF bMockBrakeGate THEN
+	fbMockHold(bEnable := bEnable, bBrakeEnable := bEnable AND bBrakeOpen,
+		bMoving := fbCore.bInMotion OR fbCore.bTrackActive OR fbCore.bCoast OR fbCore.bStopping,	// as HalfBROT: InMotion OR Stopping
+		tMaxHold := tBrakeCloseHold);
+	bMockEnable := fbMockHold.bAxisEnable;
+END_IF
+fbCore(bEnable := bMockEnable, bPowerLost := bMockPowerLost, bHome := bHomeAxis, bMove := bMoveAxis, bStop := bStopAxis, fTarget := fPosition, fHomePosition := fCalibPosition,
 	bTracking := bTracking, bLatchTarget := bMockLatchTarget, nMoveScans := nMockMoveScans, nStopScans := nMockStopScans, nHomeScans := nMockHomeScans,
 	nDisableScans := nMockDisableScans);
 

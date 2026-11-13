@@ -157,7 +157,7 @@ ELSE
 END_IF
 fbCovers(stOut := stCoverOut);	// after the telescope, as MAIN calls CoverControl(); only the travel model (SetCoverTravelScans) runs in it
 fbElev(fbCovers := fbCovers, fbBrake := fbBrakeHyd);
-fbAzim();
+fbAzim(bBrakeOpen := fbBrakeHyd.BrakeOpen, bMockBrakeGate := TRUE);	// #277: the azimuth enable needs the shared brake, as in HalfBROT
 fbDero();
 fbFocus(stOut := stFocusOut);
 fbBrakeHyd();	// last: a close of this scan wins over the elevation's opening request (#272)
@@ -327,6 +327,15 @@ END_VAR
 ]]></Declaration>
       <Implementation>
         <ST><![CDATA[fbElev.InjectError(nId);
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="DisableElevation" Id="{157508e2-dd45-48fd-8139-697da48b8a16}">
+      <Declaration><![CDATA[// The elevation enable drops outside the telescope control (the ADS write of MONET/N run B, #277).
+METHOD DisableElevation
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[fbElev.Enable := FALSE;
 ]]></ST>
       </Implementation>
     </Method>
