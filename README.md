@@ -301,6 +301,19 @@ Interfaces are used where the consumer only needs interface members (the pendant
 `F_CommandAcceptance`, `F_CommandRejectText`, `E_CommandRejectReason`, `ST_CommandState` and `E_CommandDecision`: they have the
 #72 `init_required` row, which BROTLib 0.17.0 does not.
 
+## HMI interfaces (BROTLib 0.26.0)
+
+The blocks implement the read-only interfaces that BROTLib's `FB_HmiGateway` and `FB_Comm_MQTT` read
+(`specs/design/ui-tiers-and-hmi-gateway.md` of BROTLib, section 13). The wiring in `MAIN` is done in MONETS/MONETN.
+
+| Block | Interface | Source of the data |
+|---|---|---|
+| `FB_MonetCabinetControl` | `I_Cabinet` (X1) | `ControlMode`: the Local/Remote key `inKeyLocal` (TRUE = Local, the polarity `MAIN` uses for the manual mode); `SwitchPresent` TRUE. New inputs `bEstop`, `bSafetyError`, `bSafetyAckPending`, `bPendantActive`, wired in `MAIN` (`SafetyHandling.estop`/`.error`/`.RestartPending`, `PendantControl.bEnable`) |
+| `FB_MonetTelescopeControl` | `I_TelescopeStatus` (X2) | `bError`, `nErrorID`, `bIsParked`, `nCommandRejectCount`, `eLastRejectedCommand`, `fRightAscensionCurrent`/`fDeclinationCurrent`; `Busy` = `bBusy` or a command active (power-on, park, goto, slew, home, stop); `Suspended` = `SuspendAutomatic` ran in the last scan; `LastRejectReason` through `F_RejectReasonToBrotlib` (the local enum stays, X3 is not done) |
+| `FB_MonetSafetyHandling` | `I_SafetyDiagnostics` (X4) | four items from its `FB_Info*` blocks (`safety.group1`, `safety.estop1`, `safety.el1904`, `safety.el2904`), raw map state/diagnosis bytes and decoded texts; `RestartPending` = group or E-stop function block in state RESET; `StoActive` is **derived** (`NOT bSafetyReady`), not measured at the drives |
+
+The MONET pendant still does not read the Local/Remote key (open item M2): `FB_MonetPendantControl` is unchanged.
+
 ## Dependencies
 
 - **BROTLib**, **AstroBROT**, **HalfBROT** (BROT namespace).
