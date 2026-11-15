@@ -64,6 +64,9 @@
     <Compile Include="F_CommandRejectText.TcPOU">
       <SubType>Code</SubType>
     </Compile>
+    <Compile Include="F_RejectReasonToBrotlib.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
     <Compile Include="E_ModeLanguage.TcDUT">
       <SubType>Code</SubType>
     </Compile>

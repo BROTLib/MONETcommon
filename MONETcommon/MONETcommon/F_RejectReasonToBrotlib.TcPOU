@@ -1,0 +1,29 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="F_RejectReasonToBrotlib" Id="{2bb908c8-c7fe-4e9c-8dd9-8e845a6bfc9c}" SpecialFunc="None">
+    <Declaration><![CDATA[// X2 (until X3 drops the local enum): this library keeps its own E_CommandRejectReason, I_TelescopeStatus carries BROTLib's. Same
+// members in the same order, so the mapping is value by value. An unknown value maps to none.
+FUNCTION F_RejectReasonToBrotlib : BROTLib.E_CommandRejectReason
+VAR_INPUT
+	eReason		: E_CommandRejectReason;
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[CASE eReason OF
+	E_CommandRejectReason.estop:	F_RejectReasonToBrotlib := BROTLib.E_CommandRejectReason.estop;
+	E_CommandRejectReason.error:	F_RejectReasonToBrotlib := BROTLib.E_CommandRejectReason.error;
+	E_CommandRejectReason.clock_invalid:	F_RejectReasonToBrotlib := BROTLib.E_CommandRejectReason.clock_invalid;
+	E_CommandRejectReason.stopping:	F_RejectReasonToBrotlib := BROTLib.E_CommandRejectReason.stopping;
+	E_CommandRejectReason.powering_on:	F_RejectReasonToBrotlib := BROTLib.E_CommandRejectReason.powering_on;
+	E_CommandRejectReason.parking:	F_RejectReasonToBrotlib := BROTLib.E_CommandRejectReason.parking;
+	E_CommandRejectReason.parked:	F_RejectReasonToBrotlib := BROTLib.E_CommandRejectReason.parked;
+	E_CommandRejectReason.not_ready:	F_RejectReasonToBrotlib := BROTLib.E_CommandRejectReason.not_ready;
+	E_CommandRejectReason.gohome_active:	F_RejectReasonToBrotlib := BROTLib.E_CommandRejectReason.gohome_active;
+	E_CommandRejectReason.init_required:	F_RejectReasonToBrotlib := BROTLib.E_CommandRejectReason.init_required;
+ELSE
+	F_RejectReasonToBrotlib := BROTLib.E_CommandRejectReason.none;
+END_CASE
+]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

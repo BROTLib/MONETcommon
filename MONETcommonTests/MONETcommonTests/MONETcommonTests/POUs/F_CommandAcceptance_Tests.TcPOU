@@ -23,6 +23,7 @@ NotReady_Rejects_Moves_Accepts_Park();
 GoHome_Active_Rejects_Slew_Goto_Track();
 Moving_Replaces();
 Reject_Texts();
+Reject_Reason_Maps_To_Brotlib();
 ]]></ST>
     </Implementation>
     <Method Name="Ready_State" Id="{5b1d2a10-7c3e-4d52-9a61-0e4f8c2b7a22}">
@@ -348,6 +349,27 @@ AssertTrue(Condition := LEN(MONETcommon.F_CommandRejectText(eReason)) > 0, Messa
 eReason := MONETcommon.E_CommandRejectReason.init_required;
 AssertEquals_STRING(Expected := 'init required after manual mode, send power=1 first', Actual := MONETcommon.F_CommandRejectText(eReason), Message := 'init_required text (#72)');
 AssertEquals_STRING(Expected := 'telescope parked, send power=1 first', Actual := MONETcommon.F_CommandRejectText(MONETcommon.E_CommandRejectReason.parked), Message := 'parked text (#83)');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Reject_Reason_Maps_To_Brotlib" Id="{404b8666-467e-4515-97fe-dbe64c60e49e}">
+      <Declaration><![CDATA[// X2: the local reject reason reaches I_TelescopeStatus.LastRejectReason as the BROTLib enum, member by member.
+METHOD PRIVATE Reject_Reason_Maps_To_Brotlib
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Reject_Reason_Maps_To_Brotlib');
+AssertTrue(Condition := MONETcommon.F_RejectReasonToBrotlib(eReason := MONETcommon.E_CommandRejectReason.none) = BROTLib.E_CommandRejectReason.none, Message := 'none');
+AssertTrue(Condition := MONETcommon.F_RejectReasonToBrotlib(eReason := MONETcommon.E_CommandRejectReason.estop) = BROTLib.E_CommandRejectReason.estop, Message := 'estop');
+AssertTrue(Condition := MONETcommon.F_RejectReasonToBrotlib(eReason := MONETcommon.E_CommandRejectReason.error) = BROTLib.E_CommandRejectReason.error, Message := 'error');
+AssertTrue(Condition := MONETcommon.F_RejectReasonToBrotlib(eReason := MONETcommon.E_CommandRejectReason.clock_invalid) = BROTLib.E_CommandRejectReason.clock_invalid, Message := 'clock_invalid');
+AssertTrue(Condition := MONETcommon.F_RejectReasonToBrotlib(eReason := MONETcommon.E_CommandRejectReason.stopping) = BROTLib.E_CommandRejectReason.stopping, Message := 'stopping');
+AssertTrue(Condition := MONETcommon.F_RejectReasonToBrotlib(eReason := MONETcommon.E_CommandRejectReason.powering_on) = BROTLib.E_CommandRejectReason.powering_on, Message := 'powering_on');
+AssertTrue(Condition := MONETcommon.F_RejectReasonToBrotlib(eReason := MONETcommon.E_CommandRejectReason.parking) = BROTLib.E_CommandRejectReason.parking, Message := 'parking');
+AssertTrue(Condition := MONETcommon.F_RejectReasonToBrotlib(eReason := MONETcommon.E_CommandRejectReason.parked) = BROTLib.E_CommandRejectReason.parked, Message := 'parked');
+AssertTrue(Condition := MONETcommon.F_RejectReasonToBrotlib(eReason := MONETcommon.E_CommandRejectReason.not_ready) = BROTLib.E_CommandRejectReason.not_ready, Message := 'not_ready');
+AssertTrue(Condition := MONETcommon.F_RejectReasonToBrotlib(eReason := MONETcommon.E_CommandRejectReason.gohome_active) = BROTLib.E_CommandRejectReason.gohome_active, Message := 'gohome_active');
+AssertTrue(Condition := MONETcommon.F_RejectReasonToBrotlib(eReason := MONETcommon.E_CommandRejectReason.init_required) = BROTLib.E_CommandRejectReason.init_required, Message := 'init_required');
 TEST_FINISHED();
 ]]></ST>
       </Implementation>
