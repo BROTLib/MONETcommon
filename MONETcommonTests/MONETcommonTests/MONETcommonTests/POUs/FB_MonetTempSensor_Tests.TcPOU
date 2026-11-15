@@ -4,6 +4,8 @@
     <Declaration><![CDATA[// Tests for MONETcommon.FB_MonetTempSensor, the scaling and wire-break check of the 0-10 V temperature sensors.
 // Cabinet_Over_Temp_Requests_Roof_Close: the cabinet temperature thresholds of MONETcommon.FB_MonetCabinetControl (BT1, driven
 // through FB_MonetCabinetProbe) and its bCloseRoofRequest (#24 D9); no telescope is passed, so nothing is parked.
+// Cabinet_Reads_The_Key_And_Passes_The_Safety_Inputs: FB_MonetCabinetControl as BROTLib.I_Cabinet (X1).
+// Safety_Items_Decode_The_Info_Blocks: FB_MonetSafetyHandling as BROTLib.I_SafetyDiagnostics (X4), driven through FB_MonetSafetyProbe.
 FUNCTION_BLOCK FB_MonetTempSensor_Tests EXTENDS TcUnit.FB_TestSuite
 VAR
 	nullComm	: FB_NullComm;
@@ -15,6 +17,8 @@ Wire_Break_Is_Invalid();
 Over_Range_Is_Invalid();
 Recovers_After_Wire_Break();
 Cabinet_Over_Temp_Requests_Roof_Close();
+Cabinet_Reads_The_Key_And_Passes_The_Safety_Inputs();
+Safety_Items_Decode_The_Info_Blocks();
 ]]></ST>
     </Implementation>
     <Method Name="Mid_Scale_Is_Valid" Id="{a4d17c3e-8b25-4f60-91ce-5e2b7a0d3c18}">
@@ -113,6 +117,101 @@ AssertFalse(Condition := fbCab.bCloseRoofRequest, Message := '49.9 C: the reques
 AssertFalse(Condition := fbCab.bCabinetOverTemp, Message := '49.9 C: not over temperature');
 fbCab(fCabinetTempIn := 55.0);
 AssertFalse(Condition := fbCab.bCloseRoofRequest, Message := '55 C on the way up again: no latch, no request');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Cabinet_Reads_The_Key_And_Passes_The_Safety_Inputs" Id="{eab4d8e2-9d21-4636-93cc-4a6fe8561573}">
+      <Declaration><![CDATA[// X1: ControlMode follows the Local/Remote key (inKeyLocal TRUE = Local), SwitchPresent is TRUE, the four other properties are the inputs.
+METHOD PRIVATE Cabinet_Reads_The_Key_And_Passes_The_Safety_Inputs
+VAR
+	fbComm	: FB_NullComm;
+	fbCab	: FB_MonetCabinetProbe(comm := fbComm);
+	ipCab	: BROTLib.I_Cabinet;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Cabinet_Reads_The_Key_And_Passes_The_Safety_Inputs');
+ipCab := fbCab;
+fbCab(fCabinetTempIn := 25.0, bKeyLocalIn := FALSE, bEstop := FALSE, bSafetyError := FALSE, bSafetyAckPending := FALSE, bPendantActive := FALSE);
+AssertTrue(Condition := ipCab.ControlMode = BROTLib.E_ControlMode.remote, Message := 'key off: Remote');
+AssertTrue(Condition := ipCab.SwitchPresent, Message := 'the key is a physical switch');
+AssertFalse(Condition := ipCab.EstopActive OR ipCab.SafetyError OR ipCab.SafetyAckPending OR ipCab.PendantActive, Message := 'inputs at rest: all FALSE');
+fbCab(fCabinetTempIn := 25.0, bKeyLocalIn := TRUE, bEstop := FALSE, bSafetyError := FALSE, bSafetyAckPending := FALSE, bPendantActive := FALSE);
+AssertTrue(Condition := ipCab.ControlMode = BROTLib.E_ControlMode.local, Message := 'key on: Local');
+fbCab(fCabinetTempIn := 25.0, bKeyLocalIn := FALSE, bEstop := TRUE, bSafetyError := FALSE, bSafetyAckPending := FALSE, bPendantActive := FALSE);
+AssertTrue(Condition := ipCab.EstopActive AND NOT ipCab.SafetyError AND NOT ipCab.SafetyAckPending AND NOT ipCab.PendantActive, Message := 'only EstopActive');
+fbCab(fCabinetTempIn := 25.0, bKeyLocalIn := FALSE, bEstop := FALSE, bSafetyError := TRUE, bSafetyAckPending := FALSE, bPendantActive := FALSE);
+AssertTrue(Condition := ipCab.SafetyError AND NOT ipCab.EstopActive AND NOT ipCab.SafetyAckPending AND NOT ipCab.PendantActive, Message := 'only SafetyError');
+fbCab(fCabinetTempIn := 25.0, bKeyLocalIn := FALSE, bEstop := FALSE, bSafetyError := FALSE, bSafetyAckPending := TRUE, bPendantActive := FALSE);
+AssertTrue(Condition := ipCab.SafetyAckPending AND NOT ipCab.EstopActive AND NOT ipCab.SafetyError AND NOT ipCab.PendantActive, Message := 'only SafetyAckPending');
+fbCab(fCabinetTempIn := 25.0, bKeyLocalIn := FALSE, bEstop := FALSE, bSafetyError := FALSE, bSafetyAckPending := FALSE, bPendantActive := TRUE);
+AssertTrue(Condition := ipCab.PendantActive AND NOT ipCab.EstopActive AND NOT ipCab.SafetyError AND NOT ipCab.SafetyAckPending, Message := 'only PendantActive');
+TEST_FINISHED();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Safety_Items_Decode_The_Info_Blocks" Id="{ede2ebd7-8118-4e99-91f3-597f21ae7353}">
+      <Declaration><![CDATA[// X4: items, texts, raw bytes, bOk, RestartPending (state RESET) and the derived StoActive, through the info data of the TwinSAFE blocks.
+METHOD PRIVATE Safety_Items_Decode_The_Info_Blocks
+VAR
+	fbComm	: FB_NullComm;
+	fbSafe	: FB_MonetSafetyProbe(comm := fbComm);
+	ipSafe	: BROTLib.I_SafetyDiagnostics;
+	stItems	: BROTLib.ST_SafetyItems;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TEST('Safety_Items_Decode_The_Info_Blocks');
+ipSafe := fbSafe;
+// everything in its normal running state
+fbSafe(nGroupState := 1, nEStopState := 1, nEStopDiag := 0, nInState := 104, nInDiag := 0, nInSignals := 0, nOutState := 104, nOutDiag := 0, nOutSignals := 0);
+stItems := ipSafe.Items;
+AssertTrue(Condition := stItems.nCount = 4, Message := 'four items');
+AssertEquals_STRING(Expected := 'safety.group1', Actual := stItems.aItem[1].sName, Message := 'item 1 name');
+AssertEquals_STRING(Expected := 'safety.estop1', Actual := stItems.aItem[2].sName, Message := 'item 2 name');
+AssertEquals_STRING(Expected := 'safety.el1904', Actual := stItems.aItem[3].sName, Message := 'item 3 name');
+AssertEquals_STRING(Expected := 'safety.el2904', Actual := stItems.aItem[4].sName, Message := 'item 4 name');
+AssertTrue(Condition := stItems.aItem[1].eKind = BROTLib.E_SafetyItemKind.group AND stItems.aItem[2].eKind = BROTLib.E_SafetyItemKind.estop
+	AND stItems.aItem[3].eKind = BROTLib.E_SafetyItemKind.connection_in AND stItems.aItem[4].eKind = BROTLib.E_SafetyItemKind.connection_out, Message := 'kinds');
+AssertTrue(Condition := stItems.aItem[1].bOk AND stItems.aItem[2].bOk AND stItems.aItem[3].bOk AND stItems.aItem[4].bOk, Message := 'all ok in the normal state');
+AssertEquals_STRING(Expected := 'RUN', Actual := stItems.aItem[1].sState, Message := 'group state text');
+AssertEquals_STRING(Expected := 'State Data', Actual := stItems.aItem[3].sState, Message := 'connection state text');
+AssertFalse(Condition := ipSafe.StoActive, Message := 'no STO in the normal state');
+AssertFalse(Condition := ipSafe.RestartPending, Message := 'no restart pending in the normal state');
+// E-stop pressed: state STOP
+fbSafe(nGroupState := 1, nEStopState := 2, nEStopDiag := 0, nInState := 104, nInDiag := 0, nInSignals := 0, nOutState := 104, nOutDiag := 0, nOutSignals := 0);
+stItems := ipSafe.Items;
+AssertFalse(Condition := stItems.aItem[2].bOk, Message := 'E-stop item not ok');
+AssertEquals_STRING(Expected := 'STOP', Actual := stItems.aItem[2].sState, Message := 'E-stop state text');
+AssertTrue(Condition := stItems.aItem[2].nMapState = 2, Message := 'raw E-stop map state');
+AssertTrue(Condition := stItems.aItem[1].bOk, Message := 'the group item is not affected');
+AssertTrue(Condition := ipSafe.StoActive, Message := 'STO derived from the E-stop not in RUN');
+AssertFalse(Condition := ipSafe.RestartPending, Message := 'STOP is not RESET');
+// group waits for restart: state RESET (also with the E-stop function)
+fbSafe(nGroupState := 5, nEStopState := 5, nEStopDiag := 0, nInState := 104, nInDiag := 0, nInSignals := 0, nOutState := 104, nOutDiag := 0, nOutSignals := 0);
+stItems := ipSafe.Items;
+AssertTrue(Condition := ipSafe.RestartPending, Message := 'RESET: restart pending');
+AssertEquals_STRING(Expected := 'RESET', Actual := stItems.aItem[1].sState, Message := 'group state text RESET');
+AssertFalse(Condition := stItems.aItem[1].bOk, Message := 'group item not ok in RESET');
+AssertTrue(Condition := ipSafe.StoActive, Message := 'STO derived');
+// only the E-stop function waits
+fbSafe(nGroupState := 1, nEStopState := 5, nEStopDiag := 0, nInState := 104, nInDiag := 0, nInSignals := 0, nOutState := 104, nOutDiag := 0, nOutSignals := 0);
+AssertTrue(Condition := ipSafe.RestartPending, Message := 'E-stop RESET alone: restart pending');
+// a diagnosis on the E-stop makes it not ok even in RUN
+fbSafe(nGroupState := 1, nEStopState := 1, nEStopDiag := 16, nInState := 104, nInDiag := 0, nInSignals := 0, nOutState := 104, nOutDiag := 0, nOutSignals := 0);
+stItems := ipSafe.Items;
+AssertFalse(Condition := stItems.aItem[2].bOk, Message := 'E-stop diagnosis: not ok');
+AssertEquals_STRING(Expected := 'EDM Error EDM 1', Actual := stItems.aItem[2].sDiag, Message := 'E-stop diagnosis text');
+// connections: diagnosis, channel bits (low nibble only), other state
+fbSafe(nGroupState := 1, nEStopState := 1, nEStopDiag := 0, nInState := 104, nInDiag := 5, nInSignals := 245, nOutState := 103, nOutDiag := 0, nOutSignals := 0);
+stItems := ipSafe.Items;
+AssertFalse(Condition := stItems.aItem[3].bOk, Message := 'EL1904 diagnosis: not ok');
+AssertEquals_STRING(Expected := 'Watchdog expired', Actual := stItems.aItem[3].sDiag, Message := 'EL1904 diagnosis text');
+AssertTrue(Condition := stItems.aItem[3].nChannels = 16#05, Message := 'EL1904 channels 1 and 3');
+AssertTrue(Condition := stItems.aItem[3].nMapDiag = 16#05, Message := 'raw EL1904 diagnosis');
+AssertFalse(Condition := stItems.aItem[4].bOk, Message := 'EL2904 not in State Data');
+AssertEquals_STRING(Expected := 'State Parameter', Actual := stItems.aItem[4].sState, Message := 'EL2904 state text');
 TEST_FINISHED();
 ]]></ST>
       </Implementation>

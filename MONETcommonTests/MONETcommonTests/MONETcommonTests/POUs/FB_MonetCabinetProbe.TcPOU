@@ -7,10 +7,12 @@
 FUNCTION_BLOCK FB_MonetCabinetProbe EXTENDS MONETcommon.FB_MonetCabinetControl
 VAR_INPUT
 	fCabinetTempIn	: REAL;	// BT1 in °C, written to inCabinetTemp
+	bKeyLocalIn		: BOOL;	// the Local/Remote key, written to inKeyLocal (TRUE = Local)
 END_VAR
 ]]></Declaration>
     <Implementation>
       <ST><![CDATA[inCabinetTemp := REAL_TO_INT(fCabinetTempIn * 10.0);
+inKeyLocal := bKeyLocalIn;
 SUPER^();
 ]]></ST>
     </Implementation>

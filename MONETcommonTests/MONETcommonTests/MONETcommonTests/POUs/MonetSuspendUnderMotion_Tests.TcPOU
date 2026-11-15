@@ -590,6 +590,8 @@ END_CASE
 METHOD PRIVATE Back_To_Automatic_Requires_Init_Before_Any_Move
 VAR_INST
 	rig			: FB_MonetRig;
+	ipStatus	: BROTLib.I_TelescopeStatus;	// X2: the read-only status view of the telescope
+	nRejectsBefore	: UDINT;
 	nStep		: INT;
 	nCycles		: UINT;
 	sTest		: STRING(80);
@@ -598,6 +600,7 @@ END_VAR
       <Implementation>
         <ST><![CDATA[TEST('Back_To_Automatic_Requires_Init_Before_Any_Move');
 sTest := 'Back_To_Automatic_Requires_Init_Before_Any_Move: ';
+ipStatus := rig.fbTel;
 IF nStep >= 90 THEN
 	RETURN;
 END_IF
@@ -619,6 +622,8 @@ CASE nStep OF
 	IF rig.Online THEN
 		AssertFalse(Condition := rig.fbTel.InitRequired, Message := 'no init required after a completed startup');
 		F_Note(bFailed := (rig.fbTel.InitRequired), sText := CONCAT(sTest, 'no init required after a completed startup'));
+		AssertFalse(Condition := ipStatus.Suspended OR ipStatus.Error, Message := 'status: online, not suspended, no error');
+		F_Note(bFailed := (ipStatus.Suspended OR ipStatus.Error), sText := CONCAT(sTest, 'status: online, not suspended, no error'));
 		rig.SetManual(TRUE);
 		nStep := 20;
 		nCycles := 0;
@@ -632,6 +637,8 @@ CASE nStep OF
 	IF nCycles >= 10 THEN
 		AssertTrue(Condition := rig.fbTel.InitRequired, Message := 'init required in manual');
 		F_Note(bFailed := NOT (rig.fbTel.InitRequired), sText := CONCAT(sTest, 'init required in manual'));
+		AssertTrue(Condition := ipStatus.Suspended, Message := 'status: suspended in manual');
+		F_Note(bFailed := NOT (ipStatus.Suspended), sText := CONCAT(sTest, 'status: suspended in manual'));
 		rig.SetManual(FALSE);
 		nStep := 30;
 		nCycles := 0;
@@ -642,11 +649,16 @@ CASE nStep OF
 		F_Note(bFailed := NOT (rig.fbTel.InitRequired), sText := CONCAT(sTest, 'init still required in automatic'));
 		AssertTrue(Condition := rig.fbTel.ReadyState = -2.0, Message := 'READY_STATE is -2.0 before the Init');
 		F_Note(bFailed := NOT (rig.fbTel.ReadyState = -2.0), sText := CONCAT(sTest, 'READY_STATE is -2.0 before the Init'));
+		AssertFalse(Condition := ipStatus.Suspended, Message := 'status: not suspended back in automatic');
+		F_Note(bFailed := (ipStatus.Suspended), sText := CONCAT(sTest, 'status: not suspended back in automatic'));
+		nRejectsBefore := ipStatus.RejectCount;
 		rig.fbTel.Slew(fAzimuth := 180.0, fAltitude := 45.0);
 		AssertFalse(Condition := rig.fbTel.bSlewActive, Message := 'the slew method is rejected');
 		F_Note(bFailed := (rig.fbTel.bSlewActive), sText := CONCAT(sTest, 'the slew method is rejected'));
 		AssertTrue(Condition := rig.fbTel.eLastRejectReason = MONETcommon.E_CommandRejectReason.init_required, Message := 'reason init_required');
 		F_Note(bFailed := NOT (rig.fbTel.eLastRejectReason = MONETcommon.E_CommandRejectReason.init_required), sText := CONCAT(sTest, 'reason init_required'));
+		AssertTrue(Condition := ipStatus.LastRejectReason = BROTLib.E_CommandRejectReason.init_required AND ipStatus.LastRejectedCommand = rig.fbTel.eLastRejectedCommand AND ipStatus.RejectCount = nRejectsBefore + 1, Message := 'status: init_required, counted once');
+		F_Note(bFailed := NOT (ipStatus.LastRejectReason = BROTLib.E_CommandRejectReason.init_required AND ipStatus.RejectCount = nRejectsBefore + 1), sText := CONCAT(sTest, 'status: init_required, counted once'));
 		nStep := 40;
 		nCycles := 0;
 	END_IF

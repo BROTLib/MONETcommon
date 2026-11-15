@@ -169,6 +169,9 @@
     <Compile Include="POUs\FB_MonetCabinetProbe.TcPOU">
       <SubType>Code</SubType>
     </Compile>
+    <Compile Include="POUs\FB_MonetSafetyProbe.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
     <Compile Include="POUs\FB_MonetPendantControl_Tests.TcPOU">
       <SubType>Code</SubType>
     </Compile>
@@ -185,11 +188,11 @@
       <Namespace>MONETcommon</Namespace>
     </PlaceholderReference>
     <PlaceholderReference Include="BROTLib">
-      <DefaultResolution>BROTLib, 0.25.0 (BROT)</DefaultResolution>
+      <DefaultResolution>BROTLib, 0.26.0 (BROT)</DefaultResolution>
       <Namespace>BROTLib</Namespace>
     </PlaceholderReference>
     <PlaceholderReference Include="HalfBROT">
-      <DefaultResolution>HalfBROT, 0.16.0 (BROT)</DefaultResolution>
+      <DefaultResolution>HalfBROT, 0.17.0 (BROT)</DefaultResolution>
       <Namespace>HalfBROT</Namespace>
     </PlaceholderReference>
     <PlaceholderReference Include="AstroBROT">
