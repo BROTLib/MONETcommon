@@ -1,7 +1,8 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
   <POU Name="FB_MonetSafetyHandling" Id="{f40cbfea-880d-4f1c-9345-5f8b55063f2d}" SpecialFunc="None">
-    <Declaration><![CDATA[FUNCTION_BLOCK FB_MonetSafetyHandling
+    <Declaration><![CDATA[// X4 (BROTLib 0.26.0): I_SafetyDiagnostics for the HMI Safety page, from the FB_Info* decodings of this block.
+FUNCTION_BLOCK FB_MonetSafetyHandling IMPLEMENTS BROTLib.I_SafetyDiagnostics
 VAR
 	// power on delay
 
@@ -66,6 +67,8 @@ VAR
 	SeqFailedLog			: FB_EventLog;		// #6: start-up/reset sequence did not bring the group to RUN
 
 	fbComm					: I_Comm;
+
+	stItems					: BROTLib.ST_SafetyItems;	// X4: the decoded items, refreshed every scan
 END_VAR
 VAR_OUTPUT
 	error					: BOOL;		// error condition
@@ -221,8 +224,79 @@ SeqFailedLog(
 	FormatString := 'Safety start/reset did not reach RUN: %s',
 	OnMessage 	:= sSeqResult,
 	Comm		:= fbComm);
+
+// X4: the items of I_SafetyDiagnostics. bOk = the normal running/data state and no diagnosis. The raw bytes are those of the
+// FB_Info* inputs, the texts the ones they decode. Group 1 has no diagnosis text (FB_InfoGroup decodes the state only).
+stItems.nCount := 4;
+stItems.aItem[1].sName := 'safety.group1';
+stItems.aItem[1].eKind := BROTLib.E_SafetyItemKind.group;
+stItems.aItem[1].bOk := sStateGroup1 = 'RUN';
+stItems.aItem[1].nMapState := stInfoGroup1.usiMapState;
+stItems.aItem[1].nMapDiag := stInfoGroup1.usiMapDiag;
+stItems.aItem[1].sState := sStateGroup1;
+stItems.aItem[1].sDiag := '';
+stItems.aItem[1].nChannels := 0;
+stItems.aItem[2].sName := 'safety.estop1';
+stItems.aItem[2].eKind := BROTLib.E_SafetyItemKind.estop;
+stItems.aItem[2].bOk := sStateEStop1 = 'RUN' AND stInfoEStop1.uiMapDiag = 0;
+stItems.aItem[2].nMapState := stInfoEStop1.usiMapState;
+stItems.aItem[2].nMapDiag := stInfoEStop1.uiMapDiag;
+stItems.aItem[2].sState := sStateEStop1;
+stItems.aItem[2].sDiag := sDiagEStop1;
+stItems.aItem[2].nChannels := 0;
+stItems.aItem[3].sName := 'safety.el1904';
+stItems.aItem[3].eKind := BROTLib.E_SafetyItemKind.connection_in;
+stItems.aItem[3].bOk := sStateSafetyIn = 'State Data' AND stInfoSafetyIn.usiMapDiag = 0;
+stItems.aItem[3].nMapState := stInfoSafetyIn.usiMapState;
+stItems.aItem[3].nMapDiag := stInfoSafetyIn.usiMapDiag;
+stItems.aItem[3].sState := sStateSafetyIn;
+stItems.aItem[3].sDiag := sDiagSafetyIn;
+stItems.aItem[3].nChannels := stInfoSafetyIn.bySignal AND 16#0F;
+stItems.aItem[4].sName := 'safety.el2904';
+stItems.aItem[4].eKind := BROTLib.E_SafetyItemKind.connection_out;
+stItems.aItem[4].bOk := sStateSafetyOut = 'State Data' AND stInfoSafetyOut.usiMapDiag = 0;
+stItems.aItem[4].nMapState := stInfoSafetyOut.usiMapState;
+stItems.aItem[4].nMapDiag := stInfoSafetyOut.usiMapDiag;
+stItems.aItem[4].sState := sStateSafetyOut;
+stItems.aItem[4].sDiag := sDiagSafetyOut;
+stItems.aItem[4].nChannels := stInfoSafetyOut.bySignal AND 16#0F;
 ]]></ST>
     </Implementation>
+    <Property Name="StoActive" Id="{3b65f21f-fa0f-4b9b-a3b4-854cd9fdffa3}">
+      <Declaration><![CDATA[// DERIVED, not measured at the drives: by the TwinSAFE design the drives are held in STO while the group or the E-stop is not in RUN.
+PROPERTY StoActive : BOOL]]></Declaration>
+      <Get Name="Get" Id="{481caafd-47b5-424f-97b6-5b7bdb43af68}">
+        <Declaration><![CDATA[VAR
+END_VAR
+]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[StoActive := NOT bSafetyReady;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Property Name="RestartPending" Id="{774a1aad-710a-4081-984e-007dce6d94f7}">
+      <Declaration><![CDATA[// The group or the E-stop function block is in state RESET (map state 5, "RESET" of FB_InfoGroup/FB_InfoEStop): it waits for restart / error acknowledge.
+PROPERTY RestartPending : BOOL]]></Declaration>
+      <Get Name="Get" Id="{b043fb3c-3c60-4a5c-a1ef-6b0328b16c3d}">
+        <Declaration><![CDATA[VAR
+END_VAR
+]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[RestartPending := (stInfoGroup1.usiMapState = 5) OR (stInfoEStop1.usiMapState = 5);]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Property Name="Items" Id="{d2f14671-c57c-4bc8-89e6-279836c6a0ba}">
+      <Declaration><![CDATA[PROPERTY Items : BROTLib.ST_SafetyItems]]></Declaration>
+      <Get Name="Get" Id="{b84d7e2f-8c05-4fc5-96e0-325158c804eb}">
+        <Declaration><![CDATA[VAR
+END_VAR
+]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[Items := stItems;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
     <Method Name="FB_Init" Id="{78880c56-5a68-4979-b4f3-852d102d76af}">
       <Declaration><![CDATA[//FB_Init is always available implicitly and it is used primarily for initialization.
 //The return value is not evaluated. For a specific influence, you can also declare the

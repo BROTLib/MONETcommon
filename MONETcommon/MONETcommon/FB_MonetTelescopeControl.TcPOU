@@ -1,7 +1,8 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
   <POU Name="FB_MonetTelescopeControl" Id="{392c90d3-a441-4c8d-a752-42b25b49f5cd}" SpecialFunc="None">
-    <Declaration><![CDATA[FUNCTION_BLOCK FB_MonetTelescopeControl EXTENDS FB_AltAzTelescopeControl IMPLEMENTS I_AltAzTelescope
+    <Declaration><![CDATA[// X2 (BROTLib 0.26.0): also the read-only I_TelescopeStatus for the HMI gateway, from the outputs of this block.
+FUNCTION_BLOCK FB_MonetTelescopeControl EXTENDS FB_AltAzTelescopeControl IMPLEMENTS I_AltAzTelescope, BROTLib.I_TelescopeStatus
 VAR_INPUT
 	fbFocus				: I_Focus;
 	// the concrete block, not I_MirrorCovers: an E-stop / safety error stops the covers (Stop(), which I_MirrorCovers does not carry,
@@ -244,6 +245,7 @@ VAR
 	// #118: the switch to manual under motion stops the axes once. SuspendAutomatic drives that one stop (the pendant takes
 	// over after it); a stop that arrives later during manual is not driven. The body clears the flag, it owns the stop again.
 	bSuspendStop		: BOOL;
+	bSuspended			: BOOL;	// X2: SuspendAutomatic ran in the last scan (the state machine does not run, MONET manual mode); I_TelescopeStatus.Suspended
 	bSuspendStopStarted	: BOOL;	// one scan, logged
 	SuspendStopEvent	: FB_EventLog;
 	// #158: bIsParked means "secured" (covers closed, brake closed, hydraulics off, axes disabled), not "at the park position".
@@ -427,6 +429,7 @@ METHOD PROTECTED _ScanBegin
 ]]></Declaration>
       <Implementation>
         <ST><![CDATA[nScan := nScan + 1;		// #251
+bSuspended := FALSE;	// X2: this scan runs the automatic body
 bSuspendStop := FALSE;	// #118: back in automatic the body owns a running stop again (it continues the same transaction)
 // revert fDut1 (set via the Dut1 property, e.g. from an external time bridge over MQTT) to its
 // safe 0.0 default if nothing fresh arrives for a while, instead of serving an arbitrarily
@@ -1743,7 +1746,8 @@ VAR_INPUT
 	bMainReadyIn	: BOOL := TRUE;		// MAIN: the power monitoring (MONETS ready, MONETN mainReady)
 END_VAR
 ]]></Declaration>
-      <Implementation><ST><![CDATA[// #156: the axis references are assigned only by the telescope body. After a start in manual (key on Local) they are still
+      <Implementation><ST><![CDATA[bSuspended := TRUE;	// X2: I_TelescopeStatus.Suspended
+// #156: the axis references are assigned only by the telescope body. After a start in manual (key on Local) they are still
 // unassigned, so the axis part is skipped until the first automatic scan. The rest (events, READY_STATE) does not use them.
 IF __ISVALIDREF(fbAzimuth) AND __ISVALIDREF(fbElevation) AND __ISVALIDREF(fbDerotator) THEN
     _ReadAxes();
@@ -3216,6 +3220,119 @@ END_VAR
 ]]></Declaration>
         <Implementation>
           <ST><![CDATA[RightAscension := THIS^.fRightAscension;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Property Name="Error" Id="{6a562236-66c0-47c5-9c1e-6a534b79efc5}">
+      <Declaration><![CDATA[PROPERTY Error : BOOL]]></Declaration>
+      <Get Name="Get" Id="{d91873d8-a0d4-4b57-b517-9f67d7f00070}">
+        <Declaration><![CDATA[VAR
+END_VAR
+]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[Error := bError;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Property Name="ErrorID" Id="{3e60680c-89a9-4e75-8ec3-ba451b0a6adc}">
+      <Declaration><![CDATA[PROPERTY ErrorID : UDINT]]></Declaration>
+      <Get Name="Get" Id="{e62370b8-2606-4a2b-ba7d-2f4a148907e5}">
+        <Declaration><![CDATA[VAR
+END_VAR
+]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[ErrorID := nErrorID;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Property Name="Busy" Id="{7426fbb8-f035-460b-a818-0cddba9c86c2}">
+      <Declaration><![CDATA[// A command sequence runs (power-on, park, goto, slew, home, stop) or an axis/focus is busy. Tracking alone is not busy.
+PROPERTY Busy : BOOL]]></Declaration>
+      <Get Name="Get" Id="{677a90a2-06d0-489b-a1b8-25d394730da2}">
+        <Declaration><![CDATA[VAR
+END_VAR
+]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[Busy := bBusy OR bPowerActive OR bParkActive OR bGotoActive OR bSlewActive OR bGoHomeActive OR bStopActive;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Property Name="IsParked" Id="{7846de8a-7f9c-4f48-8818-780864805b65}">
+      <Declaration><![CDATA[PROPERTY IsParked : BOOL]]></Declaration>
+      <Get Name="Get" Id="{c43088db-afe4-4383-bba2-a2cbf1343e4e}">
+        <Declaration><![CDATA[VAR
+END_VAR
+]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[IsParked := bIsParked;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Property Name="Suspended" Id="{b5a7c61f-22f6-4d4b-82ef-ca1f0b6f3f13}">
+      <Declaration><![CDATA[PROPERTY Suspended : BOOL]]></Declaration>
+      <Get Name="Get" Id="{e88c97c8-c93d-4c26-98f6-b2d2876661dc}">
+        <Declaration><![CDATA[VAR
+END_VAR
+]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[Suspended := bSuspended;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Property Name="LastRejectedCommand" Id="{a080195b-8b5f-4021-9fca-e5b27f36d45a}">
+      <Declaration><![CDATA[PROPERTY LastRejectedCommand : E_TCSCommand]]></Declaration>
+      <Get Name="Get" Id="{a2b89b19-34e1-4417-b12c-9b5d2b3e5670}">
+        <Declaration><![CDATA[VAR
+END_VAR
+]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[LastRejectedCommand := eLastRejectedCommand;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Property Name="LastRejectReason" Id="{65e94156-4bbc-4d15-ae16-65fd402c39fc}">
+      <Declaration><![CDATA[// This library keeps its own E_CommandRejectReason (X3 not done): mapped value by value to the BROTLib one.
+PROPERTY LastRejectReason : BROTLib.E_CommandRejectReason]]></Declaration>
+      <Get Name="Get" Id="{988e03a4-a4d3-4d6b-bebb-0c9a2a929975}">
+        <Declaration><![CDATA[VAR
+END_VAR
+]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[LastRejectReason := F_RejectReasonToBrotlib(eLastRejectReason);]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Property Name="RejectCount" Id="{2fa0cf24-6682-4c56-ac52-7acbcb53b1e1}">
+      <Declaration><![CDATA[PROPERTY RejectCount : UDINT]]></Declaration>
+      <Get Name="Get" Id="{66379b50-5b78-4f85-8db4-5a232dd8d8df}">
+        <Declaration><![CDATA[VAR
+END_VAR
+]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[RejectCount := nCommandRejectCount;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Property Name="CurrentRightAscension" Id="{b79a1820-bb1a-4215-86d0-d5ead2aa6ea9}">
+      <Declaration><![CDATA[// deg, ICRS: the RA_ICRS of the telemetry (axes position minus the applied offsets).
+PROPERTY CurrentRightAscension : LREAL]]></Declaration>
+      <Get Name="Get" Id="{127673c2-243d-4aed-a2e0-6b64843f3d5b}">
+        <Declaration><![CDATA[VAR
+END_VAR
+]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[CurrentRightAscension := fRightAscensionCurrent;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Property Name="CurrentDeclination" Id="{260739b8-c2e0-4527-a941-8c80fa112134}">
+      <Declaration><![CDATA[PROPERTY CurrentDeclination : LREAL]]></Declaration>
+      <Get Name="Get" Id="{43ee0d7f-697c-42ed-9626-249002d995b0}">
+        <Declaration><![CDATA[VAR
+END_VAR
+]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[CurrentDeclination := fDeclinationCurrent;]]></ST>
         </Implementation>
       </Get>
     </Property>
