@@ -1,8 +1,15 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
   <POU Name="FB_MonetCabinetControl" Id="{82301626-c59a-4d6c-ac78-2e8e2d6a8e41}" SpecialFunc="None">
-    <Declaration><![CDATA[FUNCTION_BLOCK FB_MonetCabinetControl
+    <Declaration><![CDATA[// X1 (BROTLib 0.26.0, specs/design/ui-tiers-and-hmi-gateway.md section 13): the read-only I_Cabinet view for the HMI gateway and the
+// MQTT comm layer. ControlMode is the existing Local/Remote key inKeyLocal (the one MAIN uses for manual mode), the other four
+// signals are inputs that the site MAIN wires (SafetyHandling.estop/.error/.RestartPending, PendantControl.bEnable).
+FUNCTION_BLOCK FB_MonetCabinetControl IMPLEMENTS BROTLib.I_Cabinet
 VAR_INPUT
+	bEstop				: BOOL;	// MAIN: SafetyHandling.estop (E-stop pressed or not yet released)
+	bSafetyError		: BOOL;	// MAIN: SafetyHandling.error (TwinSAFE group in error)
+	bSafetyAckPending	: BOOL;	// MAIN: SafetyHandling.RestartPending (E-stop released, restart/acknowledge not run yet)
+	bPendantActive		: BOOL;	// MAIN: PendantControl.bEnable (the pendant enable key, conservative: key on = pendant holds authority)
 	iTelescope			: I_Telescope;	// optional: held parked while the cabinet temperature is critical (#32)
 END_VAR
 VAR_OUTPUT
@@ -152,6 +159,77 @@ END_VAR
 ]]></Declaration>
         <Implementation>
           <ST><![CDATA[KeyLocal := inKeyLocal;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Property Name="ControlMode" Id="{8bb9f718-d8fc-42b1-bccb-285d6901d794}">
+      <Declaration><![CDATA[// The Local/Remote key (inKeyLocal TRUE = Local, the polarity MAIN already uses for the manual mode).
+PROPERTY ControlMode : BROTLib.E_ControlMode]]></Declaration>
+      <Get Name="Get" Id="{6c5e69a5-e3d2-4bd4-9f65-8e5c2eadf67b}">
+        <Declaration><![CDATA[VAR
+END_VAR
+]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[IF inKeyLocal THEN
+            ControlMode := BROTLib.E_ControlMode.local;
+          ELSE
+            ControlMode := BROTLib.E_ControlMode.remote;
+          END_IF]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Property Name="SwitchPresent" Id="{fd675ba8-9982-4348-b6a6-2cb36900bc2d}">
+      <Declaration><![CDATA[PROPERTY SwitchPresent : BOOL]]></Declaration>
+      <Get Name="Get" Id="{6fd459f0-21b8-4829-a094-f18bafb90eb0}">
+        <Declaration><![CDATA[VAR
+END_VAR
+]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[SwitchPresent := TRUE;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Property Name="EstopActive" Id="{cf281251-5969-4b46-92be-0e456744c64a}">
+      <Declaration><![CDATA[PROPERTY EstopActive : BOOL]]></Declaration>
+      <Get Name="Get" Id="{e8db0d9b-1240-4a33-bcf4-303f109ed65a}">
+        <Declaration><![CDATA[VAR
+END_VAR
+]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[EstopActive := bEstop;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Property Name="SafetyError" Id="{4efbdce2-44d8-436c-959f-d149be105de1}">
+      <Declaration><![CDATA[PROPERTY SafetyError : BOOL]]></Declaration>
+      <Get Name="Get" Id="{1e38342a-7ddc-4d93-bf95-a11168c70f23}">
+        <Declaration><![CDATA[VAR
+END_VAR
+]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[SafetyError := bSafetyError;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Property Name="SafetyAckPending" Id="{52c0791d-7703-4cd0-9e3e-15d29e7710cb}">
+      <Declaration><![CDATA[PROPERTY SafetyAckPending : BOOL]]></Declaration>
+      <Get Name="Get" Id="{2317470c-f68e-43ff-9994-ffa53dfe36c0}">
+        <Declaration><![CDATA[VAR
+END_VAR
+]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[SafetyAckPending := bSafetyAckPending;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Property Name="PendantActive" Id="{31f4ccb5-4f46-4039-8c3b-91dcd1dcc8d7}">
+      <Declaration><![CDATA[PROPERTY PendantActive : BOOL]]></Declaration>
+      <Get Name="Get" Id="{d54435e3-8f67-40ca-b00e-f037510f314b}">
+        <Declaration><![CDATA[VAR
+END_VAR
+]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[PendantActive := bPendantActive;]]></ST>
         </Implementation>
       </Get>
     </Property>
